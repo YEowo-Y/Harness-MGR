@@ -1,0 +1,7 @@
+{
+  "model": "sonnet",
+  "permissions": {
+    "allow": ["Read", "Glob"],
+    "deny": []
+  }
+}
