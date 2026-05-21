@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "plugins": {
+    "agent-sdk-dev@claude-plugins-official": [
+      { "name": "agent-sdk-dev", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "claude-code-setup@claude-plugins-official": [
+      { "name": "claude-code-setup", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "claude-md-management@claude-plugins-official": [
+      { "name": "claude-md-management", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "claude-mem@thedotmack": [
+      { "name": "claude-mem", "marketplace": "thedotmack", "version": "11.0.1", "enabled": true }
+    ],
+    "commit-commands@claude-plugins-official": [
+      { "name": "commit-commands", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "hookify@claude-plugins-official": [
+      { "name": "hookify", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "mcp-server-dev@claude-plugins-official": [
+      { "name": "mcp-server-dev", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "playground@claude-plugins-official": [
+      { "name": "playground", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "plugin-dev@claude-plugins-official": [
+      { "name": "plugin-dev", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "pyright-lsp@claude-plugins-official": [
+      { "name": "pyright-lsp", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "rust-analyzer-lsp@claude-plugins-official": [
+      { "name": "rust-analyzer-lsp", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "security-guidance@claude-plugins-official": [
+      { "name": "security-guidance", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ],
+    "typescript-lsp@claude-plugins-official": [
+      { "name": "typescript-lsp", "marketplace": "claude-plugins-official", "version": "1.0.0", "enabled": true }
+    ]
+  }
+}

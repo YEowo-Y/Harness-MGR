@@ -1,0 +1,22 @@
+{
+  "claude-plugins-official": {
+    "source": { "source": "github", "repo": "anthropics/claude-plugins-official" },
+    "installLocation": "<CLAUDE_DIR>/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-04-08T04:59:56.664Z"
+  },
+  "everything-claude-code": {
+    "source": { "source": "github", "repo": "affaan-m/everything-claude-code" },
+    "installLocation": "<CLAUDE_DIR>/plugins/marketplaces/everything-claude-code",
+    "lastUpdated": "2026-04-07T08:00:00.000Z"
+  },
+  "thedotmack": {
+    "source": { "source": "github", "repo": "thedotmack/claude-mem" },
+    "installLocation": "<CLAUDE_DIR>/plugins/marketplaces/thedotmack",
+    "lastUpdated": "2026-04-07T09:21:22.503Z"
+  },
+  "claude-scientific-skills": {
+    "source": { "source": "github", "repo": "K-Dense-AI/claude-scientific-skills" },
+    "installLocation": "<CLAUDE_DIR>/plugins/marketplaces/claude-scientific-skills",
+    "lastUpdated": "2026-04-07T10:30:47.210Z"
+  }
+}
