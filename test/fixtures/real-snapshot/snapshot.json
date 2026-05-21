@@ -1,0 +1,1506 @@
+{
+  "_meta": {
+    "generatedAt": "2026-05-21T14:37:05.348Z",
+    "generatedBy": "build-real-snapshot.mjs",
+    "note": "REDACTED — structure and counts only. No file contents, no setting values, no credentials.",
+    "claudeDir": "<HOME>/.claude",
+    "nodeVersion": "v24.14.0"
+  },
+  "topLevel": {
+    "dirs": [
+      "agents",
+      "backups",
+      "cache",
+      "commands",
+      "debug",
+      "downloads",
+      "file-history",
+      "hooks",
+      "hud",
+      "paste-cache",
+      "plans",
+      "plugins",
+      "projects",
+      "session-env",
+      "sessions",
+      "shell-snapshots",
+      "skills",
+      "tasks",
+      "telemetry"
+    ],
+    "files": [
+      ".credentials.json",
+      ".last-cleanup",
+      ".mcp.json",
+      ".omc-config.json",
+      ".omc-version.json",
+      "<REDACTED>.json",
+      "CLAUDE.md",
+      "CLAUDE.md.backup.2026-04-07T10-00-00",
+      "CLAUDE.md.backup.2026-04-07T10-15-13",
+      "CLAUDE.md.backup.2026-04-07T10-15-45",
+      "history.jsonl",
+      "mcp-needs-auth-cache.json",
+      "settings.json",
+      "settings.local.json"
+    ]
+  },
+  "counts": {
+    "agents": {
+      "files": 19,
+      "dirs": 0
+    },
+    "backups": {
+      "files": 5,
+      "dirs": 0
+    },
+    "cache": {
+      "files": 2,
+      "dirs": 0
+    },
+    "commands": {
+      "files": 79,
+      "dirs": 0
+    },
+    "debug": {
+      "files": 11,
+      "dirs": 0
+    },
+    "downloads": {
+      "files": 0,
+      "dirs": 0
+    },
+    "file-history": {
+      "files": 0,
+      "dirs": 3
+    },
+    "hooks": {
+      "files": 8,
+      "dirs": 1
+    },
+    "hud": {
+      "files": 1,
+      "dirs": 1
+    },
+    "paste-cache": {
+      "files": 3,
+      "dirs": 0
+    },
+    "plans": {
+      "files": 18,
+      "dirs": 1
+    },
+    "plugins": {
+      "files": 2,
+      "dirs": 3
+    },
+    "projects": {
+      "files": 0,
+      "dirs": 4
+    },
+    "session-env": {
+      "files": 0,
+      "dirs": 150
+    },
+    "sessions": {
+      "files": 1,
+      "dirs": 0
+    },
+    "shell-snapshots": {
+      "files": 14,
+      "dirs": 0
+    },
+    "skills": {
+      "files": 0,
+      "dirs": 240
+    },
+    "tasks": {
+      "files": 0,
+      "dirs": 4
+    },
+    "telemetry": {
+      "files": 4,
+      "dirs": 0
+    }
+  },
+  "agents": {
+    "count": 19,
+    "names": [
+      "analyst",
+      "architect",
+      "code-reviewer",
+      "code-simplifier",
+      "critic",
+      "debugger",
+      "designer",
+      "document-specialist",
+      "executor",
+      "explore",
+      "git-master",
+      "planner",
+      "qa-tester",
+      "scientist",
+      "security-reviewer",
+      "test-engineer",
+      "tracer",
+      "verifier",
+      "writer"
+    ]
+  },
+  "skills": {
+    "count": 240,
+    "items": [
+      {
+        "name": "agent-eval",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "agent-harness-construction",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "agent-introspection-debugging",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "agent-payment-x402",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "agent-sort",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "agentic-engineering",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ai-first-engineering",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ai-regression-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ai-slop-cleaner",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "android-clean-architecture",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "api-connector-builder",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "api-design",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "architecture-decision-records",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "article-writing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "artifacts-builder",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ask",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "automation-audit-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "autonomous-agent-harness",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "autonomous-loops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "autopilot",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "avoid-ai-writing",
+        "hasSKILLmd": true,
+        "fileCount": 6
+      },
+      {
+        "name": "backend-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "benchmark",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "blueprint",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "brand-guidelines",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "brand-voice",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "browser-qa",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "bun-runtime",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "canary-watch",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "cancel",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "canvas-design",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "carrier-relationship-management",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ccg",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "changelog-generator",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ck",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "claude-api",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "claude-devfleet",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "click-path-audit",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "clickhouse-io",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "code-tour",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "codebase-onboarding",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "coding-standards",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "competitive-ads-extractor",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "compose-multiplatform-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "configure-ecc",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "configure-notifications",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "connect",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "connections-optimizer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "content-engine",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "content-hash-cache-pattern",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "content-research-writer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "context-budget",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "continuous-agent-loop",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "continuous-learning",
+        "hasSKILLmd": true,
+        "fileCount": 3
+      },
+      {
+        "name": "continuous-learning-v2",
+        "hasSKILLmd": true,
+        "fileCount": 2
+      },
+      {
+        "name": "cost-aware-llm-pipeline",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "council",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "cpp-coding-standards",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "cpp-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "crosspost",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "csharp-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "customer-billing-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "customs-trade-compliance",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "dart-flutter-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "dashboard-builder",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "data-scraper-agent",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "database-migrations",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "deep-dive",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "deep-interview",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "deep-research",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "deepinit",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "defi-amm-security",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "deployment-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "design-system",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "django-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "django-security",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "django-tdd",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "django-verification",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "dmux-workflows",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "docker-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "documentation-lookup",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "domain-name-brainstormer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "dotnet-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "e2e-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ecc-tools-cost-audit",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "email-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "energy-procurement",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "enterprise-agent-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "eval-harness",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "evm-token-decimals",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "exa-search",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "external-context",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "fal-ai-media",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "file-organizer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "finance-billing-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "flutter-dart-code-review",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "foundation-models-on-device",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "frontend-design",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "frontend-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "frontend-slides",
+        "hasSKILLmd": true,
+        "fileCount": 2
+      },
+      {
+        "name": "gan-style-harness",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "git-workflow",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "github-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "golang-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "golang-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "google-workspace-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "healthcare-cdss-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "healthcare-emr-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "healthcare-eval-harness",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "healthcare-phi-compliance",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "hexagonal-architecture",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "hipaa-compliance",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "hookify-rules",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "hud",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "image-enhancer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "internal-comms",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "inventory-demand-planning",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "investor-materials",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "investor-outreach",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "invoice-organizer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "iterative-retrieval",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "java-coding-standards",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "jira-integration",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "jpa-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "knowledge-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "kotlin-coroutines-flows",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "kotlin-exposed-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "kotlin-ktor-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "kotlin-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "kotlin-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "langsmith-fetch",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "laravel-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "laravel-plugin-discovery",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "laravel-security",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "laravel-tdd",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "laravel-verification",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "lead-intelligence",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "lead-research-assistant",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "learner",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "liquid-glass-design",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "llm-trading-agent-security",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "logistics-exception-management",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "manim-video",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "market-research",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "mcp-builder",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "mcp-server-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "mcp-setup",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "meeting-insights-analyzer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "messages-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "nanoclaw-repl",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "nestjs-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "nextjs-turbopack",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "nodejs-keccak256",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "nutrient-document-processing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "nuxt4-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "omc-doctor",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "omc-plan",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "omc-reference",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "omc-setup",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "omc-teams",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "openclaw-persona-forge",
+        "hasSKILLmd": true,
+        "fileCount": 3
+      },
+      {
+        "name": "opensource-pipeline",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "perl-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "perl-security",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "perl-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "plankton-code-quality",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "postgres-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "product-capability",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "product-lens",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "production-scheduling",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "project-flow-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "project-session-manager",
+        "hasSKILLmd": true,
+        "fileCount": 2
+      },
+      {
+        "name": "prompt-optimizer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "python-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "python-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "pytorch-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "quality-nonconformance",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "raffle-winner-picker",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ralph",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ralphinho-rfc-pipeline",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ralplan",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "regex-vs-llm-structured-text",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "release",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "remotion-video-creation",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "repo-scan",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "research-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "research-paper-writing",
+        "hasSKILLmd": true,
+        "fileCount": 4
+      },
+      {
+        "name": "returns-reverse-logistics",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "rules-distill",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "rust-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "rust-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "safety-guard",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "santa-method",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "sciomc",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "search-first",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "security-bounty-hunter",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "security-review",
+        "hasSKILLmd": true,
+        "fileCount": 2
+      },
+      {
+        "name": "security-scan",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "self-improve",
+        "hasSKILLmd": true,
+        "fileCount": 5
+      },
+      {
+        "name": "seo",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "setup",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "skill",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "skill-comply",
+        "hasSKILLmd": true,
+        "fileCount": 3
+      },
+      {
+        "name": "skill-creator",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "skill-stocktake",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "slack-gif-creator",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "social-graph-ranker",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "springboot-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "springboot-security",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "springboot-tdd",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "springboot-verification",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "strategic-compact",
+        "hasSKILLmd": true,
+        "fileCount": 2
+      },
+      {
+        "name": "swift-actor-persistence",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "swift-concurrency-6-2",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "swift-protocol-di-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "swiftui-patterns",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "tailored-resume-generator",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "tdd-workflow",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "team",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "team-builder",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "terminal-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "theme-factory",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "token-budget-advisor",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "trace",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "twitter-algorithm-optimizer",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ui-demo",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ultraqa",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "ultrawork",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "unified-notifications-ops",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "verification-loop",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "video-downloader",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "video-editing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "videodb",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "visa-doc-translate",
+        "hasSKILLmd": true,
+        "fileCount": 2
+      },
+      {
+        "name": "visual-verdict",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "webapp-testing",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "wiki",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "workspace-surface-audit",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "writer-memory",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      },
+      {
+        "name": "x-api",
+        "hasSKILLmd": true,
+        "fileCount": 1
+      }
+    ]
+  },
+  "commands": {
+    "count": 79,
+    "names": [
+      "agent-sort",
+      "aside",
+      "build-fix",
+      "checkpoint",
+      "claw",
+      "code-review",
+      "context-budget",
+      "cpp-build",
+      "cpp-review",
+      "cpp-test",
+      "devfleet",
+      "docs",
+      "e2e",
+      "eval",
+      "evolve",
+      "feature-dev",
+      "flutter-build",
+      "flutter-review",
+      "flutter-test",
+      "gan-build",
+      "gan-design",
+      "go-build",
+      "go-review",
+      "go-test",
+      "gradle-build",
+      "harness-audit",
+      "hookify",
+      "hookify-configure",
+      "hookify-help",
+      "hookify-list",
+      "instinct-export",
+      "instinct-import",
+      "instinct-status",
+      "jira",
+      "kotlin-build",
+      "kotlin-review",
+      "kotlin-test",
+      "learn",
+      "learn-eval",
+      "loop-start",
+      "loop-status",
+      "model-route",
+      "multi-backend",
+      "multi-execute",
+      "multi-frontend",
+      "multi-plan",
+      "multi-workflow",
+      "orchestrate",
+      "plan",
+      "pm2",
+      "projects",
+      "promote",
+      "prompt-optimize",
+      "prp-commit",
+      "prp-implement",
+      "prp-plan",
+      "prp-pr",
+      "prp-prd",
+      "prune",
+      "python-review",
+      "quality-gate",
+      "refactor-clean",
+      "resume-session",
+      "review-pr",
+      "rules-distill",
+      "rust-build",
+      "rust-review",
+      "rust-test",
+      "santa-loop",
+      "save-session",
+      "sessions",
+      "setup-pm",
+      "skill-create",
+      "skill-health",
+      "tdd",
+      "test-coverage",
+      "update-codemaps",
+      "update-docs",
+      "verify"
+    ]
+  },
+  "plugins": {
+    "topFiles": [
+      "installed_plugins.json",
+      "known_marketplaces.json"
+    ],
+    "topDirs": [
+      "cache",
+      "data",
+      "marketplaces"
+    ],
+    "installedPluginsVersion": 2,
+    "installedPluginKeys": [
+      "agent-sdk-dev@claude-plugins-official",
+      "claude-code-setup@claude-plugins-official",
+      "claude-md-management@claude-plugins-official",
+      "claude-mem@thedotmack",
+      "commit-commands@claude-plugins-official",
+      "hookify@claude-plugins-official",
+      "mcp-server-dev@claude-plugins-official",
+      "playground@claude-plugins-official",
+      "plugin-dev@claude-plugins-official",
+      "pyright-lsp@claude-plugins-official",
+      "rust-analyzer-lsp@claude-plugins-official",
+      "security-guidance@claude-plugins-official",
+      "typescript-lsp@claude-plugins-official"
+    ],
+    "installedPluginCount": 13,
+    "cache": [
+      {
+        "marketplace": "claude-plugins-official",
+        "plugins": [
+          {
+            "plugin": "typescript-lsp",
+            "versions": [
+              "1.0.0"
+            ]
+          }
+        ]
+      },
+      {
+        "marketplace": "thedotmack",
+        "plugins": [
+          {
+            "plugin": "claude-mem",
+            "versions": [
+              "11.0.1"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "hooks": {
+    "topFiles": [
+      "code-simplifier.mjs",
+      "find-node.sh",
+      "keyword-detector.mjs",
+      "persistent-mode.mjs",
+      "post-tool-use-failure.mjs",
+      "post-tool-use.mjs",
+      "pre-tool-use.mjs",
+      "session-start.mjs"
+    ],
+    "topDirs": [
+      "lib"
+    ]
+  }
+}
