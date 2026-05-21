@@ -1,0 +1,9 @@
+node_modules/
+coverage/
+*.tmp
+*.mgr-new
+.DS_Store
+.mgr-state/
+.env
+.env*.local
+*.log
