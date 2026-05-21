@@ -22,6 +22,6 @@ A **read-mostly governance CLI** for the user's large Claude Code harness (inven
 - Node **v24.14.0**; runner = `node --test` (zero deps). Run from the repo root.
 - The **PowerShell tool is unreliable here** → use the **Bash tool with POSIX paths** (`/c/Dev/Projects/claude-mgr`).
 - Windows **Developer Mode is ON** → the dogfood symlink uses `cmd /c mklink /D` (PowerShell `New-Item -SymbolicLink` fails).
-- **Subagents TIME OUT on long tasks** in this env → keep delegated units small, or apply targeted Edits directly.
+- **Subagents may TIME OUT on long tasks here — but do NOT disable/abandon delegation.** The DoD's SEPARATE `code-reviewer` and `executor` passes MUST stay delegated (never self-author + self-approve — that gate is the whole point). Mitigate timeouts by scoping each delegated task SMALL (one sub-unit at a time) and **resuming/retrying** a timed-out agent; fall back to a direct Edit ONLY for a tiny fix a reviewer has already prescribed.
 - The tool resolves the governed `~/.claude/` and `~/.claude/hooks/lib` via the home dir — **independent of cwd**, so develop here, not inside `~/.claude/`.
 - GitHub remote: `exampleuser-jpg/claude-mgr` (PRIVATE), `main` → `origin/main`.
