@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "user-memory": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"]
+    }
+  },
+  "projects": {
+    "/some/project": {
+      "mcpServers": {
+        "project-scoped-should-be-ignored": {
+          "command": "node",
+          "args": ["x.js"]
+        }
+      }
+    }
+  }
+}

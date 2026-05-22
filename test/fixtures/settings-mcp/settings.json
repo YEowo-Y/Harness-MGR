@@ -1,0 +1,13 @@
+{
+  "model": "sonnet",
+  "outputStyle": "Explanatory",
+  "statusLine": {
+    "type": "command",
+    "command": "node $HOME/.claude/hud/omc-hud.mjs"
+  },
+  "permissions": {
+    "allow": ["Read", "Edit"],
+    "deny": [],
+    "ask": ["Bash(rm *)"]
+  }
+}
