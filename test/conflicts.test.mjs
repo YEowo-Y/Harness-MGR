@@ -43,7 +43,8 @@ test('golden: same plugin from two marketplaces → exactly one cluster, likely 
   assert.equal(c.confidence, 'likely');
   assert.equal(c.severity, 'warn');
   assert.equal(c.possibleWinners.length, 2);
-  // Deterministic tiebreak (equal rank 7) → marketplace string compare → 'mp-a' wins.
+  // Deterministic tiebreak: equal rank (7); skill winsBy:'first' → the FIRST-inserted
+  // member (mp-a, index 0) wins.
   assert.equal(c.likelyWinner.source.marketplace, 'mp-a');
   // likelyWinner is the head of the ranked array.
   assert.deepEqual(c.likelyWinner, c.possibleWinners[0]);
@@ -135,7 +136,7 @@ test('agent plugin-vs-plugin: same flat name from two marketplaces → one FLAT 
   assert.equal(c.kind, 'agent');
   assert.equal(c.key, 'build'); // FLAT
   assert.equal(c.possibleWinners.length, 2);
-  // Equal rank (4) → marketplace tiebreak → 'mp-a' wins.
+  // Equal rank (4); agent winsBy:'last' → the LAST-inserted member (mp-a, index 1) wins.
   assert.equal(c.likelyWinner.source.marketplace, 'mp-a');
   assert.deepEqual(c.likelyWinner, c.possibleWinners[0]);
 });
@@ -153,6 +154,7 @@ test('command golden: same plugin from two marketplaces → one NAMESPACED clust
   assert.equal(c.kind, 'command');
   assert.equal(c.key, 'shipper:release'); // namespaced like skills
   assert.equal(c.possibleWinners.length, 2);
+  // Equal rank (6); command winsBy:'first' → the FIRST-inserted member (mp-a, index 0) wins.
   assert.equal(c.likelyWinner.source.marketplace, 'mp-a');
   const shadow = diagnostics.filter((d) => d.code === 'command-shadowing');
   assert.equal(shadow.length, 1);
