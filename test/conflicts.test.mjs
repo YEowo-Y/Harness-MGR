@@ -1,9 +1,11 @@
 /**
- * P1.U12 — conflicts.test.mjs
+ * P1.U12/U13 — conflicts.test.mjs
  *
- * Golden + boundary tests for analyzeConflicts(): the skill-shadowing analyzer.
- * Covers the verified namespacing rule (no user-vs-plugin false positives), the
- * plugin-vs-plugin collision golden, skills-only scope, determinism, and sorting.
+ * Golden + boundary tests for analyzeConflicts(): the skill/agent/command
+ * shadowing analyzer. Covers the verified namespacing rule (no user-vs-plugin
+ * false positives for skills/commands), the plugin-vs-plugin collision goldens,
+ * the FLAT agent model (user-vs-plugin agents DO collide, user wins), cross-kind
+ * sorting, determinism, and boundary safety.
  */
 
 import test from 'node:test';
@@ -20,10 +22,12 @@ const bySeverity = (diags, sev) => diags.filter((d) => d.severity === sev);
 
 /** Build a synthetic skill record with the given name + source. */
 const skill = (name, src) => ({ kind: 'skill', name, path: `/fake/${src.tier}/${name}`, source: src, frontmatter: {} });
-/** Build a synthetic agent record (used to prove skills-only scope). */
+/** Build a synthetic agent record with the given name + source. */
 const agent = (name, src) => ({ kind: 'agent', name, path: `/fake/${src.tier}/${name}.md`, source: src, frontmatter: {} });
+/** Build a synthetic command record with the given name + source. */
+const command = (name, src) => ({ kind: 'command', name, path: `/fake/${src.tier}/${name}`, source: src, frontmatter: {} });
 
-// ── A. GOLDEN: plugin-vs-plugin collision ──────────────────────────────────────
+// ── A. SKILL GOLDEN: plugin-vs-plugin collision ─────────────────────────────────
 
 test('golden: same plugin from two marketplaces → exactly one cluster, likely winner is mp-a', () => {
   const components = [
@@ -77,6 +81,17 @@ test('benign: plugin skill with missing source.plugin does not false-positive ag
   assert.equal(diagnostics.filter((d) => d.code === 'skill-shadowing').length, 0);
 });
 
+test('regression guard: user skill `deploy` + plugin skill `deploy` (plugin p1) → still ZERO clusters', () => {
+  // Namespacing must stay intact for skills after the all-kinds extension.
+  const components = [
+    skill('deploy', { tier: 'user' }),
+    skill('deploy', { tier: 'plugin', plugin: 'p1', marketplace: 'mp-x', version: '1.0.0' }),
+  ];
+  const { conflicts, diagnostics } = analyzeConflicts(components);
+  assert.equal(conflicts.length, 0);
+  assert.equal(bySeverity(diagnostics, 'warn').length, 0);
+});
+
 // ── C. SINGLETON ────────────────────────────────────────────────────────────────
 
 test('singleton: one user skill → zero clusters, zero diagnostics', () => {
@@ -85,35 +100,118 @@ test('singleton: one user skill → zero clusters, zero diagnostics', () => {
   assert.equal(diagnostics.length, 0);
 });
 
-// ── D. SKILLS-ONLY SCOPE ─────────────────────────────────────────────────────────
+// ── D. AGENT GOLDEN: flat namespace, user beats plugin ──────────────────────────
 
-test('skills-only scope: two colliding-name agents are ignored → zero skill clusters', () => {
+test('agent golden: user `executor` + plugin `executor` → one FLAT cluster, USER wins', () => {
   const components = [
-    agent('deploy', { tier: 'user' }),
-    agent('deploy', { tier: 'plugin', plugin: 'p1', marketplace: 'mp-x', version: '1.0.0' }),
-    // even two plugin agents that WOULD collide as skills must be ignored here
-    agent('build', { tier: 'plugin', plugin: 'p2', marketplace: 'mp-a', version: '1.0.0' }),
-    agent('build', { tier: 'plugin', plugin: 'p2', marketplace: 'mp-b', version: '2.0.0' }),
+    agent('executor', { tier: 'user' }),
+    agent('executor', { tier: 'plugin', plugin: 'oh-my-claudecode', marketplace: 'claude-plugins-official', version: '1.0.0' }),
   ];
   const { conflicts, diagnostics } = analyzeConflicts(components);
-  assert.equal(conflicts.length, 0);
-  assert.equal(diagnostics.length, 0);
+
+  assert.equal(conflicts.length, 1);
+  const c = conflicts[0];
+  assert.equal(c.kind, 'agent');
+  assert.equal(c.key, 'executor'); // FLAT, not namespaced
+  assert.equal(c.possibleWinners.length, 2);
+  assert.equal(c.likelyWinner.source.tier, 'user'); // user (rank 3) beats plugin (rank 4)
+  assert.equal(c.confidence, 'likely');
+  assert.equal(c.severity, 'warn');
+  const shadow = diagnostics.filter((d) => d.code === 'agent-shadowing');
+  assert.equal(shadow.length, 1);
+  assert.equal(shadow[0].severity, 'warn');
+  assert.equal(shadow[0].message, c.reason);
+  assert.equal(shadow[0].phase, 'conflicts');
 });
 
-// ── E. FIXTURE SMOKE ─────────────────────────────────────────────────────────────
+test('agent plugin-vs-plugin: same flat name from two marketplaces → one FLAT cluster, deterministic', () => {
+  const components = [
+    agent('build', { tier: 'plugin', plugin: 'p2', marketplace: 'mp-b', version: '2.0.0' }),
+    agent('build', { tier: 'plugin', plugin: 'p2', marketplace: 'mp-a', version: '1.0.0' }),
+  ];
+  const { conflicts } = analyzeConflicts(components);
+  assert.equal(conflicts.length, 1);
+  const c = conflicts[0];
+  assert.equal(c.kind, 'agent');
+  assert.equal(c.key, 'build'); // FLAT
+  assert.equal(c.possibleWinners.length, 2);
+  // Equal rank (4) → marketplace tiebreak → 'mp-a' wins.
+  assert.equal(c.likelyWinner.source.marketplace, 'mp-a');
+  assert.deepEqual(c.likelyWinner, c.possibleWinners[0]);
+});
 
-test('fixture smoke: conflict/ fixture skill `token-vault` is a singleton → zero clusters', () => {
+// ── E. COMMAND GOLDEN: namespaced plugin-vs-plugin ──────────────────────────────
+
+test('command golden: same plugin from two marketplaces → one NAMESPACED cluster', () => {
+  const components = [
+    command('release', { tier: 'plugin', plugin: 'shipper', marketplace: 'mp-a', version: '1.0.0' }),
+    command('release', { tier: 'plugin', plugin: 'shipper', marketplace: 'mp-b', version: '2.0.0' }),
+  ];
+  const { conflicts, diagnostics } = analyzeConflicts(components);
+  assert.equal(conflicts.length, 1);
+  const c = conflicts[0];
+  assert.equal(c.kind, 'command');
+  assert.equal(c.key, 'shipper:release'); // namespaced like skills
+  assert.equal(c.possibleWinners.length, 2);
+  assert.equal(c.likelyWinner.source.marketplace, 'mp-a');
+  const shadow = diagnostics.filter((d) => d.code === 'command-shadowing');
+  assert.equal(shadow.length, 1);
+  assert.equal(shadow[0].message, c.reason);
+});
+
+// ── F. CROSS-KIND SORT ──────────────────────────────────────────────────────────
+
+test('cross-kind sort: skill + agent + command clusters → 3 clusters sorted by (kind, key)', () => {
+  const components = [
+    // skill cluster: key 'zeta:deploy'
+    skill('deploy', { tier: 'plugin', plugin: 'zeta', marketplace: 'mp-a', version: '1.0.0' }),
+    skill('deploy', { tier: 'plugin', plugin: 'zeta', marketplace: 'mp-b', version: '1.0.0' }),
+    // agent cluster: flat key 'executor'
+    agent('executor', { tier: 'user' }),
+    agent('executor', { tier: 'plugin', plugin: 'omc', marketplace: 'mp-a', version: '1.0.0' }),
+    // command cluster: namespaced key 'shipper:release'
+    command('release', { tier: 'plugin', plugin: 'shipper', marketplace: 'mp-a', version: '1.0.0' }),
+    command('release', { tier: 'plugin', plugin: 'shipper', marketplace: 'mp-b', version: '1.0.0' }),
+  ];
+  const { conflicts } = analyzeConflicts(components);
+  assert.equal(conflicts.length, 3);
+  // code-unit on kind: 'agent' < 'command' < 'skill'.
+  assert.deepEqual(
+    conflicts.map((c) => [c.kind, c.key]),
+    [['agent', 'executor'], ['command', 'shipper:release'], ['skill', 'zeta:deploy']],
+  );
+});
+
+test('boundary: records with a non-string name are excluded (type contract)', () => {
+  const components = [
+    agent('valid', { tier: 'user' }),
+    // two numeric-named agents that WOULD share key 42 if not excluded by the name guard
+    { kind: 'agent', name: 42, path: '/fake/x', source: { tier: 'user' }, frontmatter: {} },
+    { kind: 'agent', name: 42, path: '/fake/y', source: { tier: 'plugin', plugin: 'p', marketplace: 'm', version: '1' }, frontmatter: {} },
+  ];
+  let result;
+  assert.doesNotThrow(() => { result = analyzeConflicts(/** @type {any} */ (components)); });
+  assert.equal(result.conflicts.length, 0);
+});
+
+// ── G. FIXTURE SMOKE ─────────────────────────────────────────────────────────────
+
+test('fixture smoke: conflict/ fixture yields zero clusters (plugin dirs are not user-walked)', () => {
   const result = scan({ targetClaudeDir: fix('conflict') });
-  // sanity: the fixture's sole skill is token-vault (the real collision is an AGENT)
+  // User-tier discovery does NOT walk plugin component dirs (plugins/cache/...), so
+  // the fixture's plugin `executor` agent is never discovered — only the single user
+  // `executor` agent + single user `token-vault` skill, both singletons → 0 clusters.
   const skillNames = result.components.filter((c) => c.kind === 'skill').map((c) => c.name);
   assert.deepEqual(skillNames, ['token-vault']);
+  const agentNames = result.components.filter((c) => c.kind === 'agent').map((c) => c.name);
+  assert.deepEqual(agentNames, ['executor']);
 
   const { conflicts, diagnostics } = analyzeConflicts(result.components);
   assert.equal(bySeverity(diagnostics, 'error').length, 0);
   assert.equal(conflicts.length, 0);
 });
 
-// ── F. BOUNDARY ──────────────────────────────────────────────────────────────────
+// ── H. BOUNDARY ──────────────────────────────────────────────────────────────────
 
 test('boundary: null input → bad-input error, never throws', () => {
   let result;
@@ -149,7 +247,7 @@ test('boundary: malformed records inside a valid array are skipped, never throw'
   assert.equal(bySeverity(result.diagnostics, 'error').length, 0); // junk is skipped, not errored
 });
 
-// ── G. DETERMINISM ───────────────────────────────────────────────────────────────
+// ── I. DETERMINISM ───────────────────────────────────────────────────────────────
 
 test('determinism: two identical calls produce identical results', () => {
   const components = [
@@ -162,9 +260,9 @@ test('determinism: two identical calls produce identical results', () => {
   assert.deepEqual(r1, r2);
 });
 
-// ── H. SORT ──────────────────────────────────────────────────────────────────────
+// ── J. SORT ──────────────────────────────────────────────────────────────────────
 
-test('sort: multiple clusters returned sorted by key (code-unit)', () => {
+test('sort: multiple skill clusters returned sorted by key (code-unit)', () => {
   const components = [
     // cluster key 'zeta:deploy'
     skill('deploy', { tier: 'plugin', plugin: 'zeta', marketplace: 'mp-a', version: '1.0.0' }),
