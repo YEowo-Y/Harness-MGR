@@ -86,6 +86,17 @@ test('selftest --format json: ok on the minimal fixture', async () => {
   assert.equal(env.result.ok, true);
 });
 
+test('selftest --all: rigorous gates over the mgr src run clean → exit 0', async () => {
+  const out = await run(['selftest', '--all', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.result.ok, true);
+  const names = env.result.checks.map((c) => c.name);
+  for (const n of ['scan', 'orphans', 'lint', 'invariants', 'boundary']) {
+    assert.ok(names.includes(n), `--all should include the ${n} check`);
+  }
+});
+
 // ── default (table) + quiet renderings ──────────────────────────────────────────
 
 test('default format is a non-empty human table', async () => {
