@@ -8,3 +8,6 @@ coverage/
 .env*.local
 *.log
 .omc/
+
+# Go TUI build artifacts (tui/)
+*.exe
