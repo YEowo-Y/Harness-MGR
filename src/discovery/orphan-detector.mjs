@@ -1,0 +1,271 @@
+/**
+ * Orphan detection (P1.U11).
+ *
+ * Walks a Claude Code config root and classifies unexpected filesystem entries
+ * into two categories — hard orphans and soft orphans — recorded as facts:
+ *
+ *   hard — an entry at the TOP LEVEL of the config root whose name is not in
+ *           KNOWN_TOP_DIRS (for directories) or KNOWN_TOP_FILES (for files).
+ *           "Hard" because it has no recognised home at all.
+ *
+ *   soft — a file found DIRECTLY INSIDE one of the three component directories
+ *           (skills/, agents/, commands/) that does not conform to that dir's
+ *           recognised shape. "Soft" because the parent dir is known; only the
+ *           entry inside it is unexpected.
+ *
+ * Subdirectories under skills/, agents/, and commands/ are intentionally NOT
+ * walked further:
+ *   - A subdir under skills/ is a skill dir or a candidate skill dir; its
+ *     internal files are skill-owned (SKILL.md + supporting references).
+ *   - Subdirs under agents/ and commands/ are reserved for deferred namespacing
+ *     (see components.mjs: `commands/git/commit.md` → `/git:commit`).
+ *
+ * Orphan records are FACTS about the filesystem, not judgments. The info-severity
+ * `orphan-files` doctor check (P2.U6 #12) is the appropriate place to evaluate
+ * whether a given orphan warrants user attention.
+ *
+ * --- Pure module ---
+ * Takes `rootDir` explicitly; does NOT import paths.mjs or reexport.mjs (those
+ * are async and would break sync testability). The CLI boundary (P1.U15) passes
+ * authoritative values resolved from paths.mjs at runtime.
+ *
+ * Zero npm dependencies. Node stdlib only. Never throws.
+ */
+
+import { readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { DiagnosticBag } from '../lib/diagnostic.mjs';
+import { KNOWN_TOP_DIRS } from './settings.mjs';
+
+/**
+ * Files that legitimately live directly in a Claude Code config root. This list
+ * is intentionally CONSERVATIVE: a newer Claude Code release may add a top-level
+ * file not listed here, which would surface as an informational hard orphan
+ * (orphans are facts, not judgments — the doctor decides if it matters). Extend
+ * as ground-truth evolves. (Note: ~/.claude.json lives in the HOME dir, not in
+ * the config root, so it is intentionally absent.)
+ */
+export const KNOWN_TOP_FILES = Object.freeze([
+  'settings.json', 'settings.local.json', 'CLAUDE.md', '.credentials.json', '.mcp.json',
+]);
+
+/**
+ * Top-level entry names that belong to claude-mgr ITSELF and must never be flagged
+ * as hard orphans. '.mgr-state' mirrors MGR_STATE_DIRNAME in src/paths.mjs; '.mgr' is
+ * the dogfood install dir (a symlink in production). The CLI boundary (P1.U15) will
+ * pass authoritative values resolved from paths.mjs; this default covers the common case.
+ */
+export const DEFAULT_OWN_TOP_DIRS = Object.freeze(['.mgr-state', '.mgr']);
+
+/**
+ * @typedef {Object} OrphanRecord
+ * @property {'hard'|'soft'} category   hard = unknown TOP-LEVEL entry; soft = unrecognized file inside a known component dir
+ * @property {'file'|'dir'} entryType
+ * @property {string} name              the entry's base name
+ * @property {string} path              absolute path
+ * @property {string} container         for soft: 'skills'|'agents'|'commands'; for hard: '' (the config root)
+ * @property {string} reason            short human-readable explanation
+ */
+
+/**
+ * @typedef {Object} OrphanResult
+ * @property {OrphanRecord[]} hard
+ * @property {OrphanRecord[]} soft
+ * @property {import('../lib/diagnostic.mjs').Diagnostic[]} diagnostics
+ */
+
+/**
+ * Detect hard and soft orphans in a Claude Code config root.
+ *
+ * @param {string} rootDir
+ * @param {{ownTopDirs?: string[]}} [opts]
+ * @returns {OrphanResult}
+ */
+export function detectOrphans(rootDir, opts) {
+  const bag = new DiagnosticBag();
+
+  if (typeof rootDir !== 'string' || rootDir.length === 0) {
+    bag.add({ severity: 'error', code: 'discover-bad-root', message: 'rootDir must be a non-empty string', phase: 'orphans' });
+    return { hard: [], soft: [], diagnostics: bag.all() };
+  }
+
+  const ownTopDirs = new Set(opts?.ownTopDirs ?? DEFAULT_OWN_TOP_DIRS);
+
+  /** @type {OrphanRecord[]} */
+  const hard = [];
+  /** @type {OrphanRecord[]} */
+  const soft = [];
+
+  // ── TOP-LEVEL PASS ────────────────────────────────────────────────────────
+
+  let topEntries;
+  try {
+    topEntries = readdirSync(rootDir, { withFileTypes: true });
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      // missing root is silent — not an error
+      return { hard: [], soft: [], diagnostics: bag.all() };
+    }
+    bag.add({ severity: 'error', code: 'orphans-unreadable', message: err instanceof Error ? err.message : String(err ?? ''), path: rootDir, phase: 'orphans' });
+    return { hard: [], soft: [], diagnostics: bag.all() };
+  }
+
+  const knownTopDirSet = new Set(KNOWN_TOP_DIRS);
+  const knownTopFileSet = new Set(KNOWN_TOP_FILES);
+
+  /** @type {Set<string>} component dirs that were present as known dirs */
+  const componentDirsPresent = new Set();
+
+  for (const entry of topEntries) {
+    const name = entry.name;
+
+    // Resolve real type (handles symlinks)
+    let entryType;
+    if (entry.isDirectory()) {
+      entryType = 'dir';
+    } else if (entry.isFile()) {
+      entryType = 'file';
+    } else if (entry.isSymbolicLink()) {
+      try {
+        const st = statSync(join(rootDir, name));
+        if (st.isDirectory()) entryType = 'dir';
+        else if (st.isFile()) entryType = 'file';
+        else continue; // socket/fifo/etc — skip silently
+      } catch {
+        // broken symlink — skip silently
+        continue;
+      }
+    } else {
+      // socket/fifo/device — skip silently
+      continue;
+    }
+
+    // Skip tool's own entries
+    if (ownTopDirs.has(name)) continue;
+
+    if (entryType === 'dir') {
+      if (knownTopDirSet.has(name)) {
+        // Known dir — not an orphan. Track component dirs for soft sub-walk.
+        if (name === 'skills' || name === 'agents' || name === 'commands') {
+          componentDirsPresent.add(name);
+        }
+      } else {
+        hard.push({
+          category: 'hard',
+          entryType: 'dir',
+          name,
+          path: join(rootDir, name),
+          container: '',
+          reason: 'unknown top-level directory',
+        });
+      }
+    } else {
+      // file
+      if (!knownTopFileSet.has(name)) {
+        hard.push({
+          category: 'hard',
+          entryType: 'file',
+          name,
+          path: join(rootDir, name),
+          container: '',
+          reason: 'unknown top-level file',
+        });
+      }
+    }
+  }
+
+  // ── SOFT SUB-WALKS ────────────────────────────────────────────────────────
+
+  for (const container of ['skills', 'agents', 'commands']) {
+    if (!componentDirsPresent.has(container)) continue;
+
+    const subDir = join(rootDir, container);
+    let subEntries;
+    try {
+      subEntries = readdirSync(subDir, { withFileTypes: true });
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') {
+        bag.add({ severity: 'error', code: 'orphans-unreadable', message: err instanceof Error ? err.message : String(err ?? ''), path: subDir, phase: 'orphans' });
+      }
+      continue;
+    }
+
+    for (const entry of subEntries) {
+      const name = entry.name;
+
+      // Resolve real type (handles symlinks)
+      let entryType;
+      if (entry.isDirectory()) {
+        entryType = 'dir';
+      } else if (entry.isFile()) {
+        entryType = 'file';
+      } else if (entry.isSymbolicLink()) {
+        try {
+          const st = statSync(join(subDir, name));
+          if (st.isDirectory()) entryType = 'dir';
+          else if (st.isFile()) entryType = 'file';
+          else continue;
+        } catch {
+          continue;
+        }
+      } else {
+        continue;
+      }
+
+      // Subdirectories in all three component dirs are NOT flagged
+      if (entryType === 'dir') continue;
+
+      // file checks per container
+      if (container === 'skills') {
+        // Every regular file directly under skills/ is a soft orphan
+        soft.push({
+          category: 'soft',
+          entryType: 'file',
+          name,
+          path: join(subDir, name),
+          container: 'skills',
+          reason: 'loose file in skills/ (skills must be <name>/SKILL.md)',
+        });
+      } else if (container === 'agents') {
+        // Only .md files are recognized agents
+        if (!/\.md$/i.test(name)) {
+          soft.push({
+            category: 'soft',
+            entryType: 'file',
+            name,
+            path: join(subDir, name),
+            container: 'agents',
+            reason: 'non-.md file in agents/',
+          });
+        }
+      } else if (container === 'commands') {
+        if (!/\.md$/i.test(name)) {
+          soft.push({
+            category: 'soft',
+            entryType: 'file',
+            name,
+            path: join(subDir, name),
+            container: 'commands',
+            reason: 'non-.md file in commands/',
+          });
+        }
+      }
+    }
+  }
+
+  // ── SORT ──────────────────────────────────────────────────────────────────
+
+  // hard: sort by (entryType, name) — 'dir' < 'file' code-unit order
+  hard.sort((a, b) => {
+    if (a.entryType !== b.entryType) return a.entryType < b.entryType ? -1 : 1;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+
+  // soft: sort by (container, name)
+  soft.sort((a, b) => {
+    if (a.container !== b.container) return a.container < b.container ? -1 : a.container > b.container ? 1 : 0;
+    return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+  });
+
+  return { hard, soft, diagnostics: bag.all() };
+}
