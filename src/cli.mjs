@@ -8,7 +8,9 @@
  *
  * --- run() is PURE-ish and unit-testable ---
  * `run(argv)` returns `{code, stdout}` and NEVER calls process.exit / writes to
- * process.stdout — the P1.U16 bin entry does that. It also NEVER throws: the whole
+ * process.stdout — the executable entry guard at the BOTTOM of this file does that,
+ * and only when cli.mjs is the process entry script (not under import). It also
+ * NEVER throws: the whole
  * body is wrapped so an unexpected throw (the underlying modules are never-throws,
  * but the shell guards anyway) degrades to a JSON error envelope with code 2,
  * honouring the plan's "never a bare stack trace" rule.
@@ -21,6 +23,7 @@
  * Zero npm dependencies (project imports + node stdlib only). run() never throws.
  */
 
+import { pathToFileURL } from 'node:url';
 import { COMMANDS } from './cli/commands.mjs';
 import { resolveConfigDir } from './cli/resolve-config.mjs';
 import { formatJson } from './output/json.mjs';
@@ -38,7 +41,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
 const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--lint', '--invariants', '--boundary', '--all']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet']);
@@ -60,7 +63,7 @@ export async function run(argv) {
     }
 
     const cfg = await resolveConfigDir({ configDir: args.configDir });
-    const out = COMMANDS[canonical]({ configDir: cfg.configDir, args });
+    const out = await COMMANDS[canonical]({ configDir: cfg.configDir, args });
     const diagnostics = [...cfg.diagnostics, ...out.diagnostics];
 
     return { code: exitCode(diagnostics), stdout: render(canonical, out.result, diagnostics, args.format) };
@@ -211,4 +214,17 @@ function commandList() {
 /** @param {unknown} err @returns {string} */
 function errMessage(err) {
   return err instanceof Error ? err.message : String(err ?? '');
+}
+
+// ── executable entry (P1.U16) ────────────────────────────────────────────────────
+//
+// Fire ONLY when this module is the process entry script (e.g. `node src/cli.mjs …`
+// or via the claude-mgr.ps1 wrapper), NEVER when imported by tests. run() stays
+// pure; this guard is the one place that touches process — it prints stdout and
+// sets the exit code from run()'s result.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  run(process.argv.slice(2)).then(({ code, stdout }) => {
+    process.stdout.write(stdout + '\n');
+    process.exit(code);
+  });
 }
