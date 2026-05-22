@@ -8,87 +8,118 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
-// ── Palette ──────────────────────────────────────────────────────────────────
-// Accent: soft cyan-teal. Secondary: a slightly cooler slate for group headers.
-// Dim neutral for labels/subtitles/footer. Semantic colours only for health.
+// ── Palette ───────────────────────────────────────────────────────────────────
+// Two accents: teal (Components) + violet (Plugins & MCP).
+// One light-gray for labels (readable, not muddy). Near-invisible for leaders.
+// Semantic green/amber/red only for health.
 
 var (
-	accent    = lipgloss.Color("#2DD4BF") // teal — title, numbers, border, bars
-	secondary = lipgloss.Color("#94A3B8") // slate — group headers (one step up from dim)
-	dim       = lipgloss.Color("#4B5563") // muted neutral — labels, footer, config path
-	leader    = lipgloss.Color("#374151") // near-invisible — dot-leader fill
+	accent  = lipgloss.Color("#2DD4BF") // teal  — title, Components, border, footer keys
+	accent2 = lipgloss.Color("#A78BFA") // violet — Plugins & MCP group
+
+	labelGray  = lipgloss.Color("#9CA3AF") // bright enough to read easily
+	configGray = lipgloss.Color("#6B7280") // config dir / subtitle — one step dimmer
+	footerGray = lipgloss.Color("#6B7280") // footer surrounding text
+	leaderDim  = lipgloss.Color("#374151") // near-invisible dot leaders
 
 	colorGreen = lipgloss.Color("#34D399")
 	colorAmber = lipgloss.Color("#FBBF24")
 	colorRed   = lipgloss.Color("#F87171")
 
-	// pill background colours — near-black text on saturated bg for contrast.
+	// Pill backgrounds — dark saturated; near-white fg for contrast.
 	pillBgGreen = lipgloss.Color("#065F46")
 	pillBgAmber = lipgloss.Color("#78350F")
 	pillBgRed   = lipgloss.Color("#7F1D1D")
-	pillFg      = lipgloss.Color("#F9FAFB") // near-white text on pill
+	pillFg      = lipgloss.Color("#F9FAFB")
 )
 
-// ── Styles ───────────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────────
 
 var (
-	accentBarStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	titleStyle     = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	subtitleStyle  = lipgloss.NewStyle().Foreground(secondary)
-	configStyle    = lipgloss.NewStyle().Foreground(dim)
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	subtitleStyle = lipgloss.NewStyle().Foreground(configGray)
+	configStyle   = lipgloss.NewStyle().Foreground(configGray)
 
-	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	labelStyle       = lipgloss.NewStyle().Foreground(dim)
-	leaderStyle      = lipgloss.NewStyle().Foreground(leader)
-	numStyle         = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	// Group headers — bold, each in its own accent.
+	compHeaderStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	pluginsHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(accent2)
 
-	keyStyle    = lipgloss.NewStyle().Foreground(secondary) // keys slightly brighter than footer
-	footerStyle = lipgloss.NewStyle().Foreground(dim)
+	labelStyle  = lipgloss.NewStyle().Foreground(labelGray)
+	leaderStyle = lipgloss.NewStyle().Foreground(leaderDim)
+
+	// Number styles — bold, each group's accent.
+	numStyleComp    = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	numStylePlugins = lipgloss.NewStyle().Bold(true).Foreground(accent2)
+
+	keyStyle    = lipgloss.NewStyle().Foreground(accent)     // q, ↑↓ in teal
+	footerStyle = lipgloss.NewStyle().Foreground(footerGray) // surrounding footer text
 
 	cardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(accent).
-			Padding(1, 3).
-			Width(52)
+			Padding(2, 4).
+			Width(64)
 
 	errCardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorRed).
-			Padding(1, 3).
-			Width(52)
+			Padding(2, 4).
+			Width(64)
 )
 
 // ── Layout constants ──────────────────────────────────────────────────────────
-// innerWidth = card Width(52) − 2×Padding(3) = 46 printable columns.
-// numWidth reserves 4 cols for right-aligned counts (supports up to 9999).
-// Dot-leader fills whatever remains between label and number.
+// innerWidth = card Width(64) − 2×Padding(4) = 56 printable columns.
+// numWidth reserves 4 cols (supports counts up to 9999).
 
 const (
-	innerWidth = 46
+	innerWidth = 56
 	numWidth   = 4
 )
+
+// ── Glyph helper ─────────────────────────────────────────────────────────────
+
+// unicodeEnabled reports whether the terminal supports Unicode glyphs.
+// We use lipgloss's detected color profile as the signal: any profile above
+// Ascii (i.e. ANSI, ANSI256, TrueColor) proves the terminal handles escape
+// sequences and modern encoding — Unicode glyphs are safe. This correctly
+// handles terminals (like the user's) that support Unicode+color but do NOT
+// set WT_SESSION.
+func unicodeEnabled() bool {
+	return lipgloss.ColorProfile() != termenv.Ascii
+}
+
+// glyph returns the Unicode symbol when color/Unicode is enabled, and the
+// ASCII fallback only when running in a true no-color environment (TERM=dumb,
+// NO_COLOR, or a pipe with no color profile).
+func glyph(uni, ascii string) string {
+	if unicodeEnabled() {
+		return uni
+	}
+	return ascii
+}
 
 // ── Entry points ──────────────────────────────────────────────────────────────
 
 func loadingView() string {
-	body := accentBar() + titleStyle.Render("claude-mgr") +
+	body := accentBar(accent) + titleStyle.Render("claude-mgr") +
 		"  " + subtitleStyle.Render("inventory") +
 		"\n\n" + configStyle.Render("loading…")
 	return cardStyle.Render(body)
 }
 
 func errorView(err error) string {
-	body := accentBar() + titleStyle.Render("claude-mgr") + "\n\n" +
-		lipgloss.NewStyle().Bold(true).Foreground(colorRed).
-			Render(glyph("✗", "[x]")+" failed to load inventory") + "\n\n" +
+	errMsgStyle := lipgloss.NewStyle().Bold(true).Foreground(colorRed)
+	body := accentBar(accent) + titleStyle.Render("claude-mgr") + "\n\n" +
+		errMsgStyle.Render(glyph("✗", "[x]")+" failed to load inventory") + "\n\n" +
 		configStyle.Render(err.Error()) + "\n\n" +
 		renderFooter()
 	return errCardStyle.Render(body)
 }
 
-// inventoryView: header → Components group → Plugins & MCP group → health pill → footer.
+// inventoryView: header → Components group → Plugins & MCP group → health → footer.
 func inventoryView(inv Inventory) string {
 	var b strings.Builder
 
@@ -108,18 +139,19 @@ func inventoryView(inv Inventory) string {
 // ── Header ────────────────────────────────────────────────────────────────────
 
 func header(inv Inventory) string {
-	line1 := accentBar() + titleStyle.Render("claude-mgr") +
+	line1 := accentBar(accent) + titleStyle.Render("claude-mgr") +
 		"  " + subtitleStyle.Render("inventory")
 	line2 := "  " + configStyle.Render(configDirHint())
+	_ = inv // reserved: could surface inv.Command or statusLine later
 	return line1 + "\n" + line2
 }
 
-// accentBar returns "▌ " (U+258C) in accent, or "| " on legacy conhost.
-func accentBar() string {
-	return accentBarStyle.Render(glyph("▌", "|")) + " "
+// accentBar returns "▌ " in the given color, or "| " on no-color terminals.
+func accentBar(color lipgloss.Color) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(color).Render(glyph("▌", "|")) + " "
 }
 
-// configDirHint returns a ~-collapsed, truncated path for the config dir.
+// configDirHint returns a ~-collapsed, truncated config dir path.
 func configDirHint() string {
 	dir := os.Getenv("CLAUDE_CONFIG_DIR")
 	if dir == "" {
@@ -142,30 +174,28 @@ func configDirHint() string {
 
 func componentsGroup(c Counts) string {
 	var b strings.Builder
-	b.WriteString(groupHeaderStyle.Render(glyph("▌", "|")+" Components") + "\n")
-	b.WriteString(countRow("skills", c.Skills))
-	b.WriteString(countRow("agents", c.Agents))
-	b.WriteString(countRow("commands", c.Commands))
+	b.WriteString(compHeaderStyle.Render(glyph("▌", "|")+" Components") + "\n")
+	b.WriteString(countRow("skills", c.Skills, numStyleComp))
+	b.WriteString(countRow("agents", c.Agents, numStyleComp))
+	b.WriteString(countRow("commands", c.Commands, numStyleComp))
 	return b.String()
 }
 
 func pluginsGroup(c Counts) string {
 	var b strings.Builder
-	b.WriteString(groupHeaderStyle.Render(glyph("▌", "|")+" Plugins & MCP") + "\n")
-	b.WriteString(countRow("plugins", c.Plugins))
-	b.WriteString(countRow("marketplaces", c.Marketplaces))
-	b.WriteString(countRow("mcp servers", c.McpServers))
+	b.WriteString(pluginsHeaderStyle.Render(glyph("▌", "|")+" Plugins & MCP") + "\n")
+	b.WriteString(countRow("plugins", c.Plugins, numStylePlugins))
+	b.WriteString(countRow("marketplaces", c.Marketplaces, numStylePlugins))
+	b.WriteString(countRow("mcp servers", c.McpServers, numStylePlugins))
 	return b.String()
 }
 
-// countRow renders:  "  label ····················  NNN\n"
-// label is dim-left; dot-leader fills the gap; number is bold-accent right-aligned.
-// The total visible width is innerWidth columns.
-func countRow(label string, value int) string {
+// countRow renders:  "  label ·················· NNN\n"
+// The dot-leader fills innerWidth − indent(2) − labelLen − numWidth columns.
+// numStyle is passed in so each group's numbers use its own accent color.
+func countRow(label string, value int, numStyle lipgloss.Style) string {
 	num := fmt.Sprintf("%d", value)
 
-	// 2 (indent) + labelLen + leaderLen + numWidth = innerWidth
-	// leaderLen must be ≥ 1 (at least one dot for readability).
 	indent := 2
 	labelLen := utf8.RuneCountInString(label)
 	leaderLen := innerWidth - indent - labelLen - numWidth
@@ -186,7 +216,6 @@ func countRow(label string, value int) string {
 
 // ── Health pill ───────────────────────────────────────────────────────────────
 
-// healthPill renders a background-colored pill (Padding(0,1)) for the health status.
 func healthPill(diags []Diagnostic) string {
 	errors, warnings := countDiagnostics(diags)
 
@@ -205,23 +234,20 @@ func healthPill(diags []Diagnostic) string {
 		bg, fg = pillBgGreen, pillFg
 	}
 
-	pill := lipgloss.NewStyle().
+	return lipgloss.NewStyle().
 		Background(bg).
 		Foreground(fg).
 		Bold(true).
 		Padding(0, 1).
 		Render(text)
-	return pill
 }
 
 // ── Footer ────────────────────────────────────────────────────────────────────
 
 func renderFooter() string {
-	q := keyStyle.Render("q")
-	arrows := keyStyle.Render("↑↓")
 	dot := footerStyle.Render("·")
-	return q + footerStyle.Render(" quit  "+dot+"  ") +
-		arrows + footerStyle.Render(" navigate (soon)")
+	return keyStyle.Render("q") + footerStyle.Render(" quit  "+dot+"  ") +
+		keyStyle.Render(glyph("↑↓", "j/k")) + footerStyle.Render(" navigate (soon)")
 }
 
 // ── String helpers ────────────────────────────────────────────────────────────
@@ -233,13 +259,4 @@ func padLeft(s string, width int) string {
 		return s
 	}
 	return strings.Repeat(" ", n) + s
-}
-
-// glyph returns the Unicode symbol under Windows Terminal (WT_SESSION set),
-// and an ASCII fallback for legacy conhost.
-func glyph(unicode, ascii string) string {
-	if os.Getenv("WT_SESSION") != "" {
-		return unicode
-	}
-	return ascii
 }
