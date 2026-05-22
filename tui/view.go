@@ -3,122 +3,237 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Palette — a small set of styles shared across views.
+// ── Palette ──────────────────────────────────────────────────────────────────
+// ONE accent (soft cyan-teal), ONE dim neutral, semantic health colours only.
+// lipgloss downsamples truecolor hex to the terminal's actual capability.
+
 var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#7D56F4"))
+	// accent: soft cyan-teal — used for title, numbers, border.
+	accent = lipgloss.Color("#2DD4BF")
+	// dim: muted neutral — labels, subtitles, footer.
+	dim = lipgloss.Color("#6B7280")
+	// semantic health — green / amber / red.
+	colorGreen  = lipgloss.Color("#34D399")
+	colorAmber  = lipgloss.Color("#FBBF24")
+	colorRed    = lipgloss.Color("#F87171")
+	colorWhite  = lipgloss.Color("#F9FAFB")
+	colorBorder = lipgloss.Color("#2DD4BF") // same as accent, named for intent
+)
 
-	labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
+// ── Base styles ──────────────────────────────────────────────────────────────
 
-	valueStyle = lipgloss.NewStyle().
+var (
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	subtitleStyle = lipgloss.NewStyle().Foreground(dim)
+
+	groupHeaderStyle = lipgloss.NewStyle().
+				Foreground(dim).
+				Bold(false)
+
+	labelStyle = lipgloss.NewStyle().Foreground(dim)
+
+	numStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFFFFF"))
+			Foreground(accent)
 
 	healthyStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#2ECC71")) // green
+			Foreground(colorGreen)
 
 	warnStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#F1C40F")) // yellow
+			Foreground(colorAmber)
 
 	errStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#E74C3C")) // red
+			Foreground(colorRed)
 
-	footerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
+	footerStyle = lipgloss.NewStyle().Foreground(dim)
 
-	panelStyle = lipgloss.NewStyle().
+	// outer card: rounded border in accent, generous padding.
+	cardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
-			Padding(1, 2)
+			BorderForeground(colorBorder).
+			Padding(1, 3).
+			Width(46)
 
-	errPanelStyle = lipgloss.NewStyle().
+	errCardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#E74C3C")).
-			Padding(1, 2)
+			BorderForeground(colorRed).
+			Padding(1, 3).
+			Width(46)
+
+	// health banner: a small padded pill inside the card.
+	healthBannerStyle = lipgloss.NewStyle().
+				Padding(0, 2).
+				Bold(true)
+
+	// faint rule drawn by a repeated dim character.
+	ruleStyle = lipgloss.NewStyle().Foreground(dim)
 )
 
-// countLabelWidth is the column width reserved for count labels so values align.
-const countLabelWidth = 14
+// ── Layout constants ─────────────────────────────────────────────────────────
 
-// loadingView is shown while the initial fetch is in flight.
+const (
+	// innerWidth is card.Width minus 2×padding(3) = 46-6 = 40 printable cols.
+	innerWidth    = 40
+	labelColWidth = 18 // label column; value is right-aligned in remaining space.
+)
+
+// ── Entry points ─────────────────────────────────────────────────────────────
+
 func loadingView() string {
-	return panelStyle.Render(titleStyle.Render("claude-mgr") + "\n\nloading…")
+	body := titleStyle.Render("claude-mgr") + "\n\n" +
+		subtitleStyle.Render("loading inventory…")
+	return cardStyle.Render(body)
 }
 
-// errorView renders a red bordered panel carrying the fetch error message.
 func errorView(err error) string {
 	body := titleStyle.Render("claude-mgr") + "\n\n" +
 		errStyle.Render(glyph("✗", "[x]")+" failed to load inventory") + "\n\n" +
-		err.Error() + "\n\n" +
+		subtitleStyle.Render(err.Error()) + "\n\n" +
 		footerStyle.Render("q quit")
-	return errPanelStyle.Render(body)
+	return errCardStyle.Render(body)
 }
 
-// inventoryView renders the main bordered panel: title, aligned counts, a
-// one-line health summary, and a footer hint.
+// inventoryView is the main view: header / two count groups / health / footer.
 func inventoryView(inv Inventory) string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("claude-mgr — inventory"))
-	b.WriteString("\n\n")
-	b.WriteString(countsBlock(inv.Result.Counts))
+	b.WriteString(header(inv))
 	b.WriteString("\n")
-	b.WriteString(healthSummary(inv.Diagnostics))
+	b.WriteString(rule())
+	b.WriteString("\n")
+	b.WriteString(componentsGroup(inv.Result.Counts))
+	b.WriteString("\n")
+	b.WriteString(pluginsGroup(inv.Result.Counts))
+	b.WriteString("\n")
+	b.WriteString(rule())
+	b.WriteString("\n")
+	b.WriteString(healthBanner(inv.Diagnostics))
 	b.WriteString("\n\n")
-	b.WriteString(footerStyle.Render("q quit"))
+	b.WriteString(footer())
 
-	return panelStyle.Render(b.String())
+	return cardStyle.Render(b.String())
 }
 
-// countsBlock renders each count as an aligned "label   value" row.
-func countsBlock(c Counts) string {
-	rows := []struct {
-		label string
-		value int
-	}{
-		{"skills", c.Skills},
-		{"agents", c.Agents},
-		{"commands", c.Commands},
-		{"plugins", c.Plugins},
-		{"marketplaces", c.Marketplaces},
-		{"mcp servers", c.McpServers},
-	}
+// ── Header ────────────────────────────────────────────────────────────────────
 
-	var b strings.Builder
-	for _, r := range rows {
-		label := labelStyle.Render(padRight(r.label, countLabelWidth))
-		b.WriteString(label)
-		b.WriteString(valueStyle.Render(fmt.Sprintf("%d", r.value)))
-		b.WriteString("\n")
+func header(inv Inventory) string {
+	title := titleStyle.Render("claude-mgr") +
+		"  " +
+		subtitleStyle.Render("inventory")
+	sub := subtitleStyle.Render(configDirHint(inv))
+	return title + "\n" + sub
+}
+
+// configDirHint derives a short display path from the inventory data.
+// The JSON envelope does not carry configDir directly, so we show the
+// CLAUDE_CONFIG_DIR env (if set) or the conventional ~/.claude fallback.
+func configDirHint(inv Inventory) string {
+	dir := os.Getenv("CLAUDE_CONFIG_DIR")
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".claude")
 	}
+	// Collapse home dir to ~
+	home, _ := os.UserHomeDir()
+	if home != "" && strings.HasPrefix(dir, home) {
+		dir = "~" + dir[len(home):]
+	}
+	// Truncate if very long
+	if utf8.RuneCountInString(dir) > innerWidth-2 {
+		runes := []rune(dir)
+		dir = "…" + string(runes[len(runes)-(innerWidth-3):])
+	}
+	return dir
+}
+
+// ── Faint rule ────────────────────────────────────────────────────────────────
+
+func rule() string {
+	return ruleStyle.Render(strings.Repeat("─", innerWidth))
+}
+
+// ── Count groups ──────────────────────────────────────────────────────────────
+
+func componentsGroup(c Counts) string {
+	var b strings.Builder
+	b.WriteString(groupHeaderStyle.Render("  Components") + "\n")
+	b.WriteString(countRow("skills", c.Skills))
+	b.WriteString(countRow("agents", c.Agents))
+	b.WriteString(countRow("commands", c.Commands))
 	return b.String()
 }
 
-// healthSummary turns diagnostic counts into a single colored status line.
-func healthSummary(diags []Diagnostic) string {
-	errors, warnings := countDiagnostics(diags)
-	switch {
-	case errors > 0:
-		return errStyle.Render(fmt.Sprintf("%s %d error(s), %d warning(s)", glyph("✗", "[x]"), errors, warnings))
-	case warnings > 0:
-		return warnStyle.Render(fmt.Sprintf("%s %d warning(s)", glyph("⚠", "[!]"), warnings))
-	default:
-		return healthyStyle.Render(glyph("✓", "[ok]") + " healthy")
-	}
+func pluginsGroup(c Counts) string {
+	var b strings.Builder
+	b.WriteString(groupHeaderStyle.Render("  Plugins & MCP") + "\n")
+	b.WriteString(countRow("plugins", c.Plugins))
+	b.WriteString(countRow("marketplaces", c.Marketplaces))
+	b.WriteString(countRow("mcp servers", c.McpServers))
+	return b.String()
 }
 
-// padRight pads s with spaces to at least width runes (rune-aware, no allocation).
+// countRow renders one "• label            N" row.
+// The bullet is WT-aware; label is dim+left-padded; number is accent+bold+right-aligned.
+func countRow(label string, value int) string {
+	bullet := glyph("•", "-")
+	num := fmt.Sprintf("%d", value)
+
+	// Space budget: 2 (bullet+space) + labelColWidth + gap + numWidth
+	// We right-align the number in the remaining space after the label col.
+	numWidth := 4 // reserves up to 9999; sufficient for any real harness
+	labelPadded := padRight(label, labelColWidth)
+	numPadded := padLeft(num, numWidth)
+
+	row := "  " +
+		subtitleStyle.Render(bullet+" ") +
+		labelStyle.Render(labelPadded) +
+		numStyle.Render(numPadded)
+	return row + "\n"
+}
+
+// ── Health banner ─────────────────────────────────────────────────────────────
+
+func healthBanner(diags []Diagnostic) string {
+	errors, warnings := countDiagnostics(diags)
+
+	var text string
+	var style lipgloss.Style
+
+	switch {
+	case errors > 0:
+		text = fmt.Sprintf("%s  %d error(s)  %d warning(s)", glyph("✗", "[x]"), errors, warnings)
+		style = healthBannerStyle.Foreground(colorRed).BorderForeground(colorRed)
+	case warnings > 0:
+		text = fmt.Sprintf("%s  %d warning(s)", glyph("⚠", "[!]"), warnings)
+		style = healthBannerStyle.Foreground(colorAmber).BorderForeground(colorAmber)
+	default:
+		text = glyph("✓", "[ok]") + "  healthy"
+		style = healthBannerStyle.Foreground(colorGreen).BorderForeground(colorGreen)
+	}
+
+	_ = colorWhite // reserved for future use (light-bg adaptation)
+	return style.Render(text)
+}
+
+// ── Footer ────────────────────────────────────────────────────────────────────
+
+func footer() string {
+	return footerStyle.Render("q quit  ·  ↑↓ navigate (soon)")
+}
+
+// ── String helpers ────────────────────────────────────────────────────────────
+
+// padRight pads s to at least width runes with trailing spaces (no allocation path).
 func padRight(s string, width int) string {
 	n := width - utf8.RuneCountInString(s)
 	if n <= 0 {
@@ -127,8 +242,17 @@ func padRight(s string, width int) string {
 	return s + strings.Repeat(" ", n)
 }
 
-// glyph returns a Unicode symbol when running under Windows Terminal (WT_SESSION
-// is set), and an ASCII fallback for legacy conhost which cannot render ✓ ⚠ ✗.
+// padLeft pads s to at least width runes with leading spaces.
+func padLeft(s string, width int) string {
+	n := width - utf8.RuneCountInString(s)
+	if n <= 0 {
+		return s
+	}
+	return strings.Repeat(" ", n) + s
+}
+
+// glyph returns the Unicode symbol under Windows Terminal (WT_SESSION set),
+// and an ASCII fallback for legacy conhost which cannot render ✓ ⚠ ✗ •.
 func glyph(unicode, ascii string) string {
 	if os.Getenv("WT_SESSION") != "" {
 		return unicode
