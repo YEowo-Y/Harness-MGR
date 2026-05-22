@@ -123,18 +123,42 @@ test('hooksCommand: minimal/ has no hooks → empty object', () => {
 
 // ── G. selftest ─────────────────────────────────────────────────────────────────
 
-test('selftestCommand: minimal/ smoke check is ok', () => {
-  const { result } = selftestCommand({ configDir: MIN, args: {} });
+test('selftestCommand: minimal/ smoke check is ok (now async)', async () => {
+  const { result } = await selftestCommand({ configDir: MIN, args: {} });
   assert.equal(result.ok, true);
+  assert.deepEqual(result.checks.map((c) => c.name), ['scan', 'orphans']);
+});
+
+test('selftestCommand: --lint over the mgr src is clean (no lint- errors)', async () => {
+  const { result, diagnostics } = await selftestCommand({ configDir: MIN, args: { lint: true } });
+  assert.ok(result.checks.some((c) => c.name === 'lint' && c.ok === true), 'expected a passing lint check');
+  const lintErrors = diagnostics.filter((d) => d.severity === 'error' && d.code.startsWith('lint-'));
+  assert.deepEqual(lintErrors, [], 'mgr src must currently be lint-clean');
+});
+
+test('selftestCommand: --invariants over the mgr src holds', async () => {
+  const { result } = await selftestCommand({ configDir: MIN, args: { invariants: true } });
+  assert.ok(result.checks.some((c) => c.name === 'invariants' && c.ok === true), 'expected a passing invariants check');
+});
+
+test('selftestCommand: --all runs smoke + lint + invariants + boundary, all ok', async () => {
+  const { result } = await selftestCommand({ configDir: MIN, args: { all: true } });
+  const names = result.checks.map((c) => c.name);
+  for (const n of ['scan', 'orphans', 'lint', 'invariants', 'boundary']) {
+    assert.ok(names.includes(n), `--all should include the ${n} check`);
+  }
+  assert.equal(result.ok, true, 'all checks pass over a clean tree (boundary probe is read-only)');
 });
 
 // ── H. never-throws sweep ─────────────────────────────────────────────────────────
 
-test('every handler on a non-existent configDir does not throw + returns {result, diagnostics}', () => {
+test('every handler on a non-existent configDir does not throw + returns {result, diagnostics}', async () => {
   const GONE = fix('does-not-exist');
   for (const [name, handler] of Object.entries(COMMANDS)) {
-    assert.doesNotThrow(() => {
-      const out = handler({ configDir: GONE, args: {} });
+    // Handlers are sync OR async (selftest is async); await normalizes both and
+    // doesNotReject proves neither throws synchronously nor rejects.
+    await assert.doesNotReject(async () => {
+      const out = await handler({ configDir: GONE, args: {} });
       assert.ok(out && typeof out === 'object', `${name} returned a non-object`);
       assert.ok('result' in out, `${name} missing result`);
       assert.ok(Array.isArray(out.diagnostics), `${name} diagnostics not an array`);
