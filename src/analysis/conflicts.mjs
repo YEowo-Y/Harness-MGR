@@ -21,28 +21,34 @@
  *     DO collide on the flat key `executor`, and the USER copy WINS. Plugin-vs-
  *     plugin agents also collide on the flat name.
  *
- * These rules are encoded ONCE in KIND_RULES below (per-kind namespacing + per-
- * tier rank). `namespacePlugins` decides the resolution key shape; `ranks` give
- * a "lower wins" precedence — for agents the built-in last-write-wins order is
- * INVERTED to lower=wins so user (3) beats plugin (4) uniformly with the skill/
- * command first-match ranks.
+ * These rules are defined canonically in load-order.mjs (per-kind namespacing +
+ * per-tier rank) and IMPORTED here. `namespacePlugins` decides the resolution key
+ * shape; `ranks` give a "lower wins" precedence — for agents the built-in last-
+ * write-wins order is INVERTED to lower=wins so user (3) beats plugin (4) uniformly
+ * with the skill/command first-match ranks.
  *
  * --- Confidence rationale (Phase 1) ---
  * The exact inter-plugin load order is loader-internal and UNVERIFIED in Phase 1,
  * and the running Claude Code version is unknown here. So we never assert a
  * verified `winner`; we emit a `likelyWinner` with `confidence: 'likely'` for
  * EVERY cluster, ranked deterministically so the answer is stable across runs.
+ * (The 2.1.x version-guard / loaderConfidence downgrade is the CLI's concern in
+ * U15, not conflicts'; this module stays 'likely' in Phase 1.)
  *
  * --- Scope / known gaps ---
  * Records whose `kind` is not skill/agent/command are ignored (not errored).
  * The remaining gap is BUNDLED-shadows-user (a bundled agent shadowed by a user
  * agent of the same name) — that needs a not-yet-modeled `'bundled'` tier in
- * Source and is out of scope here. See TODO(P1.U14) below.
+ * Source and is out of scope here.
  *
- * TODO(P1.U14): load-order.mjs becomes the SINGLE SOURCE OF TRUTH for precedence
- * (cross-phase invariant: "single-source-of-truth for load-order"). KIND_RULES is
- * deliberate vertical-slice debt for U12/U13 and MUST be replaced by importing the
- * ranking from load-order.mjs at U14 — do not let two precedence tables drift.
+ * RESOLVED(P1.U14): the precedence model is now the SINGLE SOURCE OF TRUTH in
+ * load-order.mjs (cross-phase invariant: "single-source-of-truth for load-order").
+ * The local KIND_RULES / ranking table that was deliberate vertical-slice debt for
+ * U12/U13 has been DELETED; this module now IMPORTS resolutionKey,
+ * isLoadableComponent and rankComponents from load-order.mjs so two precedence
+ * tables can never drift. NOTE: rankComponents breaks EQUAL-rank ties by ES6
+ * INSERTION ORDER honoring each kind's `winsBy` ('first' for skill/command, 'last'
+ * for agent), which replaces the old marketplace→version→path tiebreak.
  *
  * --- Pure module, by design ---
  * Takes the component list explicitly; depends only on the Source/Diagnostic
@@ -52,6 +58,7 @@
  */
 
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
+import { resolutionKey, isLoadableComponent, rankComponents } from './load-order.mjs';
 
 /**
  * @typedef {import('../lib/source.mjs').Source} Source
@@ -95,29 +102,6 @@ import { DiagnosticBag } from '../lib/diagnostic.mjs';
  */
 
 /**
- * Per-kind resolution rules. `namespacePlugins`: do plugin components get the
- * `plugin:name` namespace (skills/commands yes, agents no)? `ranks`: lower number
- * WINS (the resolved/effective copy). Skill/command ranks mirror the first-match
- * order (user's skillDir checked before pluginSkills). Agent ranks INVERT the
- * built-in last-write-wins precedence into lower=wins so user (3) beats plugin (4).
- *
- * See the TODO(P1.U14) in the header: this is the single local precedence table,
- * vertical-slice debt to be replaced by load-order.mjs.
- */
-const KIND_RULES = Object.freeze({
-  skill: Object.freeze({ namespacePlugins: true, ranks: Object.freeze({ user: 3, plugin: 7 }) }), // first-match; user before pluginSkills
-  command: Object.freeze({ namespacePlugins: true, ranks: Object.freeze({ user: 3, plugin: 6 }) }), // first-match; user before pluginCommands
-  agent: Object.freeze({ namespacePlugins: false, ranks: Object.freeze({ user: 3, plugin: 4 }) }), // flat last-write-wins, INVERTED to lower=wins: user beats plugin
-});
-
-/**
- * Rank used for any tier not modeled in a kind's `ranks`; sorts after every known
- * tier. See the TODO(P1.U14): any tier later admitted by isEligibleComponent must
- * also be ranked in KIND_RULES, or it will silently sort last.
- */
-const UNKNOWN_RANK = 99;
-
-/**
  * Analyze skill/agent/command components for shadowing conflicts.
  *
  * @param {ComponentRecord[]} components   discovered components (other kinds ignored)
@@ -146,11 +130,14 @@ export function analyzeConflicts(components, opts) {
 }
 
 /**
- * Group eligible components by `(kind, resolutionKey)` so different kinds never
- * merge, preserving discovery order within each group (rankMembers later imposes
- * the deterministic winner order). A component is eligible only if it is a LOADED
+ * Group loadable components by `(kind, resolutionKey)` so different kinds never
+ * merge, preserving discovery (insertion) order within each group — rankComponents
+ * later imposes the deterministic winner order, breaking equal-rank ties by that
+ * insertion order. A component is loadable only if it is a LOADED
  * copy — tier 'user' or 'plugin'; catalog and marketplace-copy are not the copy
- * the loader resolves, so they cannot shadow.
+ * the loader resolves, so they cannot shadow. Loadability + the resolution key are
+ * decided by the imported isLoadableComponent / resolutionKey (load-order.mjs, the
+ * single source of truth).
  * @param {ComponentRecord[]} components
  * @returns {Map<string, {kind: ComponentKind, key: string, members: ConflictMember[]}>}
  */
@@ -158,10 +145,10 @@ function groupByKindKey(components) {
   /** @type {Map<string, {kind: ComponentKind, key: string, members: ConflictMember[]}>} */
   const groups = new Map();
   for (const rec of components) {
-    if (!isEligibleComponent(rec)) continue;
+    if (!isLoadableComponent(rec)) continue;
     const member = { name: rec.name, path: rec.path, source: rec.source };
     const key = resolutionKey(rec);
-    const groupKey = `${rec.kind} ${key}`; // kind-prefixed so distinct kinds never merge
+    const groupKey = `${rec.kind}\n${key}`; // collision-proof \n separator (newline cannot appear in a kind or resolution key)
     const existing = groups.get(groupKey);
     if (existing) existing.members.push(member);
     else groups.set(groupKey, { kind: rec.kind, key, members: [member] });
@@ -170,86 +157,9 @@ function groupByKindKey(components) {
 }
 
 /**
- * A record is eligible iff its `kind` is skill/agent/command and it sits in a
- * LOADED tier: 'user', or 'plugin'. For a NAMESPACED kind (skill/command) a plugin
- * record additionally needs a non-empty `source.plugin`: without it resolutionKey
- * would fall back to the FLAT name and collide with a user component — the exact
- * false positive the verified namespacing rule forbids (the generalized HIGH-1
- * guard). For a FLAT kind (agent) a plugin record without `source.plugin` is still
- * eligible: its key is the flat name anyway, so it can legitimately collide.
- * @param {unknown} rec
- * @returns {rec is ComponentRecord}
- */
-function isEligibleComponent(rec) {
-  if (!rec || typeof rec !== 'object') return false;
-  const r = /** @type {Record<string, unknown>} */ (rec);
-  const rule = typeof r.kind === 'string' ? KIND_RULES[r.kind] : undefined;
-  if (!rule) return false;
-  if (typeof r.name !== 'string') return false; // name is the loader identity / resolution key — must be a string
-  const src = r.source;
-  if (!src || typeof src !== 'object') return false;
-  const s = /** @type {Record<string, unknown>} */ (src);
-  if (s.tier === 'user') return true;
-  if (s.tier !== 'plugin') return false;
-  if (!rule.namespacePlugins) return true; // flat kind: plugin name not required
-  return typeof s.plugin === 'string' && s.plugin.length > 0;
-}
-
-/**
- * Compute a component's Claude Code resolution key. For a namespaced kind
- * (skill/command) a plugin component is `pluginName:name`; everything else is FLAT
- * (`name`). This is the rule that prevents the user-vs-plugin false positive for
- * skills/commands (their keys differ by construction), while agents stay flat so
- * user-vs-plugin agents legitimately share a key.
- * @param {ComponentRecord} rec
- * @returns {string}
- */
-function resolutionKey(rec) {
-  const { source, name, kind } = rec;
-  const rule = KIND_RULES[kind];
-  if (rule && rule.namespacePlugins && source.tier === 'plugin'
-      && typeof source.plugin === 'string' && source.plugin.length > 0) {
-    return `${source.plugin}:${name}`;
-  }
-  return name;
-}
-
-/**
- * Local precedence rank for a member of the given kind (lower wins). See the
- * KIND_RULES / TODO(P1.U14): vertical-slice debt to be replaced by load-order.mjs.
- * @param {ComponentKind} kind
- * @param {Source} source
- * @returns {number}
- */
-function rank(kind, source) {
-  const rule = KIND_RULES[kind];
-  return (rule && rule.ranks[source.tier]) ?? UNKNOWN_RANK;
-}
-
-/**
- * Rank cluster members deterministically (winner first). Primary key is the
- * per-kind precedence rank; ties (e.g. plugin-vs-plugin, or user-vs-plugin agents
- * never tie but plugin-vs-plugin do) break by marketplace, then version, then path
- * — all code-unit string compares — so `likelyWinner` is stable across runs
- * regardless of discovery order. Does not mutate the input.
- * @param {ComponentKind} kind
- * @param {ConflictMember[]} members
- * @returns {ConflictMember[]}
- */
-function rankMembers(kind, members) {
-  return members.slice().sort((a, b) => {
-    const ra = rank(kind, a.source);
-    const rb = rank(kind, b.source);
-    if (ra !== rb) return ra - rb;
-    return cmp(a.source.marketplace, b.source.marketplace)
-      || cmp(a.source.version, b.source.version)
-      || cmp(a.path, b.path);
-  });
-}
-
-/**
- * Code-unit compare treating undefined as the empty string, so optional Source
- * fields tiebreak deterministically.
+ * Code-unit compare treating undefined as the empty string, used ONLY to sort the
+ * final `conflicts` array by `(kind, key)`. This is NOT precedence logic — the
+ * ranking lives in load-order.mjs's rankComponents (single source of truth).
  * @param {string|undefined} a
  * @param {string|undefined} b
  * @returns {number}
@@ -271,7 +181,7 @@ function cmp(a, b) {
  * @returns {ConflictCluster}
  */
 function buildCluster(kind, key, members, bag) {
-  const ranked = rankMembers(kind, members);
+  const ranked = rankComponents(kind, members);
   const reason = reasonFor(kind, ranked);
   const fix = fixFor(kind, ranked);
   bag.add({ severity: 'warn', code: `${kind}-shadowing`, message: reason, fix, phase: 'conflicts' });
