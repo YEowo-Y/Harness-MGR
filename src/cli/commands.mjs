@@ -19,7 +19,8 @@
  * Zero npm dependencies. Node stdlib only. Never throws.
  */
 
-import { join } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { scan } from '../discovery/scan.mjs';
 import { detectOrphans } from '../discovery/orphan-detector.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
@@ -27,6 +28,9 @@ import { analyzeOrphans } from '../analysis/orphans.mjs';
 import { mergeSettings } from '../analysis/settings-merge.mjs';
 import { loaderConfidence } from '../analysis/load-order.mjs';
 import { readJsonFile, isJsonObject } from '../discovery/read-json.mjs';
+import { lintTree } from '../selftest/lint.mjs';
+import { checkInvariants } from '../selftest/invariants.mjs';
+import { checkBoundary } from '../selftest/boundary.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -49,7 +53,7 @@ import { readJsonFile, isJsonObject } from '../discovery/read-json.mjs';
  *
  * @callback CommandHandler
  * @param {CommandContext} ctx
- * @returns {CommandOutput}
+ * @returns {CommandOutput | Promise<CommandOutput>}
  */
 
 // ── inventory ───────────────────────────────────────────────────────────────────
@@ -217,15 +221,27 @@ export function hooksCommand(ctx) {
 // ── selftest ────────────────────────────────────────────────────────────────────
 
 /**
- * Phase-1 SMOKE self-check: run the two filesystem walks (scan + orphan detector)
- * and report whether either produced an error-severity diagnostic. This is a
- * lightweight liveness probe only.
+ * Self-check command (ASYNC). Always runs the SMOKE liveness probe — the two
+ * filesystem walks (scan + orphan detector) over `ctx.configDir` — and then, when
+ * the matching flag (or `--all`) is set, ADDS one or more rigorous gates over the
+ * mgr's OWN source tree (resolved from this module's URL, NOT configDir):
+ *   --lint        SLOC/param limits on src/**.mjs       (lintTree)
+ *   --invariants  load-order single-source-of-truth     (checkInvariants)
+ *   --boundary    import-graph + write-allowlist probe   (checkBoundary)
+ *   --all         run all three in addition to the smoke checks
  *
- * NOTE: P1.U16 EXTENDS selftest with the rigorous boundary / invariants / lint
- * checks; this handler is intentionally just the smoke layer.
+ * The boundary gate dynamically imports paths.mjs for the runtime write-allowlist
+ * probe; when `~/.claude/hooks/lib` is absent that import rejects, so it is guarded
+ * and the gate degrades to a static-only scan (+ a `boundary-runtime-skipped` info).
+ *
+ * Returns `{ ok, checks }` (ok = every check passed) plus the aggregated
+ * diagnostics: the smoke error+warn set PLUS every rigorous-check diagnostic
+ * (info such as `boundary-runtime-skipped` is included but never affects the exit
+ * code, which keys off error-severity only). Never throws — the selftest modules
+ * never throw and the paths.mjs import is guarded.
  * @type {CommandHandler}
  */
-export function selftestCommand(ctx) {
+export async function selftestCommand(ctx) {
   const s = scan({ targetClaudeDir: ctx.configDir });
   const o = detectOrphans(ctx.configDir);
 
@@ -236,8 +252,40 @@ export function selftestCommand(ctx) {
     { name: 'orphans', ok: orphanErrors.length === 0 },
   ];
 
-  // Aggregate the error AND warn diagnostics from both walks (info is noise here).
+  // Smoke layer: aggregate the error AND warn diagnostics from both walks (info is noise here).
+  /** @type {Diagnostic[]} */
   const diagnostics = [...s.diagnostics, ...o.diagnostics].filter((d) => d.severity === 'error' || d.severity === 'warn');
+
+  // Rigorous gates run against the mgr's OWN source dir (src/), resolved from this
+  // module's URL — commands.mjs lives at src/cli/commands.mjs, so '..' is src/.
+  const args = ctx.args || {};
+  const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+  if (args.all || args.lint) {
+    const lr = lintTree(srcDir);
+    checks.push({ name: 'lint', ok: !lr.diagnostics.some((d) => d.severity === 'error') });
+    for (const d of lr.diagnostics) diagnostics.push(d);
+  }
+  if (args.all || args.invariants) {
+    const ir = checkInvariants(srcDir);
+    checks.push({ name: 'invariants', ok: !ir.diagnostics.some((d) => d.severity === 'error') });
+    for (const d of ir.diagnostics) diagnostics.push(d);
+  }
+  if (args.all || args.boundary) {
+    let assertWritable;
+    let roots;
+    try {
+      const p = await import('../paths.mjs');
+      assertWritable = p.assertWritable;
+      roots = p.resolveRoots();
+    } catch {
+      // ~/.claude/hooks/lib absent → paths.mjs import rejects; fall back to static-only.
+    }
+    const br = checkBoundary({ srcDir, assertWritable, roots });
+    checks.push({ name: 'boundary', ok: !br.diagnostics.some((d) => d.severity === 'error') });
+    for (const d of br.diagnostics) diagnostics.push(d);
+  }
+
   return { result: { ok: checks.every((c) => c.ok), checks }, diagnostics };
 }
 
