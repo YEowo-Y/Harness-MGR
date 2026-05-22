@@ -70,8 +70,9 @@ func (m model) View() string {
 }
 
 func main() {
-	probe := flag.Bool("probe", false, "headless: fetch data, print counts as plain text, exit (no TUI)")
-	cliFlag := flag.String("cli", "", "path to the claude-mgr Node CLI entry (src/cli.mjs)")
+	probe    := flag.Bool("probe",    false, "headless: fetch data, print counts as plain text, exit (no TUI)")
+	snapshot := flag.Bool("snapshot", false, "headless: fetch data, render the styled View() frame to stdout, exit (no TUI)")
+	cliFlag  := flag.String("cli",    "", "path to the claude-mgr Node CLI entry (src/cli.mjs)")
 	flag.Parse()
 
 	cliPath := resolveCLIPath(*cliFlag)
@@ -82,11 +83,29 @@ func main() {
 
 	configureColor()
 
+	if *snapshot {
+		os.Exit(runSnapshot(cliPath))
+	}
+
 	p := tea.NewProgram(initialModel(cliPath))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// runSnapshot fetches the inventory, builds a loaded model, renders View() to
+// stdout, and exits. Distinct from --probe (plain text counts) — this renders
+// the actual styled lipgloss frame for non-TTY inspection.
+func runSnapshot(cliPath string) int {
+	inv, err := fetchInventory(cliPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "snapshot error: %v\n", err)
+		return 1
+	}
+	m := model{inv: inv, cliPath: cliPath} // loading=false, err=nil → inventoryView path
+	fmt.Println(m.View())
+	return 0
 }
 
 // runProbe fetches the inventory and prints it as plain text for non-TTY
