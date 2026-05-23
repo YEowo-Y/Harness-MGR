@@ -56,21 +56,22 @@ const (
 // nodeKindCount is the number of type folders, derived from the iota.
 const nodeKindCount = int(kindMcp) + 1
 
-// kindMeta describes a folder's label and colors.
+// kindMeta describes a folder's label, colors, and Unicode icon.
 type kindMeta struct {
 	label    string
 	folderFg lipgloss.Color // bright — folder header
 	itemFg   lipgloss.Color // dimmer — items under an expanded folder
+	icon     string         // single-width Unicode symbol; gate via glyph() at render time
 }
 
 // kindMetas indexes display metadata by nodeKind (fixed order + per-type color).
 var kindMetas = [nodeKindCount]kindMeta{
-	kindSkill:       {label: "Skills", folderFg: colorSkill, itemFg: dimSkill},
-	kindAgent:       {label: "Agents", folderFg: colorAgent, itemFg: dimAgent},
-	kindCommand:     {label: "Commands", folderFg: colorCommand, itemFg: dimCommand},
-	kindPlugin:      {label: "Plugins", folderFg: colorPlugin, itemFg: dimPlugin},
-	kindMarketplace: {label: "Marketplaces", folderFg: colorMarketplace, itemFg: dimMarketplace},
-	kindMcp:         {label: "MCP", folderFg: colorMcp, itemFg: dimMcp},
+	kindSkill:       {label: "Skills", folderFg: colorSkill, itemFg: dimSkill, icon: "◆"},
+	kindAgent:       {label: "Agents", folderFg: colorAgent, itemFg: dimAgent, icon: "●"},
+	kindCommand:     {label: "Commands", folderFg: colorCommand, itemFg: dimCommand, icon: "▸"},
+	kindPlugin:      {label: "Plugins", folderFg: colorPlugin, itemFg: dimPlugin, icon: "✦"},
+	kindMarketplace: {label: "Marketplaces", folderFg: colorMarketplace, itemFg: dimMarketplace, icon: "■"},
+	kindMcp:         {label: "MCP", folderFg: colorMcp, itemFg: dimMcp, icon: "◇"},
 }
 
 // treeNode is one selectable object inside a folder. Exactly one of the four
@@ -336,12 +337,18 @@ func (t *treeModel) renderRow(i, width int) string {
 	return t.renderItemRow(row, meta, selected, width)
 }
 
-// renderFolderRow draws "▾ Skills (240)" bold in the folder color. When the
-// cursor is on it, a leading accent bar in the type color precedes the text and
-// the text is brightened (bold already, kept in the bright folder color).
+// renderFolderRow draws "◆ ▾ Skills (240)" bold in the folder color (icon
+// only on Unicode-capable terminals). When the cursor is on it, a leading
+// accent bar in the type color precedes the text and the text is brightened
+// (bold already, kept in the bright folder color).
 func (t *treeModel) renderFolderRow(row visRow, meta kindMeta, selected bool, width int) string {
 	f := t.folders[row.folderIdx]
-	label := chevron(f.expanded) + " " + meta.label + " (" + strconv.Itoa(len(f.nodes)) + ")"
+	iconStr := glyph(meta.icon, "")
+	iconPrefix := ""
+	if iconStr != "" {
+		iconPrefix = iconStr + " "
+	}
+	label := iconPrefix + chevron(f.expanded) + " " + meta.label + " (" + strconv.Itoa(len(f.nodes)) + ")"
 
 	style := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg)
 	if selected {
