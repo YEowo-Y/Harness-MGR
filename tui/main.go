@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -12,18 +11,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
-
-// splashMinDuration is the minimum time the startup splash is shown before it
-// can be dismissed by data arrival. A key press always dismisses immediately.
-const splashMinDuration = 1500 * time.Millisecond
-
-// splashTimerMsg is delivered by splashTimerCmd after splashMinDuration elapses.
-type splashTimerMsg struct{}
-
-// splashTimerCmd returns a tea.Cmd that fires splashTimerMsg after splashMinDuration.
-func splashTimerCmd() tea.Cmd {
-	return tea.Tick(splashMinDuration, func(time.Time) tea.Msg { return splashTimerMsg{} })
-}
 
 // inventoryMsg carries the result of the async counts fetch into the Update
 // loop. Exactly one of inv / err is meaningful (err != nil means the fetch
@@ -143,14 +130,13 @@ type model struct {
 	height      int
 
 	// Inventory split-pane state.
-	detailData      DetailData
-	detailErr       error
-	detailLoading   bool // `inventory --detail` fetch in flight
-	splashTimerDone bool // true after splashMinDuration has elapsed
-	tree            treeModel
-	detail          viewport.Model
-	spinner         spinner.Model
-	focus           focusPane
+	detailData    DetailData
+	detailErr     error
+	detailLoading bool // `inventory --detail` fetch in flight
+	tree          treeModel
+	detail        viewport.Model
+	spinner       spinner.Model
+	focus         focusPane
 
 	// Tree pane inner size, computed by layoutPanes and consumed by the tree
 	// renderer (the custom tree widget is sized at render time, not via SetSize).
@@ -262,8 +248,8 @@ func (m model) anyLoading() bool {
 	return false
 }
 
-// Init kicks off all async fetches, starts the spinner ticking, and starts the
-// minimum splash timer so the splash is always visible for at least splashMinDuration.
+// Init kicks off all async fetches and starts the spinner ticking. The splash
+// persists until the user presses a key or clicks — no auto-dismiss timer.
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchCmd(m.cliPath),
@@ -274,7 +260,6 @@ func (m model) Init() tea.Cmd {
 		fetchHooksCmd(m.cliPath),
 		fetchSelftestCmd(m.cliPath),
 		m.spinner.Tick,
-		splashTimerCmd(),
 	)
 }
 
@@ -291,13 +276,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailErr = msg.err
 		m.tree = newTreeModel(msg.data)
 		m.refreshDetail()
-		if m.splashTimerDone {
-			m.showSplash = false
-		}
+		// Splash persists — the user must press a key or click to enter.
 		return m, nil
-	case splashTimerMsg:
-		m.splashTimerDone = true
-		if !m.detailLoading {
+	case tea.MouseMsg:
+		// A left-button press while the splash is up enters the dashboard. Once
+		// the splash is gone, dashboard mouse events are intentionally dropped
+		// here — route them to a widget if one ever needs the mouse.
+		if m.showSplash && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
 			m.showSplash = false
 		}
 		return m, nil
@@ -629,7 +614,10 @@ func main() {
 		os.Exit(runSnapshot(cliPath))
 	}
 
-	p := tea.NewProgram(initialModel(cliPath), tea.WithAltScreen())
+	// WithMouseCellMotion enables mouse events so a click can dismiss the splash;
+	// the tradeoff is that native terminal text-selection is disabled while the
+	// TUI runs.
+	p := tea.NewProgram(initialModel(cliPath), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
 		os.Exit(1)
