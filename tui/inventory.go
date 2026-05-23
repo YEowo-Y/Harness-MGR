@@ -101,12 +101,19 @@ func (m *model) layoutPanes() {
 // refreshDetail rebuilds the detail viewport content from the currently selected
 // tree node and scrolls it back to the top. Safe to call any time: with no item
 // selected (folder row or empty tree) it renders an empty-state hint.
+// For component nodes (skill/agent/command) it appends a file-content preview
+// below the metadata fields via previewSection. File I/O is done here, not in
+// detailContent, so View() stays pure and existing tests remain valid.
 func (m *model) refreshDetail() {
 	innerW := m.detail.Width
 	if innerW < 1 {
 		innerW = defaultWidth
 	}
 	node, ok := m.tree.selectedNode()
-	m.detail.SetContent(detailContent(node, ok, innerW))
+	content := detailContent(node, ok, innerW)
+	if ok && node.comp != nil {
+		content += previewSection(node.comp.Path, innerW)
+	}
+	m.detail.SetContent(content)
 	m.detail.GotoTop()
 }
