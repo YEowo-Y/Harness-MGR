@@ -99,6 +99,61 @@ func renderPixelCat(rows []string) string {
 	return strings.Join(out, "\n")
 }
 
+// colorCat is a vibrant SOLID-BLOCK cat replicating the chunky reference image:
+// pointy ears with peach inner (i), white eyes (w) with black pupils (k), a brown
+// nose (n), a pink mouth (m), four legs, and a multicolor "炫彩" mosaic body (b).
+// Each cell is a color KEY (rendered as █); '.' is transparent. Rows are 11 wide.
+var colorCat = []string{
+	`bb.......bb`,
+	`bib.....bib`,
+	`bbbbbbbbbbb`,
+	`bwkbbbbbkwb`,
+	`bbbbbbbbbbb`,
+	`bbbbnnnbbbb`,
+	`bbbmmmmmbbb`,
+	`bbbbbbbbbbb`,
+	`bb.bb.bb.bb`,
+}
+
+// colorCatKey maps a colorCat cell key to its color: peach inner ear, white eye,
+// black pupil, brown nose, pink mouth, and a position-hashed mosaic for the body.
+func colorCatKey(key rune, row, col int) lipgloss.Color {
+	switch key {
+	case 'i':
+		return lipgloss.Color("#FDD9B5") // peach inner ear
+	case 'w':
+		return lipgloss.Color("#F8FAFC") // eye white
+	case 'k':
+		return lipgloss.Color("#1F2937") // pupil
+	case 'n':
+		return lipgloss.Color("#7C3F1D") // brown nose
+	case 'm':
+		return lipgloss.Color("#F472B6") // pink mouth
+	default: // 'b' body → vibrant mosaic
+		return lipgloss.Color(catMosaic[(row*7+col*13)%len(catMosaic)])
+	}
+}
+
+// renderColorCat renders a color-keyed grid as solid █ blocks (each in its key's
+// color); '.' / space cells stay transparent.
+func renderColorCat(rows []string) string {
+	out := make([]string, len(rows))
+	for row, line := range rows {
+		var b strings.Builder
+		col := 0
+		for _, key := range line {
+			if key == '.' || key == ' ' {
+				b.WriteRune(' ')
+			} else {
+				b.WriteString(lipgloss.NewStyle().Foreground(colorCatKey(key, row, col)).Render("█"))
+			}
+			col++
+		}
+		out[row] = b.String()
+	}
+	return strings.Join(out, "\n")
+}
+
 // renderMascotFrame renders frame lines centered to the block's max width. When
 // grad is true it applies the vertical multi-stop gradient (the same scheme as
 // renderMascot); otherwise it uses a single solid mascotColor — so the preview
@@ -133,6 +188,9 @@ func mascotPreviewView() string {
 
 	var b strings.Builder
 	b.WriteString(head.Render("Cat mascot candidates — run in a real terminal for color") + "\n\n")
+
+	b.WriteString(head.Render("vibrant block cat (replicates the new image):") + "\n\n")
+	b.WriteString(renderColorCat(colorCat) + "\n\n")
 
 	b.WriteString(head.Render("replica attempt (per-cell pixel cat):") + "\n\n")
 	b.WriteString(renderPixelCat(catReplica) + "\n\n")
