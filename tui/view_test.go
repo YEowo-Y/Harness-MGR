@@ -207,12 +207,58 @@ func TestComponentDetailShowsMarketplaceVersion(t *testing.T) {
 // renderMascot does not gate). Tied to len(splashMascot) so the sprite's row
 // count can change without breaking this test.
 func TestRenderMascotLineCount(t *testing.T) {
-	got := renderMascot()
+	got := renderMascot(false)
 	if n, want := strings.Count(got, "\n"), len(splashMascot)-1; n != want {
 		t.Fatalf("renderMascot newlines = %d, want %d (%d lines)", n, want, len(splashMascot))
 	}
 	if stripANSI(got) == "" {
 		t.Fatal("renderMascot returned empty content")
+	}
+}
+
+// TestRenderMascotBlinkDiffers asserts the blink (eyes-closed) frame renders
+// differently from the open frame but has identical dimensions — same row count
+// AND same per-row display width — so the blink changes only the eyes and never
+// shifts the header layout.
+func TestRenderMascotBlinkDiffers(t *testing.T) {
+	open := renderMascot(false)
+	closed := renderMascot(true)
+	if open == closed {
+		t.Fatal("blink frame should differ from the eyes-open frame")
+	}
+	if a, b := strings.Count(open, "\n"), strings.Count(closed, "\n"); a != b {
+		t.Fatalf("open/closed frames differ in line count: %d vs %d", a, b)
+	}
+	// Equal raw-frame dimensions guard against a future glyph edit that would
+	// jitter the header mid-blink (e.g. swapping in a wide/CJK rune).
+	if len(splashMascot) != len(splashMascotBlink) {
+		t.Fatalf("frames differ in row count: %d vs %d", len(splashMascot), len(splashMascotBlink))
+	}
+	for i := range splashMascot {
+		if a, b := lipgloss.Width(splashMascot[i]), lipgloss.Width(splashMascotBlink[i]); a != b {
+			t.Fatalf("frame row %d width differs: open=%d closed=%d (would jitter mid-blink)", i, a, b)
+		}
+	}
+}
+
+// TestBlinkMsgTogglesAndReschedules asserts a blinkMsg flips model.mascotBlink
+// and returns a non-nil command to schedule the next blink (so the animation
+// keeps cycling).
+func TestBlinkMsgTogglesAndReschedules(t *testing.T) {
+	m := initialModel("x")
+	if m.mascotBlink {
+		t.Fatal("mascotBlink should start false (eyes open)")
+	}
+	next, cmd := m.Update(blinkMsg{})
+	nm := next.(model)
+	if !nm.mascotBlink {
+		t.Fatal("blinkMsg should toggle mascotBlink to true (eyes closed)")
+	}
+	if cmd == nil {
+		t.Fatal("blinkMsg should reschedule the next blink (non-nil cmd)")
+	}
+	if next2, _ := nm.Update(blinkMsg{}); next2.(model).mascotBlink {
+		t.Fatal("second blinkMsg should toggle back to false (eyes open)")
 	}
 }
 
