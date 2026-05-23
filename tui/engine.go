@@ -212,6 +212,137 @@ func fetchDetail(cliPath string) (DetailData, error) {
 	return d, nil
 }
 
+// ── Conflicts & Orphans structs ───────────────────────────────────────────────
+
+// ConflictMember is one component record inside a ConflictCluster.
+type ConflictMember struct {
+	Name   string          `json:"name"`
+	Path   string          `json:"path"`
+	Source ComponentSource `json:"source"`
+}
+
+// ConflictCluster is one shadowing cluster from the `conflicts --format json`
+// result. Kind is "skill"/"agent"/"command"; Key is the resolution key; Confidence
+// is "likely"/"verified"; Severity is the diagnostic severity. LikelyWinner is
+// the component that wins; PossibleWinners are the others in the cluster.
+type ConflictCluster struct {
+	Kind            string           `json:"kind"`
+	Key             string           `json:"key"`
+	Confidence      string           `json:"confidence"`
+	Severity        string           `json:"severity"`
+	LikelyWinner    ConflictMember   `json:"likelyWinner"`
+	PossibleWinners []ConflictMember `json:"possibleWinners"`
+	Reason          string           `json:"reason"`
+	Fix             string           `json:"fix"`
+}
+
+// Orphan is one entry from the `orphans --format json` result. Category is
+// "hard" or "soft"; Container is the containing directory name; EntryType is
+// "file" or "dir"; Path is the absolute path.
+type Orphan struct {
+	Category  string `json:"category"`
+	Container string `json:"container"`
+	EntryType string `json:"entryType"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Reason    string `json:"reason"`
+}
+
+// OrphanSummary holds the hard/soft/total counts from the `orphans` result.
+type OrphanSummary struct {
+	Hard  int `json:"hard"`
+	Soft  int `json:"soft"`
+	Total int `json:"total"`
+}
+
+// OrphansResult bundles the orphan list and summary from the `orphans` command.
+type OrphansResult struct {
+	Orphans []Orphan      `json:"orphans"`
+	Summary OrphanSummary `json:"summary"`
+}
+
+// ── Narrow envelopes for conflicts / orphans decoding ────────────────────────
+
+type conflictsEnvelope struct {
+	Result struct {
+		Conflicts []ConflictCluster `json:"conflicts"`
+	} `json:"result"`
+}
+
+type orphansEnvelope struct {
+	Result struct {
+		Orphans []Orphan      `json:"orphans"`
+		Summary OrphanSummary `json:"summary"`
+	} `json:"result"`
+}
+
+// ── Fetchers ──────────────────────────────────────────────────────────────────
+
+// runJSON shells out to `node <cliPath> <args...>`, captures stdout, and returns
+// the raw bytes. It never panics: exec failures, timeouts, and non-zero exits
+// return errors with stderr included when available. The 30-second timeout
+// matches the existing fetchInventory / fetchDetail pattern.
+func runJSON(cliPath string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	allArgs := append([]string{cliPath}, args...)
+	cmd := exec.CommandContext(ctx, "node", allArgs...)
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("running node CLI (%s): %v: %s", cliPath, err, string(ee.Stderr))
+		}
+		return nil, fmt.Errorf("running node CLI (%s): %w", cliPath, err)
+	}
+	return out, nil
+}
+
+// parseConflicts unmarshals a raw `conflicts --format json` envelope into a
+// ConflictCluster slice. Pure function — no exec, never panics.
+func parseConflicts(data []byte) ([]ConflictCluster, error) {
+	var env conflictsEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("parsing conflicts JSON: %w", err)
+	}
+	return env.Result.Conflicts, nil
+}
+
+// parseOrphans unmarshals a raw `orphans --format json` envelope into an
+// OrphansResult. Pure function — no exec, never panics.
+func parseOrphans(data []byte) (OrphansResult, error) {
+	var env orphansEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return OrphansResult{}, fmt.Errorf("parsing orphans JSON: %w", err)
+	}
+	return OrphansResult{
+		Orphans: env.Result.Orphans,
+		Summary: env.Result.Summary,
+	}, nil
+}
+
+// fetchConflicts shells out to `node <cliPath> conflicts --format json`,
+// captures stdout, and unmarshals it into a ConflictCluster slice. It never
+// panics: exec failures, timeouts, and malformed JSON are returned as errors.
+func fetchConflicts(cliPath string) ([]ConflictCluster, error) {
+	data, err := runJSON(cliPath, "conflicts", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	return parseConflicts(data)
+}
+
+// fetchOrphans shells out to `node <cliPath> orphans --format json`, captures
+// stdout, and unmarshals it into an OrphansResult. It never panics: exec
+// failures, timeouts, and malformed JSON are returned as errors.
+func fetchOrphans(cliPath string) (OrphansResult, error) {
+	data, err := runJSON(cliPath, "orphans", "--format", "json")
+	if err != nil {
+		return OrphansResult{}, err
+	}
+	return parseOrphans(data)
+}
+
 // sortComponents orders components by kind then name (both ascending), in place.
 // Ordering is case-insensitive on the surface text so "Foo" and "foo" cluster
 // naturally; ties fall back to the case-sensitive value for determinism.
