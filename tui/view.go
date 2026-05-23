@@ -271,25 +271,18 @@ func (m model) mascotVisible() bool {
 
 // headerView renders the active tab's counts/summary bar. When mascotVisible()
 // it narrows the bar by mascotBarWidth and joins the mascot sprite (at its
-// current blink frame) to its right; the Inventory tab fills the freed band with
-// a multi-line statsPanel sized to exactly the mascot's height (so the header
-// height — and thus splitDims' reservation — is unchanged). Otherwise it returns
-// the full-width bar unchanged. Placeholder tabs have no bar and yield "".
+// current blink frame) to its right; otherwise it returns the full-width bar
+// unchanged — byte-for-byte the prior no-mascot header. Placeholder tabs have no
+// bar and yield "".
 func (m model) headerView() string {
 	build, ok := m.headerBarBuilder()
 	if !ok {
 		return ""
 	}
-	if !m.mascotVisible() {
-		return build(m.width)
+	if m.mascotVisible() {
+		return lipgloss.JoinHorizontal(lipgloss.Top, build(mascotBarWidth(m.width)), renderMascot(m.mascotBlink))
 	}
-	mascot := renderMascot(m.mascotBlink)
-	barW := mascotBarWidth(m.width)
-	left := build(barW)
-	if m.currentView == viewInventory {
-		left = statsPanel(m.inv.Result.Counts, barW, lipgloss.Height(mascot))
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, mascot)
+	return build(m.width)
 }
 
 // ── Counts overview bar (Inventory tab) ─────────────────────────────────────
@@ -322,46 +315,6 @@ const countsSep = " · "
 // countsBarPadX is countsBarView's horizontal padding per side; it consumes
 // 2*countsBarPadX columns of the bar width, leaving the remainder for content.
 const countsBarPadX = 1
-
-// countsSegString renders one counts segment as "<icon> <n> <label>" in its type
-// color (bold count); the icon is dropped on no-Unicode terminals via glyph.
-func countsSegString(s countsSeg) string {
-	style := lipgloss.NewStyle().Foreground(s.fg)
-	prefix := ""
-	if icon := glyph(typeIcon(s.kind), ""); icon != "" {
-		prefix = style.Render(icon) + " "
-	}
-	return prefix + style.Bold(true).Render(strconv.Itoa(s.n)) + style.Render(" "+s.label)
-}
-
-// statsPanel renders the multi-line Inventory overview that fills the header band
-// beside the mascot: the gradient wordmark over the six type counts laid out two
-// per row, padded/clamped to exactly height rows so the header height equals the
-// mascot's (keeping splitDims' reservation valid). Each row is set to width AND
-// clipped to a single line (MaxHeight 1) so a too-narrow width can't wrap a row
-// and inflate the panel past height. A JoinHorizontal mascot sits flush right.
-func statsPanel(c Counts, width, height int) string {
-	segs := countsSegments(c)
-	sep := lipgloss.NewStyle().Foreground(leaderDim).Render(countsSep)
-	row := func(a, b countsSeg) string { return countsSegString(a) + sep + countsSegString(b) }
-	lines := []string{
-		brandWordmark(),
-		row(segs[0], segs[1]),
-		row(segs[2], segs[3]),
-		row(segs[4], segs[5]),
-	}
-	for len(lines) < height {
-		lines = append(lines, "")
-	}
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	rowStyle := lipgloss.NewStyle().Width(width).MaxHeight(1)
-	for i := range lines {
-		lines[i] = rowStyle.Render(lines[i])
-	}
-	return strings.Join(lines, "\n")
-}
 
 // countsBarView renders the single-line overview above the tree:
 // "240 skills · 19 agents · 79 commands · 13 plugins · 4 marketplaces · 6 mcp",
