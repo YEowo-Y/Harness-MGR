@@ -19,9 +19,9 @@ import (
 
 // sectionItem is one selectable row in a flat section list.
 type sectionItem struct {
-	title  string         // row label
-	color  lipgloss.Color // row color; zero value ("") renders in the default fg
-	detail string         // pre-formatted detail-pane body for this row (built by the caller)
+	title  string                 // row label
+	color  lipgloss.Color         // row color; zero value ("") renders in the default fg
+	detail func(width int) string // detail-pane body built at render time with the live pane width
 }
 
 // sectionModel is the flat list widget state: the items, the cursor position,
