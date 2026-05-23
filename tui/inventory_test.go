@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -293,6 +295,34 @@ func TestExpandThenSelectMarketplaceDetail(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("marketplace detail missing %q: %q", want, view)
 		}
+	}
+}
+
+// TestRefreshDetailAppendsPreviewForComponent verifies the wiring at the model
+// level: selecting a COMPONENT item makes refreshDetail read its file and append
+// the content preview (here a real temp SKILL.md). This exercises the
+// `node.comp != nil` guard in refreshDetail, not just previewSection in isolation.
+func TestRefreshDetailAppendsPreviewForComponent(t *testing.T) {
+	dir := t.TempDir()
+	skillPath := filepath.Join(dir, "SKILL.md")
+	if err := os.WriteFile(skillPath, []byte("---\nname: x\n---\nUNIQUE_PREVIEW_BODY\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data := DetailData{
+		Components: []Component{{Name: "x", Kind: "skill", Source: ComponentSource{Tier: "user"}, Path: skillPath}},
+	}
+	m := initialModel("unused")
+	mm, _ := m.Update(detailMsg{data: data})
+	m = mm.(model)
+	mm, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m = mm.(model)
+	// Skills start expanded; j lands the cursor on the lone skill item.
+	m = pressRune(t, m, 'j')
+	if n, ok := m.tree.selectedNode(); !ok || n.comp == nil {
+		t.Fatalf("expected the skill item selected, got %+v ok=%v", n, ok)
+	}
+	if !strings.Contains(m.detail.View(), "UNIQUE_PREVIEW_BODY") {
+		t.Fatalf("component detail missing file preview body: %q", m.detail.View())
 	}
 }
 
