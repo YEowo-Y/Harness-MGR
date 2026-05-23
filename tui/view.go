@@ -33,7 +33,6 @@ var (
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	subtitleStyle = lipgloss.NewStyle().Foreground(configGray)
 	configStyle   = lipgloss.NewStyle().Foreground(configGray)
 
@@ -179,7 +178,17 @@ func countsBarView(c Counts, termWidth int) string {
 		style := lipgloss.NewStyle().Foreground(s.fg)
 		parts = append(parts, style.Bold(true).Render(strconv.Itoa(s.n))+style.Render(" "+s.label))
 	}
-	line := strings.Join(parts, sep)
+	counts := strings.Join(parts, sep)
+
+	// Prepend the gradient wordmark only when it fits on one line with the
+	// counts; on a narrow terminal keep the full counts rather than wrap the
+	// chrome bar. Padding(0,1) costs 2 columns, so the content must fit in
+	// termWidth-2. Unknown width (≤0) → include it (no fixed-width wrap risk).
+	line := counts
+	withBrand := brandWordmark() + lipgloss.NewStyle().Foreground(leaderDim).Render("   ") + counts
+	if termWidth <= 0 || lipgloss.Width(withBrand)+2 <= termWidth {
+		line = withBrand
+	}
 
 	style := lipgloss.NewStyle().Padding(0, 1)
 	if termWidth > 0 {
@@ -489,7 +498,7 @@ func placeholderView(v viewID, cardW int) string {
 	inner := innerWidth(cardW)
 	label := strings.ToLower(tabLabels[int(v)])
 
-	title := accentBar(accent) + titleStyle.Render("claude-mgr") +
+	title := accentBar(accent) + brandWordmark() +
 		"  " + subtitleStyle.Render(label)
 	msg := placeholderStyle.Render(label + " — coming soon")
 	centered := lipgloss.PlaceHorizontal(inner, lipgloss.Center, msg)
