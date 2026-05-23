@@ -41,10 +41,11 @@ var (
 	// Placeholder text for not-yet-built tabs.
 	placeholderStyle = lipgloss.NewStyle().Foreground(configGray).Italic(true)
 
-	// Detail-pane styles. Field labels in gray; values default. (The per-type
-	// detail title color is applied inline by detailTitle().)
-	detailLabelStyle = lipgloss.NewStyle().Foreground(labelGray)
-	detailValueStyle = lipgloss.NewStyle().Foreground(statusDim)
+	// Detail-pane styles. Labels are dim so they recede; values are brighter so
+	// they stand out — a color hierarchy within each row. (The per-type detail
+	// title color is applied inline by detailTitle().)
+	detailLabelStyle = lipgloss.NewStyle().Foreground(configGray)
+	detailValueStyle = lipgloss.NewStyle().Foreground(labelGray)
 	detailEmptyStyle = lipgloss.NewStyle().Foreground(configGray).Italic(true)
 
 	// Tab-bar cells.
@@ -438,9 +439,23 @@ func mcpDetail(ms McpServer, fg lipgloss.Color, width int) string {
 	return b.String()
 }
 
-// detailTitle renders the detail header in the given type color (bold).
+// detailTitle renders the detail header: a type-colored accent bar + the bold
+// name, then a dim full-width rule beneath it — giving every detail pane a clear
+// header/body split without changing its content.
 func detailTitle(name string, fg lipgloss.Color, width int) string {
-	return lipgloss.NewStyle().Bold(true).Foreground(fg).Render(truncate(name, width))
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(fg)
+	bar := titleStyle.Render(glyph("▌", "|")) + " "
+	avail := width - lipgloss.Width(bar)
+	if avail < 1 {
+		avail = 1
+	}
+	ruleW := width
+	if ruleW < 0 {
+		ruleW = 0
+	}
+	rule := lipgloss.NewStyle().Foreground(leaderDim).
+		Render(strings.Repeat(glyph("─", "-"), ruleW))
+	return bar + titleStyle.Render(truncate(name, avail)) + "\n" + rule
 }
 
 // boolText renders a bool as "yes"/"no" for the detail rows.
