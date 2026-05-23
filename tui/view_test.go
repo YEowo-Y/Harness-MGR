@@ -214,17 +214,53 @@ func TestRenderMascotThreeLines(t *testing.T) {
 	}
 }
 
-// TestMascotShownAtNarrow asserts the corner mascot is hidden on a narrow
-// terminal (the width gate holds regardless of Unicode support).
-func TestMascotShownAtNarrow(t *testing.T) {
-	if mascotShownAt(10) {
-		t.Fatal("mascotShownAt(10) = true, want false (below mascotMinWidth)")
+// TestBarFitsOneLine exercises the content-aware fit logic that gates the corner
+// mascot — directly, without unicodeEnabled() (false under `go test`). A counts
+// bar rendered at a generous width occupies one row; the same bar forced into a
+// tiny width wraps to multiple rows. mascotVisible shows the mascot only in the
+// former case, falling back to a full-width bar in the latter.
+func TestBarFitsOneLine(t *testing.T) {
+	c := Counts{Skills: 240, Agents: 19, Commands: 79, Plugins: 13, Marketplaces: 4, McpServers: 6}
+
+	wide := countsBarView(c, 200)
+	if !barFitsOneLine(wide) {
+		t.Fatalf("counts bar at width 200 should fit one line, got height %d", lipgloss.Height(wide))
+	}
+
+	narrow := countsBarView(c, 15)
+	if barFitsOneLine(narrow) {
+		t.Fatalf("counts bar at width 15 should wrap to >1 line, got height %d", lipgloss.Height(narrow))
+	}
+}
+
+// TestMascotBarWidthReserves asserts mascotBarWidth subtracts the mascot block
+// from the terminal width and floors the result at 1, so a degenerate width can
+// never produce a zero/negative bar width downstream.
+func TestMascotBarWidthReserves(t *testing.T) {
+	mb := mascotBlockWidth()
+	if got, want := mascotBarWidth(200), 200-mb; got != want {
+		t.Fatalf("mascotBarWidth(200) = %d, want %d (200 - mascotBlockWidth)", got, want)
+	}
+	if got := mascotBarWidth(mb); got != 1 {
+		t.Fatalf("mascotBarWidth(mascotBlockWidth) = %d, want 1 (floored)", got)
+	}
+	if got := mascotBarWidth(0); got != 1 {
+		t.Fatalf("mascotBarWidth(0) = %d, want 1 (floored)", got)
+	}
+}
+
+// TestMascotEligibleRequiresUnicode asserts the cheap precondition gate: without
+// a color/Unicode profile (no TTY under `go test`) the mascot is never eligible,
+// regardless of width, so the sprite glyphs can never render as mojibake.
+func TestMascotEligibleRequiresUnicode(t *testing.T) {
+	if mascotEligible(200) {
+		t.Fatal("mascotEligible(200) = true without Unicode (no TTY under go test), want false")
 	}
 }
 
 // TestSplitDimsReservesForMascotWhenAbsent guards the normal (no-mascot) path:
-// in the no-Unicode test env mascotShownAt is false, so splitDims reserves only
-// chromeRows and boxH = height - chromeRows.
+// in the no-Unicode test env mascotVisible is false (mascotEligible gates on
+// Unicode), so splitDims reserves only chromeRows and boxH = height - chromeRows.
 func TestSplitDimsReservesForMascotWhenAbsent(t *testing.T) {
 	m := model{width: 120, height: 30}
 	_, _, boxH := m.splitDims()
