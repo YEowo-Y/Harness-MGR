@@ -60,8 +60,15 @@ import { checkBoundary } from '../selftest/boundary.mjs';
 
 /**
  * Component / plugin / mcp counts plus the statusLine and top-dir layout.
- * Flags: `args.type` (optional 'skill'|'agent'|'command'|'plugin'|'mcp') narrows
- * the result to that kind's list instead of the count summary.
+ * Flags:
+ *   `args.type`   (optional 'skill'|'agent'|'command'|'plugin'|'mcp') narrows the
+ *                 result to that kind's list instead of the count summary.
+ *   `args.detail` (optional boolean) when truthy AND no `--type` narrowing is in
+ *                 effect, ADDS a `components` array to the count summary — every
+ *                 discovered skill/agent/command trimmed to the UI fields
+ *                 `{ name, kind, source, path }`. When absent the result is the
+ *                 counts-only summary, byte-for-byte as before (no `components`
+ *                 key) so existing callers and the lean path are unchanged.
  * @type {CommandHandler}
  */
 export function inventoryCommand(ctx) {
@@ -83,7 +90,22 @@ export function inventoryCommand(ctx) {
     topDirs: s.topDirs.known.filter((d) => d.present).map((d) => d.name),
     unknownTopDirs: s.topDirs.unknown,
   };
+  if (ctx.args && ctx.args.detail) result.components = s.components.map(trimComponent);
   return { result, diagnostics: s.diagnostics.slice() };
+}
+
+/**
+ * Trim a discovered ComponentRecord down to the fields a browsing UI needs:
+ * the loader identity (`name`), the `kind`, the provenance `source` (already a
+ * minimal `{tier, plugin?, marketplace?, version?}` map), and the absolute file
+ * `path`. Drops the raw `frontmatter` blob so `--detail` output stays lean.
+ * Pure and total — a malformed record degrades to undefined fields, never throws.
+ * @param {ComponentRecord} c
+ * @returns {{name: unknown, kind: unknown, source: unknown, path: unknown}}
+ */
+function trimComponent(c) {
+  const r = c || {};
+  return { name: r.name, kind: r.kind, source: r.source, path: r.path };
 }
 
 /**
