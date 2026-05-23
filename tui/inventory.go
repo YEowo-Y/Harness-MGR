@@ -119,7 +119,7 @@ func (m *model) refreshDetail() {
 		}
 		item, ok := st.list.selectedItem()
 		if ok {
-			m.detail.SetContent(item.detail)
+			m.detail.SetContent(item.detail(innerW))
 		} else {
 			m.detail.SetContent(detailEmptyStyle.Render("select an item on the left"))
 		}
