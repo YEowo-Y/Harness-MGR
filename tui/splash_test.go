@@ -80,90 +80,61 @@ func TestInitialModelShowSplash(t *testing.T) {
 	}
 }
 
-// TestDetailMsgDismissesSplash verifies that delivering BOTH a detailMsg AND a
-// splashTimerMsg sets showSplash=false. detailMsg alone no longer dismisses
-// the splash — it waits for the minimum timer to also fire.
-func TestDetailMsgDismissesSplash(t *testing.T) {
+// TestDetailMsgDoesNotDismissSplash verifies that a detailMsg (success) leaves
+// showSplash=true — data loads behind the splash but the user must act to enter.
+func TestDetailMsgDoesNotDismissSplash(t *testing.T) {
 	m := initialModel("x")
 	if !m.showSplash {
 		t.Fatal("precondition: showSplash should be true after initialModel")
 	}
-	// detailMsg alone: splash still showing (timer not done yet).
 	next, _ := m.Update(detailMsg{data: DetailData{}})
 	nm := next.(model)
 	if !nm.showSplash {
-		t.Fatal("showSplash should still be true after detailMsg alone (timer not done)")
-	}
-	// Now deliver the timer: both conditions met → dismiss.
-	next2, _ := nm.Update(splashTimerMsg{})
-	nm2 := next2.(model)
-	if nm2.showSplash {
-		t.Fatal("showSplash should be false after both detailMsg and splashTimerMsg")
+		t.Fatal("showSplash should still be true after detailMsg — user must enter manually")
 	}
 }
 
-// TestDetailMsgErrorDismissesSplash verifies the splash is dismissed even when
-// the detail fetch FAILED — otherwise a fetch error would freeze the splash.
-// Both detailMsg (with error) AND splashTimerMsg must arrive before dismissal.
-func TestDetailMsgErrorDismissesSplash(t *testing.T) {
+// TestDetailMsgErrorDoesNotDismissSplash verifies the splash also stays up when
+// the detail fetch FAILED — the user still presses a key or clicks to enter.
+func TestDetailMsgErrorDoesNotDismissSplash(t *testing.T) {
 	m := initialModel("x")
-	// detailMsg with error alone: not yet dismissed.
 	next, _ := m.Update(detailMsg{err: errors.New("fetch failed")})
 	nm := next.(model)
 	if !nm.showSplash {
-		t.Fatal("showSplash should still be true after error detailMsg alone (timer not done)")
-	}
-	// Timer fires: now dismiss.
-	next2, _ := nm.Update(splashTimerMsg{})
-	if next2.(model).showSplash {
-		t.Fatal("showSplash should be false after error detailMsg + splashTimerMsg")
+		t.Fatal("showSplash should still be true after error detailMsg — user must enter manually")
 	}
 }
 
-// TestSplashTimerAloneDoesNotDismiss verifies that the timer alone (without data
-// having loaded) does not dismiss the splash.
-func TestSplashTimerAloneDoesNotDismiss(t *testing.T) {
+// TestMouseClickDismissesSplash verifies that a left-button press MouseMsg while
+// showSplash=true sets showSplash=false (click-to-enter).
+func TestMouseClickDismissesSplash(t *testing.T) {
 	m := initialModel("x")
-	// detailLoading starts true; deliver only the timer.
-	next, _ := m.Update(splashTimerMsg{})
-	nm := next.(model)
-	if !nm.showSplash {
-		t.Fatal("showSplash should still be true when timer fires but data not yet loaded")
+	if !m.showSplash {
+		t.Fatal("precondition: showSplash should be true")
 	}
-	if !nm.splashTimerDone {
-		t.Fatal("splashTimerDone should be true after splashTimerMsg")
+	click := tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	}
+	next, _ := m.Update(click)
+	nm := next.(model)
+	if nm.showSplash {
+		t.Fatal("showSplash should be false after a left-click while splash is shown")
 	}
 }
 
-// TestSplashDismissesWhenBothDataAndTimer verifies the splash hides when both
-// conditions are met, regardless of delivery order (timer first or data first).
-func TestSplashDismissesWhenBothDataAndTimer(t *testing.T) {
-	// Order A: timer first, then data.
-	t.Run("timer_then_data", func(t *testing.T) {
-		m := initialModel("x")
-		next, _ := m.Update(splashTimerMsg{})
-		nm := next.(model)
-		if !nm.showSplash {
-			t.Fatal("should still show after timer alone")
-		}
-		next2, _ := nm.Update(detailMsg{data: DetailData{}})
-		if next2.(model).showSplash {
-			t.Fatal("should dismiss after data arrives post-timer")
-		}
-	})
-	// Order B: data first, then timer.
-	t.Run("data_then_timer", func(t *testing.T) {
-		m := initialModel("x")
-		next, _ := m.Update(detailMsg{data: DetailData{}})
-		nm := next.(model)
-		if !nm.showSplash {
-			t.Fatal("should still show after data alone")
-		}
-		next2, _ := nm.Update(splashTimerMsg{})
-		if next2.(model).showSplash {
-			t.Fatal("should dismiss after timer fires post-data")
-		}
-	})
+// TestMouseRightClickDoesNotDismissSplash verifies only a LEFT press enters; a
+// right-click leaves the splash up (guards the button check).
+func TestMouseRightClickDoesNotDismissSplash(t *testing.T) {
+	m := initialModel("x")
+	rightClick := tea.MouseMsg{
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonRight,
+	}
+	next, _ := m.Update(rightClick)
+	if !next.(model).showSplash {
+		t.Fatal("a right-click should not dismiss the splash")
+	}
 }
 
 // TestKeyMsgDismissesSplash verifies that any KeyMsg while showSplash=true sets
@@ -229,8 +200,8 @@ func TestSplashViewNoUnicodeFallback(t *testing.T) {
 		t.Fatalf("splashView no-unicode: missing wordmark fallback, got: %q", got)
 	}
 	// Mascot glyph must NOT appear (it's gated on unicodeEnabled).
-	if strings.Contains(got, "◕") {
-		t.Fatal("splashView no-unicode: mascot glyph '◕' should not appear")
+	if strings.Contains(got, "◠") {
+		t.Fatal("splashView no-unicode: mascot glyph '◠' should not appear")
 	}
 }
 
@@ -242,8 +213,8 @@ func TestSplashMascotShownWhenUnicode(t *testing.T) {
 		t.Skip("unicodeEnabled() is false in this environment — mascot not rendered")
 	}
 	got := splashView(80, 24)
-	if !strings.Contains(got, "◕") {
-		t.Fatalf("splashView unicode: expected mascot glyph '◕' in output\ngot: %q", got)
+	if !strings.Contains(got, "◠") {
+		t.Fatalf("splashView unicode: expected mascot glyph '◠' in output\ngot: %q", got)
 	}
 }
 
