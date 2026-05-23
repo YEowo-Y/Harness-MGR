@@ -202,12 +202,14 @@ func TestComponentDetailShowsMarketplaceVersion(t *testing.T) {
 
 // ── mascot / layout tests ─────────────────────────────────────────────────────
 
-// TestRenderMascotThreeLines asserts renderMascot returns a 3-line block with
-// non-empty content (testable regardless of Unicode — renderMascot does not gate).
-func TestRenderMascotThreeLines(t *testing.T) {
+// TestRenderMascotLineCount asserts renderMascot returns one rendered row per
+// splashMascot line with non-empty content (testable regardless of Unicode —
+// renderMascot does not gate). Tied to len(splashMascot) so the sprite's row
+// count can change without breaking this test.
+func TestRenderMascotLineCount(t *testing.T) {
 	got := renderMascot()
-	if n := strings.Count(got, "\n"); n != 2 {
-		t.Fatalf("renderMascot newlines = %d, want 2 (3 lines)", n)
+	if n, want := strings.Count(got, "\n"), len(splashMascot)-1; n != want {
+		t.Fatalf("renderMascot newlines = %d, want %d (%d lines)", n, want, len(splashMascot))
 	}
 	if stripANSI(got) == "" {
 		t.Fatal("renderMascot returned empty content")
