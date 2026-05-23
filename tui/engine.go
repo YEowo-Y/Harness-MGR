@@ -68,19 +68,63 @@ type ComponentSource struct {
 // Component mirrors one element of result.components from
 // `inventory --detail --format json`: a discovered skill/agent/command trimmed
 // to the fields a browsing UI needs. Kind is one of "skill"|"agent"|"command".
+// Description is the component's one-line summary (now emitted by --detail).
 type Component struct {
-	Name   string          `json:"name"`
-	Kind   string          `json:"kind"`
-	Source ComponentSource `json:"source"`
-	Path   string          `json:"path"`
+	Name        string          `json:"name"`
+	Kind        string          `json:"kind"`
+	Source      ComponentSource `json:"source"`
+	Path        string          `json:"path"`
+	Description string          `json:"description"`
 }
 
-// detailInventory is a narrow envelope used only to decode result.components
-// from the `--detail` run. It deliberately mirrors just the components array so
-// the decode is independent of the counts-oriented Inventory struct above.
+// Plugin mirrors one element of result.plugins from `inventory --detail`: an
+// installed plugin with its marketplace provenance and cache/enabled facts.
+type Plugin struct {
+	Name         string `json:"name"`
+	Key          string `json:"key"`
+	Marketplace  string `json:"marketplace"`
+	Version      string `json:"version"`
+	Enabled      bool   `json:"enabled"`
+	CachePresent bool   `json:"cachePresent"`
+}
+
+// Marketplace mirrors one element of result.marketplaces: a known marketplace
+// with its source repo and on-disk facts.
+type Marketplace struct {
+	Name            string `json:"name"`
+	SourceRepo      string `json:"sourceRepo"`
+	OnDisk          bool   `json:"onDisk"`
+	InstallLocation string `json:"installLocation"`
+}
+
+// McpServer mirrors one element of result.mcpServers: a configured MCP server
+// with its transport, scope, and launch command. Args may be empty.
+type McpServer struct {
+	Name      string   `json:"name"`
+	Transport string   `json:"transport"`
+	Scope     string   `json:"scope"`
+	Command   string   `json:"command"`
+	Args      []string `json:"args"`
+}
+
+// DetailData bundles all four object arrays decoded from a single
+// `inventory --detail --format json` run. The tree groups these by type.
+type DetailData struct {
+	Components   []Component
+	Plugins      []Plugin
+	Marketplaces []Marketplace
+	McpServers   []McpServer
+}
+
+// detailInventory is a narrow envelope used only to decode the four object
+// arrays from the `--detail` run. It mirrors just those arrays so the decode is
+// independent of the counts-oriented Inventory struct above.
 type detailInventory struct {
 	Result struct {
-		Components []Component `json:"components"`
+		Components   []Component   `json:"components"`
+		Plugins      []Plugin      `json:"plugins"`
+		Marketplaces []Marketplace `json:"marketplaces"`
+		McpServers   []McpServer   `json:"mcpServers"`
 	} `json:"result"`
 }
 
@@ -133,13 +177,16 @@ func fetchInventory(cliPath string) (Inventory, error) {
 	return inv, nil
 }
 
-// fetchComponents shells out to `node <cliPath> inventory --detail --format json`,
-// captures stdout, and unmarshals result.components into a []Component. It reuses
-// the same exec + 30s context timeout + JSON-unmarshal pattern as fetchInventory
-// and never panics: exec failures, timeouts, and malformed JSON return errors,
-// surfacing node stderr when available. The returned slice is ordered by kind
-// then name so the list pane has a stable, grouped order.
-func fetchComponents(cliPath string) ([]Component, error) {
+// fetchDetail shells out to `node <cliPath> inventory --detail --format json`,
+// captures stdout, and unmarshals ALL FOUR object arrays (components, plugins,
+// marketplaces, mcpServers) into a DetailData in a single call. It reuses the
+// same exec + 30s context timeout + JSON-unmarshal pattern as fetchInventory and
+// never panics: exec failures, timeouts, and malformed JSON return errors,
+// surfacing node stderr when available. Components are ordered by kind then name
+// so the tree's per-type folders have a stable order.
+func fetchDetail(cliPath string) (DetailData, error) {
+	var d DetailData
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -147,19 +194,22 @@ func fetchComponents(cliPath string) ([]Component, error) {
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
-			return nil, fmt.Errorf("running node CLI (%s): %v: %s", cliPath, err, string(ee.Stderr))
+			return d, fmt.Errorf("running node CLI (%s): %v: %s", cliPath, err, string(ee.Stderr))
 		}
-		return nil, fmt.Errorf("running node CLI (%s): %w", cliPath, err)
+		return d, fmt.Errorf("running node CLI (%s): %w", cliPath, err)
 	}
 
 	var di detailInventory
 	if err := json.Unmarshal(out, &di); err != nil {
-		return nil, fmt.Errorf("parsing CLI JSON output: %w", err)
+		return d, fmt.Errorf("parsing CLI JSON output: %w", err)
 	}
 
-	comps := di.Result.Components
-	sortComponents(comps)
-	return comps, nil
+	d.Components = di.Result.Components
+	d.Plugins = di.Result.Plugins
+	d.Marketplaces = di.Result.Marketplaces
+	d.McpServers = di.Result.McpServers
+	sortComponents(d.Components)
+	return d, nil
 }
 
 // sortComponents orders components by kind then name (both ascending), in place.
