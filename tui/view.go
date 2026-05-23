@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -17,23 +15,13 @@ import (
 // Semantic green/amber/red only for health.
 
 var (
-	accent  = lipgloss.Color("#2DD4BF") // teal  — title, Components, border, footer keys
-	accent2 = lipgloss.Color("#A78BFA") // violet — Plugins & MCP group
+	accent = lipgloss.Color("#2DD4BF") // teal — title, accents, focused border
 
 	labelGray  = lipgloss.Color("#9CA3AF") // bright enough to read easily
 	configGray = lipgloss.Color("#6B7280") // config dir / subtitle — one step dimmer
-	footerGray = lipgloss.Color("#6B7280") // footer surrounding text
-	leaderDim  = lipgloss.Color("#374151") // near-invisible dot leaders
+	leaderDim  = lipgloss.Color("#374151") // near-invisible dividers / dim border
 
-	colorGreen = lipgloss.Color("#34D399")
-	colorAmber = lipgloss.Color("#FBBF24")
-	colorRed   = lipgloss.Color("#F87171")
-
-	// Pill backgrounds — dark saturated; near-white fg for contrast.
-	pillBgGreen = lipgloss.Color("#065F46")
-	pillBgAmber = lipgloss.Color("#78350F")
-	pillBgRed   = lipgloss.Color("#7F1D1D")
-	pillFg      = lipgloss.Color("#F9FAFB")
+	colorRed = lipgloss.Color("#F87171") // error text / error card border
 
 	// Chrome — tab bar + status bar surfaces.
 	chromeBg  = lipgloss.Color("#111827") // dark bar background
@@ -48,22 +36,23 @@ var (
 	subtitleStyle = lipgloss.NewStyle().Foreground(configGray)
 	configStyle   = lipgloss.NewStyle().Foreground(configGray)
 
-	// Group headers — bold, each in its own accent.
-	compHeaderStyle    = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	pluginsHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(accent2)
-
-	labelStyle  = lipgloss.NewStyle().Foreground(labelGray)
-	leaderStyle = lipgloss.NewStyle().Foreground(leaderDim)
-
-	// Number styles — bold, each group's accent.
-	numStyleComp    = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	numStylePlugins = lipgloss.NewStyle().Bold(true).Foreground(accent2)
-
-	keyStyle    = lipgloss.NewStyle().Foreground(accent)     // key hints in teal
-	footerStyle = lipgloss.NewStyle().Foreground(footerGray) // surrounding footer text
+	keyStyle = lipgloss.NewStyle().Foreground(accent) // key hints in teal
 
 	// Placeholder text for not-yet-built tabs.
 	placeholderStyle = lipgloss.NewStyle().Foreground(configGray).Italic(true)
+
+	// Inventory list-row styles (custom delegate). Selected rows use the teal
+	// accent; unselected titles are light-gray, descriptions dimmer.
+	listTitleStyle    = lipgloss.NewStyle().Foreground(labelGray)
+	listDescStyle     = lipgloss.NewStyle().Foreground(configGray)
+	listSelTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	listSelDescStyle  = lipgloss.NewStyle().Foreground(labelGray)
+
+	// Detail-pane styles. Title in teal; field labels in gray; values default.
+	detailTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	detailLabelStyle = lipgloss.NewStyle().Foreground(labelGray)
+	detailValueStyle = lipgloss.NewStyle().Foreground(statusDim)
+	detailEmptyStyle = lipgloss.NewStyle().Foreground(configGray).Italic(true)
 
 	// Tab-bar cells.
 	activeTabStyle = lipgloss.NewStyle().
@@ -78,12 +67,10 @@ var (
 )
 
 // ── Layout ──────────────────────────────────────────────────────────────────
-// The content card width derives from the terminal width via cardWidth(); the
-// printable inner width derives from that via innerWidth(). numWidth reserves 4
-// cols (supports counts up to 9999).
+// The placeholder content card width derives from the terminal width via
+// cardWidth(); the printable inner width derives from that via innerWidth().
 
 const (
-	numWidth   = 4
 	minCard    = 60
 	maxCard    = 100
 	cardPadX   = 4 // cardStyle horizontal padding (each side)
@@ -110,19 +97,11 @@ func innerWidth(cardW int) int {
 }
 
 // cardStyleFor builds the rounded teal content card at the given card width.
+// Used by the placeholder ("coming soon") tabs.
 func cardStyleFor(cardW int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(accent).
-		Padding(2, cardPadX).
-		Width(cardW - cardBorder)
-}
-
-// errCardStyleFor builds the rounded red error card at the given card width.
-func errCardStyleFor(cardW int) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorRed).
 		Padding(2, cardPadX).
 		Width(cardW - cardBorder)
 }
@@ -166,19 +145,12 @@ func dashboardView(m model) string {
 	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, statusBar)
 }
 
-// contentView renders the active tab's body inside the content card. Loading
-// and error states (only meaningful on the Inventory tab, which owns the fetch)
-// take precedence there.
+// contentView renders the active tab's body. The Inventory tab is the
+// master-detail split-pane browser (driven by the `--detail` component fetch);
+// the other five tabs remain the "coming soon" placeholder card.
 func contentView(m model, cardW int) string {
 	if m.currentView == viewInventory {
-		switch {
-		case m.loading:
-			return loadingView(cardW)
-		case m.err != nil:
-			return errorView(m.err, cardW)
-		default:
-			return inventoryView(m.inv, cardW)
-		}
+		return inventorySplitView(m)
 	}
 	return placeholderView(m.currentView, cardW)
 }
@@ -232,13 +204,18 @@ func tabBarView(active viewID, termWidth int) string {
 // ── Status bar ─────────────────────────────────────────────────────────────────
 
 // statusBarView renders the bottom hint bar spanning the full terminal width.
+// Hints reflect the U2a key model: 1-6 / [ ] switch sections, Tab toggles pane
+// focus, j/k move within the focused pane, q quits.
 func statusBarView(termWidth int) string {
+	dim := lipgloss.NewStyle().Foreground(statusDim)
 	sep := lipgloss.NewStyle().Foreground(tabDim).Render(" · ")
-	hint := keyStyle.Render("Tab/1-6") + lipgloss.NewStyle().Foreground(statusDim).Render(" switch") +
+	hint := keyStyle.Render("1-6/[ ]") + dim.Render(" section") +
 		sep +
-		keyStyle.Render("q") + lipgloss.NewStyle().Foreground(statusDim).Render(" quit") +
+		keyStyle.Render("Tab") + dim.Render(" focus") +
 		sep +
-		lipgloss.NewStyle().Foreground(statusDim).Render("? help (soon)")
+		keyStyle.Render("j/k") + dim.Render(" move") +
+		sep +
+		keyStyle.Render("q") + dim.Render(" quit")
 
 	style := lipgloss.NewStyle().
 		Background(chromeBg).
@@ -250,38 +227,149 @@ func statusBarView(termWidth int) string {
 	return style.Render(hint)
 }
 
-// ── Inventory view (Inventory tab) ──────────────────────────────────────────────
+// ── Inventory split-pane view (Inventory tab) ───────────────────────────────────
+//
+// The Inventory tab is a master-detail browser: the bubbles/list on the left
+// and the bubbles/viewport on the right, each in a bordered box. The focused
+// pane gets a teal border; the unfocused pane a dim border. The two boxes are
+// joined horizontally and sit between the tab bar and the status bar.
 
-func loadingView(cardW int) string {
-	body := accentBar(accent) + titleStyle.Render("claude-mgr") +
-		"  " + subtitleStyle.Render("inventory") +
-		"\n\n" + configStyle.Render("loading…")
-	return cardStyleFor(cardW).Render(body)
+// paneBorderStyle returns a rounded-border box styled for a pane: teal when
+// focused, dim otherwise. Width/Height set the OUTER box size (content area is
+// inner = size − border − padding); horizontal padding matches panePadX.
+func paneBorderStyle(focused bool, boxW, boxH int) lipgloss.Style {
+	border := leaderDim
+	if focused {
+		border = accent
+	}
+	s := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(border).
+		Padding(0, panePadX)
+	if boxW > paneBorder {
+		s = s.Width(boxW - paneBorder)
+	}
+	if boxH > paneBorder {
+		s = s.Height(boxH - paneBorder)
+	}
+	return s
 }
 
-func errorView(err error, cardW int) string {
-	errMsgStyle := lipgloss.NewStyle().Bold(true).Foreground(colorRed)
-	body := accentBar(accent) + titleStyle.Render("claude-mgr") + "\n\n" +
-		errMsgStyle.Render(glyph("✗", "[x]")+" failed to load inventory") + "\n\n" +
-		configStyle.Render(err.Error()) + "\n\n" +
-		renderHint()
-	return errCardStyleFor(cardW).Render(body)
+// inventorySplitView composes the two panes side by side. While the component
+// fetch is in flight a spinner shows in the list pane; a fetch error renders in
+// both panes. The list pane width is ~42% of the model width; the detail pane
+// takes the remainder. Heights derive from the model height (room left for the
+// tab bar + status bar).
+func inventorySplitView(m model) string {
+	listW, detailW, boxH := m.splitDims()
+
+	left := paneBorderStyle(m.focus == focusList, listW, boxH).
+		Render(listPaneBody(m))
+	right := paneBorderStyle(m.focus == focusDetail, detailW, boxH).
+		Render(detailPaneBody(m))
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
-// inventoryView: header → Components group → Plugins & MCP group → health.
-func inventoryView(inv Inventory, cardW int) string {
-	inner := innerWidth(cardW)
+// listPaneBody renders the master pane's inner content: a spinner while loading,
+// the fetch error, an empty-state hint, or the bubbles/list itself.
+func listPaneBody(m model) string {
+	switch {
+	case m.compLoading:
+		return m.spinner.View() + " " + configStyle.Render("loading components…")
+	case m.compErr != nil:
+		return lipgloss.NewStyle().Foreground(colorRed).
+			Render(glyph("✗", "[x]")+" load failed") + "\n\n" +
+			configStyle.Render(truncate(m.compErr.Error(), m.detail.Width))
+	case len(m.components) == 0:
+		return detailEmptyStyle.Render("no components found")
+	default:
+		return m.list.View()
+	}
+}
+
+// detailPaneBody renders the detail pane's inner content: the bubbles/viewport
+// showing the selected component's fields, or matching loading/error/empty
+// states so the right pane never looks broken.
+func detailPaneBody(m model) string {
+	switch {
+	case m.compLoading:
+		return detailEmptyStyle.Render("…")
+	case m.compErr != nil:
+		return detailEmptyStyle.Render("—")
+	case len(m.components) == 0:
+		return detailEmptyStyle.Render("select a component")
+	default:
+		return m.detail.View()
+	}
+}
+
+// detailContent builds the styled text for the detail viewport from a selected
+// component: a teal title, then Kind / Source / Path field rows. width truncates
+// the path so it never wraps awkwardly. With no selection it returns a hint.
+func detailContent(c Component, ok bool, width int) string {
+	if !ok {
+		return detailEmptyStyle.Render("select a component on the left")
+	}
+	if width < 1 {
+		width = defaultWidth
+	}
 
 	var b strings.Builder
-	b.WriteString(header(inv, inner))
+	b.WriteString(detailTitleStyle.Render(truncate(c.Name, width)))
 	b.WriteString("\n\n")
-	b.WriteString(componentsGroup(inv.Result.Counts, inner))
-	b.WriteString("\n")
-	b.WriteString(pluginsGroup(inv.Result.Counts, inner))
-	b.WriteString("\n")
-	b.WriteString(healthPill(inv.Diagnostics))
+	b.WriteString(detailField("Kind", c.Kind, width))
+	b.WriteString(detailField("Source", sourceSummary(c.Source), width))
+	if p := strings.TrimSpace(c.Source.Plugin); p != "" {
+		b.WriteString(detailField("Plugin", p, width))
+	}
+	b.WriteString(detailField("Path", c.Path, width))
+	return b.String()
+}
 
-	return cardStyleFor(cardW).Render(b.String())
+// detailField renders one "label  value" row, the value truncated to fit width.
+func detailField(label, value string, width int) string {
+	lbl := detailLabelStyle.Render(label)
+	v := strings.TrimSpace(value)
+	if v == "" {
+		v = "—"
+	}
+	avail := width - lipgloss.Width(lbl) - 1
+	if avail < 1 {
+		avail = 1
+	}
+	return lbl + " " + detailValueStyle.Render(truncate(v, avail)) + "\n"
+}
+
+// sourceSummary describes a component's provenance: "tier" or "tier (plugin)".
+func sourceSummary(s ComponentSource) string {
+	tier := strings.TrimSpace(s.Tier)
+	if tier == "" {
+		tier = "—"
+	}
+	if p := strings.TrimSpace(s.Plugin); p != "" {
+		return tier + " (" + p + ")"
+	}
+	return tier
+}
+
+// truncate shortens s to at most width runes, appending an ellipsis glyph when
+// it had to cut. width <= 0 yields "".
+func truncate(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= width {
+		return s
+	}
+	ell := glyph("…", "...")
+	ellLen := utf8.RuneCountInString(ell)
+	if width <= ellLen {
+		runes := []rune(s)
+		return string(runes[:width])
+	}
+	runes := []rune(s)
+	return string(runes[:width-ellLen]) + ell
 }
 
 // ── Placeholder views (Conflicts/Orphans/Config/Hooks/Selftest) ────────────────
@@ -301,133 +389,10 @@ func placeholderView(v viewID, cardW int) string {
 	return cardStyleFor(cardW).Render(body)
 }
 
-// ── Header ────────────────────────────────────────────────────────────────────
-
-func header(inv Inventory, inner int) string {
-	line1 := accentBar(accent) + titleStyle.Render("claude-mgr") +
-		"  " + subtitleStyle.Render("inventory")
-	line2 := "  " + configStyle.Render(configDirHint(inner))
-	_ = inv // reserved: could surface inv.Command or statusLine later
-	return line1 + "\n" + line2
-}
+// ── Card chrome helper ──────────────────────────────────────────────────────────
 
 // accentBar returns "▌ " in the given color, or "| " on no-color terminals.
+// Used by the placeholder card header.
 func accentBar(color lipgloss.Color) string {
 	return lipgloss.NewStyle().Bold(true).Foreground(color).Render(glyph("▌", "|")) + " "
-}
-
-// configDirHint returns a ~-collapsed, truncated config dir path that fits the
-// printable inner width.
-func configDirHint(inner int) string {
-	dir := os.Getenv("CLAUDE_CONFIG_DIR")
-	if dir == "" {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".claude")
-	}
-	home, _ := os.UserHomeDir()
-	if home != "" && strings.HasPrefix(dir, home) {
-		dir = "~" + dir[len(home):]
-	}
-	maxLen := inner - 4
-	if maxLen < 1 {
-		maxLen = 1
-	}
-	if utf8.RuneCountInString(dir) > maxLen {
-		runes := []rune(dir)
-		dir = "…" + string(runes[len(runes)-(maxLen-1):])
-	}
-	return dir
-}
-
-// ── Count groups ──────────────────────────────────────────────────────────────
-
-func componentsGroup(c Counts, inner int) string {
-	var b strings.Builder
-	b.WriteString(compHeaderStyle.Render(glyph("▌", "|")+" Components") + "\n")
-	b.WriteString(countRow("skills", c.Skills, numStyleComp, inner))
-	b.WriteString(countRow("agents", c.Agents, numStyleComp, inner))
-	b.WriteString(countRow("commands", c.Commands, numStyleComp, inner))
-	return b.String()
-}
-
-func pluginsGroup(c Counts, inner int) string {
-	var b strings.Builder
-	b.WriteString(pluginsHeaderStyle.Render(glyph("▌", "|")+" Plugins & MCP") + "\n")
-	b.WriteString(countRow("plugins", c.Plugins, numStylePlugins, inner))
-	b.WriteString(countRow("marketplaces", c.Marketplaces, numStylePlugins, inner))
-	b.WriteString(countRow("mcp servers", c.McpServers, numStylePlugins, inner))
-	return b.String()
-}
-
-// countRow renders:  "  label ·················· NNN\n"
-// The dot-leader fills inner − indent(2) − labelLen − numWidth columns.
-// numStyle is passed in so each group's numbers use its own accent color.
-func countRow(label string, value int, numStyle lipgloss.Style, inner int) string {
-	num := fmt.Sprintf("%d", value)
-
-	indent := 2
-	labelLen := utf8.RuneCountInString(label)
-	leaderLen := inner - indent - labelLen - numWidth
-	if leaderLen < 1 {
-		leaderLen = 1
-	}
-
-	dot := glyph("·", ".")
-	leaders := strings.Repeat(dot, leaderLen)
-	numPadded := padLeft(num, numWidth)
-
-	return strings.Repeat(" ", indent) +
-		labelStyle.Render(label) +
-		leaderStyle.Render(leaders) +
-		numStyle.Render(numPadded) +
-		"\n"
-}
-
-// ── Health pill ───────────────────────────────────────────────────────────────
-
-func healthPill(diags []Diagnostic) string {
-	errors, warnings := countDiagnostics(diags)
-
-	var text string
-	var bg, fg lipgloss.Color
-
-	switch {
-	case errors > 0:
-		text = fmt.Sprintf(" %s  %d ERROR(S)  %d WARNING(S) ", glyph("✗", "[x]"), errors, warnings)
-		bg, fg = pillBgRed, pillFg
-	case warnings > 0:
-		text = fmt.Sprintf(" %s  %d WARNING(S) ", glyph("⚠", "[!]"), warnings)
-		bg, fg = pillBgAmber, pillFg
-	default:
-		text = " " + glyph("✓", "[ok]") + "  HEALTHY "
-		bg, fg = pillBgGreen, pillFg
-	}
-
-	return lipgloss.NewStyle().
-		Background(bg).
-		Foreground(fg).
-		Bold(true).
-		Padding(0, 1).
-		Render(text)
-}
-
-// ── Hint line (in-card) ─────────────────────────────────────────────────────────
-
-// renderHint is the in-card key hint used on the error card (the global status
-// bar carries the same role for the normal frames).
-func renderHint() string {
-	dot := footerStyle.Render("·")
-	return keyStyle.Render("q") + footerStyle.Render(" quit  "+dot+"  ") +
-		keyStyle.Render("Tab") + footerStyle.Render(" switch tab")
-}
-
-// ── String helpers ────────────────────────────────────────────────────────────
-
-// padLeft pads s to at least width runes with leading spaces.
-func padLeft(s string, width int) string {
-	n := width - utf8.RuneCountInString(s)
-	if n <= 0 {
-		return s
-	}
-	return strings.Repeat(" ", n) + s
 }
