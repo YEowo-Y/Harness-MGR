@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -11,6 +12,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 )
+
+// splashMinDuration is the minimum time the startup splash is shown before it
+// can be dismissed by data arrival. A key press always dismisses immediately.
+const splashMinDuration = 1500 * time.Millisecond
+
+// splashTimerMsg is delivered by splashTimerCmd after splashMinDuration elapses.
+type splashTimerMsg struct{}
+
+// splashTimerCmd returns a tea.Cmd that fires splashTimerMsg after splashMinDuration.
+func splashTimerCmd() tea.Cmd {
+	return tea.Tick(splashMinDuration, func(time.Time) tea.Msg { return splashTimerMsg{} })
+}
 
 // inventoryMsg carries the result of the async counts fetch into the Update
 // loop. Exactly one of inv / err is meaningful (err != nil means the fetch
@@ -130,13 +143,14 @@ type model struct {
 	height      int
 
 	// Inventory split-pane state.
-	detailData    DetailData
-	detailErr     error
-	detailLoading bool // `inventory --detail` fetch in flight
-	tree          treeModel
-	detail        viewport.Model
-	spinner       spinner.Model
-	focus         focusPane
+	detailData      DetailData
+	detailErr       error
+	detailLoading   bool // `inventory --detail` fetch in flight
+	splashTimerDone bool // true after splashMinDuration has elapsed
+	tree            treeModel
+	detail          viewport.Model
+	spinner         spinner.Model
+	focus           focusPane
 
 	// Tree pane inner size, computed by layoutPanes and consumed by the tree
 	// renderer (the custom tree widget is sized at render time, not via SetSize).
@@ -248,8 +262,8 @@ func (m model) anyLoading() bool {
 	return false
 }
 
-// Init kicks off all async fetches and starts the spinner ticking so the UI
-// animates while fetches run.
+// Init kicks off all async fetches, starts the spinner ticking, and starts the
+// minimum splash timer so the splash is always visible for at least splashMinDuration.
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchCmd(m.cliPath),
@@ -260,6 +274,7 @@ func (m model) Init() tea.Cmd {
 		fetchHooksCmd(m.cliPath),
 		fetchSelftestCmd(m.cliPath),
 		m.spinner.Tick,
+		splashTimerCmd(),
 	)
 }
 
@@ -272,11 +287,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case detailMsg:
 		m.detailLoading = false
-		m.showSplash = false
 		m.detailData = msg.data
 		m.detailErr = msg.err
 		m.tree = newTreeModel(msg.data)
 		m.refreshDetail()
+		if m.splashTimerDone {
+			m.showSplash = false
+		}
+		return m, nil
+	case splashTimerMsg:
+		m.splashTimerDone = true
+		if !m.detailLoading {
+			m.showSplash = false
+		}
 		return m, nil
 	case conflictsMsg:
 		st := m.sections[viewConflicts]
