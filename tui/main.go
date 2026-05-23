@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -124,6 +125,7 @@ type model struct {
 	err         error
 	loading     bool // counts fetch in flight
 	showSplash  bool // true while the startup splash is displayed
+	mascotBlink bool // true briefly while the corner mascot blinks (eyes closed)
 	cliPath     string
 	currentView viewID
 	width       int
@@ -248,8 +250,25 @@ func (m model) anyLoading() bool {
 	return false
 }
 
-// Init kicks off all async fetches and starts the spinner ticking. The splash
-// persists until the user presses a key — no auto-dismiss timer.
+// blinkMsg toggles the corner mascot's eyes, driving a periodic blink.
+type blinkMsg struct{}
+
+const (
+	// blinkOpenInterval is how long the mascot's eyes stay open between blinks.
+	blinkOpenInterval = 4 * time.Second
+	// blinkClosedInterval is how long the eyes stay shut during one blink.
+	blinkClosedInterval = 160 * time.Millisecond
+)
+
+// blinkTick schedules the next blinkMsg after d, alternating the mascot's
+// open/closed eye frames.
+func blinkTick(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg { return blinkMsg{} })
+}
+
+// Init kicks off all async fetches, starts the spinner ticking, and arms the
+// mascot blink. The splash persists until the user presses a key — no
+// auto-dismiss timer.
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchCmd(m.cliPath),
@@ -260,6 +279,7 @@ func (m model) Init() tea.Cmd {
 		fetchHooksCmd(m.cliPath),
 		fetchSelftestCmd(m.cliPath),
 		m.spinner.Tick,
+		blinkTick(blinkOpenInterval),
 	)
 }
 
@@ -378,6 +398,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 		return m, nil
+	case blinkMsg:
+		// Toggle the eyes and schedule the next change: a short closed interval
+		// (the blink itself) then a long open interval until the next blink.
+		m.mascotBlink = !m.mascotBlink
+		next := blinkOpenInterval
+		if m.mascotBlink {
+			next = blinkClosedInterval
+		}
+		return m, blinkTick(next)
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
