@@ -432,3 +432,50 @@ func TestIsSectionViewSelftest(t *testing.T) {
 		t.Fatal("isSectionView(viewSelftest) should be true")
 	}
 }
+
+// ── Grouped detail bodies (detailSection headers) ─────────────────────────────
+
+// TestConflictDetailGrouped verifies conflictDetail emits the three group
+// headers (Classification / Resolution / Explanation) while preserving every
+// existing field label and value.
+func TestConflictDetailGrouped(t *testing.T) {
+	c := ConflictCluster{Kind: "skill", Key: "seo", Confidence: "likely", Reason: "because", Fix: "do x"}
+	out := stripANSI(conflictDetail(c, 80))
+	for _, want := range []string{
+		"Classification", "Resolution", "Explanation",
+		"Kind", "Confidence", "Reason", "Fix", "because",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("conflictDetail missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestHooksDetailGrouped verifies hooksDetail groups each entry under a
+// "Binding N" header while preserving the Matcher/Command labels.
+func TestHooksDetailGrouped(t *testing.T) {
+	entries := []HookEntry{
+		{Matcher: "Bash", Hooks: []HookCmd{{Type: "command", Command: "echo a"}}},
+		{Hooks: []HookCmd{{Type: "command", Command: "echo b"}}},
+	}
+	out := stripANSI(hooksDetail("PreToolUse", entries, 80))
+	for _, want := range []string{"Binding 1", "Binding 2", "Matcher", "Command"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("hooksDetail missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestConfigDetailNoEmptyLayersHeader verifies the empty-group guard: with no
+// per-layer entries, configDetail emits the "Merge" header but never a "Layers"
+// header over zero rows.
+func TestConfigDetailNoEmptyLayersHeader(t *testing.T) {
+	ck := ConfigKey{MergeConfidence: "known", Strategy: "highest-wins"}
+	out := stripANSI(configDetail(ck, 80))
+	if !strings.Contains(out, "Merge") {
+		t.Fatalf("configDetail missing %q:\n%s", "Merge", out)
+	}
+	if strings.Contains(out, "Layers") {
+		t.Fatalf("configDetail emitted empty %q header:\n%s", "Layers", out)
+	}
+}
