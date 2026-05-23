@@ -84,12 +84,14 @@ test('inventoryCommand: minimal/ counts are 1/1/1 + zeros; no error diagnostics'
   assert.equal(bySeverity(diagnostics, 'error').length, 0);
 });
 
-test('inventoryCommand: without --detail there is NO components key (unchanged shape)', () => {
+test('inventoryCommand: without --detail there is NONE of the four detail arrays (unchanged shape)', () => {
   const { result } = inventoryCommand({ configDir: MIN, args: {} });
-  assert.ok(!('components' in result), 'counts-only result must not carry a components array');
+  for (const k of ['components', 'plugins', 'marketplaces', 'mcpServers']) {
+    assert.ok(!(k in result), `counts-only result must not carry a ${k} array`);
+  }
 });
 
-test('inventoryCommand: --detail adds a components array sized to the total count, each {name,kind,source}', () => {
+test('inventoryCommand: --detail adds a components array sized to the total count, each {name,kind,source,description}', () => {
   const plain = inventoryCommand({ configDir: MIN, args: {} });
   const { result } = inventoryCommand({ configDir: MIN, args: { detail: true } });
 
@@ -105,6 +107,57 @@ test('inventoryCommand: --detail adds a components array sized to the total coun
     assert.ok(['skill', 'agent', 'command'].includes(c.kind), `unexpected kind: ${c.kind}`);
     assert.ok(c.source && typeof c.source === 'object', 'each record carries a source object');
     assert.equal(typeof c.source.tier, 'string', 'source.tier is present');
+    assert.equal(typeof c.description, 'string', 'description is always a string (empty when absent)');
+  }
+});
+
+test('inventoryCommand: --detail plugins/marketplaces arrays match the counts (plugins-groundtruth fixture)', () => {
+  const { result } = inventoryCommand({ configDir: fix('plugins-groundtruth'), args: { detail: true } });
+
+  assert.ok(Array.isArray(result.plugins), 'plugins must be an array');
+  assert.equal(result.plugins.length, result.counts.plugins, 'one plugin record per counted plugin');
+  for (const p of result.plugins) {
+    assert.deepEqual(
+      Object.keys(p).sort(),
+      ['cachePresent', 'enabled', 'key', 'marketplace', 'name', 'version'],
+      'plugin element carries exactly the six UI fields',
+    );
+    assert.equal(typeof p.name, 'string');
+    assert.equal(typeof p.enabled, 'boolean');
+    assert.equal(typeof p.cachePresent, 'boolean');
+  }
+
+  assert.ok(Array.isArray(result.marketplaces), 'marketplaces must be an array');
+  assert.equal(result.marketplaces.length, result.counts.marketplaces, 'one marketplace record per counted marketplace');
+  for (const m of result.marketplaces) {
+    assert.deepEqual(
+      Object.keys(m).sort(),
+      ['installLocation', 'name', 'onDisk', 'sourceRepo'],
+      'marketplace element carries exactly the four UI fields',
+    );
+    assert.equal(typeof m.name, 'string');
+    assert.equal(typeof m.onDisk, 'boolean');
+  }
+});
+
+test('inventoryCommand: --detail mcpServers match the count and leak NO secret/extra fields (settings-mcp fixture)', () => {
+  const { result } = inventoryCommand({ configDir: fix('settings-mcp'), args: { detail: true } });
+
+  assert.ok(Array.isArray(result.mcpServers), 'mcpServers must be an array');
+  assert.equal(result.mcpServers.length, result.counts.mcpServers, 'one mcp record per counted server');
+  assert.ok(result.mcpServers.length > 0, 'settings-mcp fixture is expected to expose mcp servers');
+
+  for (const m of result.mcpServers) {
+    // Exactly the five named fields — no envKeys, no env values, nothing extra.
+    assert.deepEqual(
+      Object.keys(m).sort(),
+      ['args', 'command', 'name', 'scope', 'transport'],
+      'mcp element keys must be exactly the five secret-safe UI fields',
+    );
+    assert.equal(typeof m.name, 'string');
+    assert.ok(['stdio', 'http', 'unknown'].includes(m.transport), `unexpected transport: ${m.transport}`);
+    assert.ok(!('envKeys' in m), 'envKeys must never leak into --detail output');
+    assert.ok(!('url' in m), 'url is not part of the trimmed UI shape');
   }
 });
 
