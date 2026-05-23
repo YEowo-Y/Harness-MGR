@@ -60,9 +60,13 @@ func (m model) splitDims() (treeW, detailW, boxH int) {
 		detailW = minPaneInner + paneBorder + 2*panePadX
 	}
 
+	reserved := chromeRows
+	if mascotShownAt(m.width) {
+		reserved += mascotExtraRows
+	}
 	boxH = minSplitRows
-	if m.height > chromeRows+minSplitRows {
-		boxH = m.height - chromeRows
+	if m.height > reserved+minSplitRows {
+		boxH = m.height - reserved
 	}
 	return treeW, detailW, boxH
 }
