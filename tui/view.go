@@ -125,27 +125,41 @@ func glyph(uni, ascii string) string {
 
 // ── Corner mascot (dashboard header) ────────────────────────────────────────
 
-// mascotMinWidth is the smallest terminal width at which the dashboard shows the
-// corner mascot. Below this we keep the full-width bar and omit the mascot. The
-// floor is set so the counts bar — narrowed by mascotBlockWidth and carrying its
-// per-type icons in a real terminal (~90 columns) — still fits on one line beside
-// the mascot rather than wrapping under it.
-const mascotMinWidth = 100
-
 // mascotExtraRows is how many extra rows the 3-line mascot adds to the 1-line
 // counts/summary bar region when shown (3 - 1).
 const mascotExtraRows = 2
 
-// mascotShownAt reports whether the corner mascot should render at the given
-// terminal width: only when Unicode is enabled (else the sprite glyphs would be
-// mojibake) and the terminal is at least mascotMinWidth wide.
-func mascotShownAt(width int) bool {
-	return unicodeEnabled() && width >= mascotMinWidth
+// mascotEligible reports the cheap precondition for the corner mascot: Unicode
+// glyph support (else the sprite would be mojibake) and a known, positive
+// terminal width. Whether the mascot actually shows is decided content-aware by
+// model.mascotVisible, which additionally requires the header bar to still fit
+// on one line once narrowed to make room for the sprite.
+func mascotEligible(termWidth int) bool {
+	return unicodeEnabled() && termWidth > 0
+}
+
+// mascotBarWidth is the width the header bar is rendered at when the mascot sits
+// beside it: the terminal width minus the mascot block, floored at 1.
+func mascotBarWidth(termWidth int) int {
+	w := termWidth - mascotBlockWidth()
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// barFitsOneLine reports whether a rendered counts/summary bar occupies exactly
+// one row. A bar narrowed by mascotBarWidth wraps to two or more rows once its
+// content no longer fits; the caller then drops the mascot and re-renders the
+// bar at full width. This is the content-aware replacement for the old fixed
+// width floor, and is pure (no Unicode/TTY dependency) so it is unit-testable.
+func barFitsOneLine(bar string) bool {
+	return lipgloss.Height(bar) == 1
 }
 
 // renderMascot returns the 3-line amber sprite as a single rectangular block
 // (each line centered to the sprite's max display width). NOT gated — callers
-// gate via mascotShownAt. Reuses splashMascot + mascotColor from splash.go.
+// gate via model.mascotVisible. Reuses splashMascot + mascotColor from splash.go.
 func renderMascot() string {
 	w := 0
 	for _, line := range splashMascot {
@@ -198,54 +212,78 @@ func dashboardView(m model) string {
 // render a summary bar above a flat-list split pane. The other tabs remain
 // "coming soon" placeholder cards.
 func contentView(m model, cardW int) string {
-	if m.currentView == viewInventory {
-		header := headerWithMascot(countsBarView(m.inv.Result.Counts, headerBarWidth(m.width)), m.width)
-		return lipgloss.JoinVertical(lipgloss.Left, header, inventorySplitView(m))
+	switch {
+	case m.currentView == viewInventory:
+		return lipgloss.JoinVertical(lipgloss.Left, m.headerView(), inventorySplitView(m))
+	case isSectionView(m.currentView):
+		return lipgloss.JoinVertical(lipgloss.Left, m.headerView(), sectionSplitView(m))
+	default:
+		return placeholderView(m.currentView, cardW)
 	}
-	if isSectionView(m.currentView) {
-		bar := sectionSummaryBar(m.currentView, m.sections[m.currentView], headerBarWidth(m.width))
-		header := headerWithMascot(bar, m.width)
-		return lipgloss.JoinVertical(lipgloss.Left, header, sectionSplitView(m))
-	}
-	return placeholderView(m.currentView, cardW)
 }
 
-// headerBarWidth is the width passed to the counts/summary bar: full width
-// normally, reduced to leave room for the corner mascot when it is shown.
-func headerBarWidth(termWidth int) int {
-	if termWidth <= 0 || !mascotShownAt(termWidth) {
-		return termWidth
+// headerBarBuilder returns a closure that renders the current tab's counts/
+// summary bar at a given width, plus whether the current tab has such a bar.
+// The Inventory and section tabs do; placeholder tabs do not. Routing both the
+// header renderer (headerView) and the split-height reservation (splitDims)
+// through one builder lets them rebuild the bar at any width and agree on the
+// same mascot decision.
+func (m model) headerBarBuilder() (func(width int) string, bool) {
+	switch {
+	case m.currentView == viewInventory:
+		return func(w int) string { return countsBarView(m.inv.Result.Counts, w) }, true
+	case isSectionView(m.currentView):
+		return func(w int) string { return sectionSummaryBar(m.currentView, m.sections[m.currentView], w) }, true
+	default:
+		return nil, false
 	}
-	w := termWidth - mascotBlockWidth()
-	if w < 1 {
-		w = 1
-	}
-	return w
 }
 
-// headerWithMascot joins the corner mascot to the right of the bar when shown,
-// producing a 3-line header; otherwise returns the bar unchanged.
-func headerWithMascot(bar string, termWidth int) string {
-	if !mascotShownAt(termWidth) {
-		return bar
+// mascotVisible reports whether the corner mascot is shown for the current tab.
+// The mascot must be eligible (Unicode on, known width) AND — content-aware —
+// the active tab's header bar must still fit on one line once narrowed to leave
+// room for the sprite. This is the single decision both headerView (which
+// renders the header) and splitDims (which reserves mascotExtraRows) consult, so
+// the rendered header height and the reserved split rows can never disagree (a
+// mismatch would overflow the frame).
+func (m model) mascotVisible() bool {
+	build, ok := m.headerBarBuilder()
+	if !ok || !mascotEligible(m.width) {
+		return false
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, bar, renderMascot())
+	return barFitsOneLine(build(mascotBarWidth(m.width)))
+}
+
+// headerView renders the active tab's counts/summary bar. When mascotVisible()
+// it narrows the bar by mascotBarWidth and joins the 3-line sprite to its right;
+// otherwise it returns the full-width bar unchanged — byte-for-byte the prior
+// no-mascot header. Placeholder tabs have no bar and yield "".
+func (m model) headerView() string {
+	build, ok := m.headerBarBuilder()
+	if !ok {
+		return ""
+	}
+	if m.mascotVisible() {
+		return lipgloss.JoinHorizontal(lipgloss.Top, build(mascotBarWidth(m.width)), renderMascot())
+	}
+	return build(m.width)
 }
 
 // ── Counts overview bar (Inventory tab) ─────────────────────────────────────
 
-// countsBarView renders the single-line overview above the tree:
-// "240 skills · 19 agents · 79 commands · 13 plugins · 4 marketplaces · 6 mcp",
-// each "<n> <label>" segment colored in ITS TYPE COLOR (bold count), separated by
-// a dim middle dot. Sourced from result.counts.
-func countsBarView(c Counts, termWidth int) string {
-	type seg struct {
-		n     int
-		label string // display label (plural)
-		kind  string // singular type key for typeIcon
-		fg    lipgloss.Color
-	}
-	segs := []seg{
+// countsSeg is one "<n> <label>" segment of the counts overview bar, tagged with
+// its singular kind (for the type icon) and its type color.
+type countsSeg struct {
+	n     int
+	label string // display label (plural)
+	kind  string // singular type key for typeIcon
+	fg    lipgloss.Color
+}
+
+// countsSegments returns the six type segments of the counts bar in display
+// order, keeping the segment set and ordering in one place for countsBarView.
+func countsSegments(c Counts) []countsSeg {
+	return []countsSeg{
 		{c.Skills, "skills", "skill", colorSkill},
 		{c.Agents, "agents", "agent", colorAgent},
 		{c.Commands, "commands", "command", colorCommand},
@@ -253,7 +291,22 @@ func countsBarView(c Counts, termWidth int) string {
 		{c.Marketplaces, "marketplaces", "marketplace", colorMarketplace},
 		{c.McpServers, "mcp", "mcp", colorMcp},
 	}
-	sep := lipgloss.NewStyle().Foreground(leaderDim).Render(" · ")
+}
+
+// countsSep is the dim middle-dot separator between counts segments (3 columns).
+const countsSep = " · "
+
+// countsBarPadX is countsBarView's horizontal padding per side; it consumes
+// 2*countsBarPadX columns of the bar width, leaving the remainder for content.
+const countsBarPadX = 1
+
+// countsBarView renders the single-line overview above the tree:
+// "240 skills · 19 agents · 79 commands · 13 plugins · 4 marketplaces · 6 mcp",
+// each "<n> <label>" segment colored in ITS TYPE COLOR (bold count), separated by
+// a dim middle dot. Sourced from result.counts.
+func countsBarView(c Counts, termWidth int) string {
+	segs := countsSegments(c)
+	sep := lipgloss.NewStyle().Foreground(leaderDim).Render(countsSep)
 	parts := make([]string, 0, len(segs))
 	for _, s := range segs {
 		style := lipgloss.NewStyle().Foreground(s.fg)
@@ -268,15 +321,16 @@ func countsBarView(c Counts, termWidth int) string {
 
 	// Prepend the gradient wordmark only when it fits on one line with the
 	// counts; on a narrow terminal keep the full counts rather than wrap the
-	// chrome bar. Padding(0,1) costs 2 columns, so the content must fit in
-	// termWidth-2. Unknown width (≤0) → include it (no fixed-width wrap risk).
+	// chrome bar. Padding costs 2*countsBarPadX columns, so the content must fit
+	// in termWidth-2*countsBarPadX. Unknown width (≤0) → include it (no
+	// fixed-width wrap risk).
 	line := counts
 	withBrand := brandWordmark() + lipgloss.NewStyle().Foreground(leaderDim).Render("   ") + counts
-	if termWidth <= 0 || lipgloss.Width(withBrand)+2 <= termWidth {
+	if termWidth <= 0 || lipgloss.Width(withBrand)+2*countsBarPadX <= termWidth {
 		line = withBrand
 	}
 
-	style := lipgloss.NewStyle().Padding(0, 1)
+	style := lipgloss.NewStyle().Padding(0, countsBarPadX)
 	if termWidth > 0 {
 		style = style.Width(termWidth)
 	}
