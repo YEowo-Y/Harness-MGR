@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -51,6 +52,36 @@ type Inventory struct {
 	Version     int          `json:"version"`
 	Result      Result       `json:"result"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// ComponentSource mirrors the `source` map of a trimmed component record:
+// `{tier, plugin?, marketplace?, version?}`. The TUI's detail pane surfaces
+// Tier and Plugin; the remaining fields are captured but currently unused.
+// All fields are optional in the JSON — encoding/json leaves missing ones "".
+type ComponentSource struct {
+	Tier        string `json:"tier"`
+	Plugin      string `json:"plugin"`
+	Marketplace string `json:"marketplace"`
+	Version     string `json:"version"`
+}
+
+// Component mirrors one element of result.components from
+// `inventory --detail --format json`: a discovered skill/agent/command trimmed
+// to the fields a browsing UI needs. Kind is one of "skill"|"agent"|"command".
+type Component struct {
+	Name   string          `json:"name"`
+	Kind   string          `json:"kind"`
+	Source ComponentSource `json:"source"`
+	Path   string          `json:"path"`
+}
+
+// detailInventory is a narrow envelope used only to decode result.components
+// from the `--detail` run. It deliberately mirrors just the components array so
+// the decode is independent of the counts-oriented Inventory struct above.
+type detailInventory struct {
+	Result struct {
+		Components []Component `json:"components"`
+	} `json:"result"`
 }
 
 // resolveCLIPath determines the path to the Node CLI entry (src/cli.mjs).
@@ -102,17 +133,47 @@ func fetchInventory(cliPath string) (Inventory, error) {
 	return inv, nil
 }
 
-// countDiagnostics returns how many diagnostics are errors and warnings.
-// Severities are matched case-insensitively via strings.EqualFold.
-func countDiagnostics(diags []Diagnostic) (errors, warnings int) {
-	for _, d := range diags {
-		switch {
-		case strings.EqualFold(d.Severity, "error"):
-			errors++
-		case strings.EqualFold(d.Severity, "warn"),
-			strings.EqualFold(d.Severity, "warning"):
-			warnings++
+// fetchComponents shells out to `node <cliPath> inventory --detail --format json`,
+// captures stdout, and unmarshals result.components into a []Component. It reuses
+// the same exec + 30s context timeout + JSON-unmarshal pattern as fetchInventory
+// and never panics: exec failures, timeouts, and malformed JSON return errors,
+// surfacing node stderr when available. The returned slice is ordered by kind
+// then name so the list pane has a stable, grouped order.
+func fetchComponents(cliPath string) ([]Component, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "node", cliPath, "inventory", "--detail", "--format", "json")
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("running node CLI (%s): %v: %s", cliPath, err, string(ee.Stderr))
 		}
+		return nil, fmt.Errorf("running node CLI (%s): %w", cliPath, err)
 	}
-	return errors, warnings
+
+	var di detailInventory
+	if err := json.Unmarshal(out, &di); err != nil {
+		return nil, fmt.Errorf("parsing CLI JSON output: %w", err)
+	}
+
+	comps := di.Result.Components
+	sortComponents(comps)
+	return comps, nil
+}
+
+// sortComponents orders components by kind then name (both ascending), in place.
+// Ordering is case-insensitive on the surface text so "Foo" and "foo" cluster
+// naturally; ties fall back to the case-sensitive value for determinism.
+func sortComponents(comps []Component) {
+	sort.SliceStable(comps, func(i, j int) bool {
+		a, b := comps[i], comps[j]
+		if !strings.EqualFold(a.Kind, b.Kind) {
+			return strings.ToLower(a.Kind) < strings.ToLower(b.Kind)
+		}
+		if !strings.EqualFold(a.Name, b.Name) {
+			return strings.ToLower(a.Name) < strings.ToLower(b.Name)
+		}
+		return a.Name < b.Name
+	})
 }
