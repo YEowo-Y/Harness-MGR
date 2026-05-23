@@ -61,7 +61,7 @@ func (m model) splitDims() (treeW, detailW, boxH int) {
 	}
 
 	reserved := chromeRows
-	if mascotShownAt(m.width) {
+	if m.mascotVisible() {
 		reserved += mascotExtraRows
 	}
 	boxH = minSplitRows
