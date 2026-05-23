@@ -6,37 +6,40 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// mascotColor is the warm amber used to render the mascot so it stands out
-// from the teal→violet wordmark gradient.
-var mascotColor = lipgloss.Color("#F59E0B")
+// mascotColor is the mascot's own coral — a distinct hue not reused elsewhere in
+// the palette (the six type colors, orphan orange, and error red are all
+// separate), so the corner pet reads as its own element against the
+// teal→violet wordmark gradient.
+var mascotColor = lipgloss.Color("#F4845C")
 
-// splashMascot is the small sparkle sprite rendered above the wordmark.
-// Uses Unicode fullwidth/box-drawing glyphs; only shown when unicodeEnabled().
-// Each line is individually centered to the sprite's own max width so the
-// asymmetric arm widths still look symmetric.
+// splashMascot is the corner pet: a 3-line block-pixel creature (a solid
+// forehead, two eyes, and three little legs) rendered in mascotColor in the
+// dashboard's top-right. Drawn with full-block glyphs; the eye and leg gaps are
+// spaces, so the dark terminal background shows through as the dark eyes/feet.
+// Only shown when unicodeEnabled(). Kept at exactly 3 rows so mascotExtraRows
+// (the splitDims header-height reservation) stays correct.
 var splashMascot = []string{
-	` ＼ ✦ ／`,
-	`( ◠ ‿ ◠ )`,
-	` ╰─ ◡ ─╯`,
+	`██████████`,
+	`███ ██ ███`,
+	`██  ██  ██`,
 }
 
-// splashBanner is the ASCII-art block for "claude-mgr", 7 rows tall, ≤64 columns.
-// Each line is individually gradient-colored at render time.
+// splashBanner is the ASCII-art block for "warden" (ANSI Shadow font), 6 rows
+// tall, ~52 columns. Each line is individually gradient-colored at render time.
 var splashBanner = []string{
-	` ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗`,
-	`██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝`,
-	`██║     ██║     ███████║██║   ██║██║  ██║█████╗  `,
-	`██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝  `,
-	`╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗`,
-	` ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝`,
-	`                    ── mgr ──                     `,
+	`██╗    ██╗ █████╗ ██████╗ ██████╗ ███████╗███╗   ██╗`,
+	`██║    ██║██╔══██╗██╔══██╗██╔══██╗██╔════╝████╗  ██║`,
+	`██║ █╗ ██║███████║██████╔╝██║  ██║█████╗  ██╔██╗ ██║`,
+	`██║███╗██║██╔══██║██╔══██╗██║  ██║██╔══╝  ██║╚██╗██║`,
+	`╚███╔███╔╝██║  ██║██║  ██║██████╔╝███████╗██║ ╚████║`,
+	` ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═══╝`,
 }
 
 // splashStops are the brand gradient stops: teal → cyan → blue → violet.
 var splashStops = []string{"#2DD4BF", "#22D3EE", "#3B82F6", "#A855F7"}
 
 // splashTagline is the dim subtitle rendered below the banner.
-const splashTagline = "Claude Code configuration governance · read-only"
+const splashTagline = "agent harness configuration governance · read-only"
 
 // splashHint is the dim instruction line rendered below the tagline.
 const splashHint = "▸ press any key to enter"
