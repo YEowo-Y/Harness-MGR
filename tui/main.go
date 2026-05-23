@@ -123,6 +123,7 @@ type model struct {
 	inv         Inventory
 	err         error
 	loading     bool // counts fetch in flight
+	showSplash  bool // true while the startup splash is displayed
 	cliPath     string
 	currentView viewID
 	width       int
@@ -151,9 +152,11 @@ func initialModel(cliPath string) model {
 	return model{
 		loading:       true,
 		detailLoading: true,
+		showSplash:    true,
 		cliPath:       cliPath,
 		currentView:   viewInventory,
 		width:         defaultWidth,
+		height:        defaultHeight,
 		tree:          newTreeModel(DetailData{}),
 		detail:        viewport.New(0, 0),
 		spinner:       newSpinner(),
@@ -269,6 +272,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case detailMsg:
 		m.detailLoading = false
+		m.showSplash = false
 		m.detailData = msg.data
 		m.detailErr = msg.err
 		m.tree = newTreeModel(msg.data)
@@ -397,6 +401,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //
 // Tab does not switch sections (that was the U1 binding) — it toggles pane focus.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// ctrl+c always quits, even during the splash.
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	// Dismiss the splash on any other key; swallow the key so it does not also
+	// act on the dashboard (currentView is left unchanged).
+	if m.showSplash {
+		m.showSplash = false
+		return m, nil
+	}
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
@@ -556,12 +570,16 @@ func digitToView(s string) (viewID, bool) {
 }
 
 func (m model) View() string {
+	if m.showSplash {
+		return splashView(m.width, m.height)
+	}
 	return dashboardView(m)
 }
 
 func main() {
 	probe := flag.Bool("probe", false, "headless: fetch data, print counts as plain text, exit (no TUI)")
 	snapshot := flag.Bool("snapshot", false, "headless: fetch data, render the styled View() frame to stdout, exit (no TUI)")
+	splash := flag.Bool("splash", false, "headless: render the startup splash screen to stdout, exit (no TUI)")
 	cliFlag := flag.String("cli", "", "path to the claude-mgr Node CLI entry (src/cli.mjs)")
 	flag.Parse()
 
@@ -572,6 +590,11 @@ func main() {
 	}
 
 	configureColor()
+
+	if *splash {
+		fmt.Println(splashView(defaultWidth, defaultHeight))
+		os.Exit(0)
+	}
 
 	if *snapshot {
 		os.Exit(runSnapshot(cliPath))
