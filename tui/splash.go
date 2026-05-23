@@ -39,7 +39,7 @@ var splashStops = []string{"#2DD4BF", "#22D3EE", "#3B82F6", "#A855F7"}
 const splashTagline = "Claude Code configuration governance · read-only"
 
 // splashHint is the dim instruction line rendered below the tagline.
-const splashHint = "▸ press any key or click to enter"
+const splashHint = "▸ press any key to enter"
 
 // splashView renders the startup splash screen centered in the given terminal
 // dimensions. Each banner line is gradient-colored via gradientStops. When the
