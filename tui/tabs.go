@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -26,15 +28,16 @@ func isSectionView(v viewID) bool {
 
 // conflictItems converts a ConflictCluster slice into sectionItems for the
 // Conflicts list. One item per cluster; the title is "kind: key". The color
-// follows the per-kind palette used by the tree widget. The pre-formatted
-// detail body includes all available cluster fields.
+// follows the per-kind palette used by the tree widget. The detail func is
+// called at render time with the live pane width.
 func conflictItems(cs []ConflictCluster) []sectionItem {
 	items := make([]sectionItem, 0, len(cs))
 	for _, c := range cs {
+		c := c // shadow for closure capture
 		items = append(items, sectionItem{
 			title:  fmt.Sprintf("%s: %s", c.Kind, c.Key),
 			color:  conflictColor(c.Kind),
-			detail: conflictDetail(c),
+			detail: func(w int) string { return conflictDetail(c, w) },
 		})
 	}
 	return items
@@ -55,11 +58,10 @@ func conflictColor(kind string) lipgloss.Color {
 	}
 }
 
-// conflictDetail builds the pre-formatted detail body for a ConflictCluster.
-// Uses the same detailTitle / detailField helpers as the inventory detail panes
-// so the visual language is consistent.
-func conflictDetail(c ConflictCluster) string {
-	width := defaultWidth
+// conflictDetail builds the detail body for a ConflictCluster at the given
+// pane width. Uses the same detailTitle / detailField helpers as the inventory
+// detail panes so the visual language is consistent.
+func conflictDetail(c ConflictCluster, width int) string {
 	fg := conflictColor(c.Kind)
 
 	var b strings.Builder
@@ -92,10 +94,11 @@ func conflictDetail(c ConflictCluster) string {
 func orphanItems(r OrphansResult) []sectionItem {
 	items := make([]sectionItem, 0, len(r.Orphans))
 	for _, o := range r.Orphans {
+		o := o // shadow for closure capture
 		items = append(items, sectionItem{
 			title:  o.Name,
 			color:  orphanColor(o.Category),
-			detail: orphanDetail(o),
+			detail: func(w int) string { return orphanDetail(o, w) },
 		})
 	}
 	return items
@@ -113,9 +116,8 @@ func orphanColor(category string) lipgloss.Color {
 	}
 }
 
-// orphanDetail builds the pre-formatted detail body for an Orphan.
-func orphanDetail(o Orphan) string {
-	width := defaultWidth
+// orphanDetail builds the detail body for an Orphan at the given pane width.
+func orphanDetail(o Orphan, width int) string {
 	fg := orphanColor(o.Category)
 
 	var b strings.Builder
@@ -205,8 +207,6 @@ func sectionEmptyLabel(v viewID) string {
 	}
 }
 
-// ── Summary bar ─────────────────────────────────────────────────────────────
-
 // ── Config ───────────────────────────────────────────────────────────────────
 
 // configItems converts a ConfigResult into sectionItems for the Config list.
@@ -223,11 +223,11 @@ func configItems(r ConfigResult) []sectionItem {
 
 	items := make([]sectionItem, 0, len(keys))
 	for _, k := range keys {
-		ck := r.Keys[k]
+		ck := r.Keys[k] // loop-local; safe to capture in closure (go1.26 per-iteration vars)
 		items = append(items, sectionItem{
 			title:  k,
 			color:  configKeyColor(ck.MergeConfidence),
-			detail: configDetail(ck),
+			detail: func(w int) string { return configDetail(ck, w) },
 		})
 	}
 	return items
@@ -245,9 +245,10 @@ func configKeyColor(confidence string) lipgloss.Color {
 	}
 }
 
-// configDetail builds the pre-formatted detail body for a ConfigKey.
-func configDetail(ck ConfigKey) string {
-	width := defaultWidth
+// configDetail builds the detail body for a ConfigKey at the given pane width.
+// Per-layer values are compacted to a single JSON line before truncation so
+// objects render as {"key":"val"} rather than multi-line indented blocks.
+func configDetail(ck ConfigKey, width int) string {
 	fg := configKeyColor(ck.MergeConfidence)
 
 	var b strings.Builder
@@ -257,6 +258,10 @@ func configDetail(ck ConfigKey) string {
 	b.WriteString(detailField("Strategy", ck.Strategy, width))
 	for _, layer := range ck.PerLayer {
 		v := strings.TrimSpace(string(layer.Value))
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, layer.Value); err == nil && buf.Len() > 0 {
+			v = buf.String()
+		}
 		b.WriteString(detailField("Layer "+layer.Name, v, width))
 	}
 	return b.String()
@@ -276,20 +281,19 @@ func hooksItems(r HooksResult) []sectionItem {
 
 	items := make([]sectionItem, 0, len(events))
 	for _, e := range events {
+		e := e // shadow for closure capture
 		entries := r.Hooks[e]
 		items = append(items, sectionItem{
 			title:  fmt.Sprintf("%s (%d)", e, len(entries)),
 			color:  accent,
-			detail: hooksDetail(e, entries),
+			detail: func(w int) string { return hooksDetail(e, entries, w) },
 		})
 	}
 	return items
 }
 
-// hooksDetail builds the pre-formatted detail body for a hook event.
-func hooksDetail(event string, entries []HookEntry) string {
-	width := defaultWidth
-
+// hooksDetail builds the detail body for a hook event at the given pane width.
+func hooksDetail(event string, entries []HookEntry, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(event, accent, width))
 	b.WriteString("\n\n")
@@ -312,6 +316,7 @@ func hooksDetail(event string, entries []HookEntry) string {
 func selftestItems(r SelftestResult) []sectionItem {
 	items := make([]sectionItem, 0, len(r.Checks))
 	for _, ch := range r.Checks {
+		ch := ch // shadow for closure capture
 		var title string
 		var color lipgloss.Color
 		if ch.Ok {
@@ -324,15 +329,14 @@ func selftestItems(r SelftestResult) []sectionItem {
 		items = append(items, sectionItem{
 			title:  title,
 			color:  color,
-			detail: selftestDetail(ch),
+			detail: func(w int) string { return selftestDetail(ch, w) },
 		})
 	}
 	return items
 }
 
-// selftestDetail builds the pre-formatted detail body for a SelftestCheck.
-func selftestDetail(ch SelftestCheck) string {
-	width := defaultWidth
+// selftestDetail builds the detail body for a SelftestCheck at the given pane width.
+func selftestDetail(ch SelftestCheck, width int) string {
 	color := colorPlugin
 	if !ch.Ok {
 		color = colorRed
