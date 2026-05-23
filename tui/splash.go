@@ -6,22 +6,28 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// mascotColor is the mascot's own coral — a distinct hue not reused elsewhere in
-// the palette (the six type colors, orphan orange, and error red are all
-// separate), so the corner pet reads as its own element against the
-// teal→violet wordmark gradient.
+// mascotStops are the mascot's own vivid multi-color gradient (rose → amber →
+// green → sky → purple), distinct from the brand wordmark's teal→violet so the
+// corner pet reads as its own playful element. renderMascot blends these per row.
+var mascotStops = []string{"#FB7185", "#FBBF24", "#34D399", "#38BDF8", "#C084FC"}
+
+// mascotColor is the solid fallback used only if mascotStops can't be parsed (it
+// never should); it keeps renderMascot degrading to a single hue, never blank.
 var mascotColor = lipgloss.Color("#F4845C")
 
-// splashMascot is the corner pet: a 3-line block-pixel creature (a solid
-// forehead, two eyes, and three little legs) rendered in mascotColor in the
-// dashboard's top-right. Drawn with full-block glyphs; the eye and leg gaps are
-// spaces, so the dark terminal background shows through as the dark eyes/feet.
-// Only shown when unicodeEnabled(). Kept at exactly 3 rows so mascotExtraRows
-// (the splitDims header-height reservation) stays correct.
+// splashMascot is the corner pet: a 5-line block-pixel CAT (pointy ears, a face
+// with two eyes, a body, and two legs) shown in the dashboard's top-right. Drawn
+// with full-block glyphs; the eye/leg gaps are spaces so the dark terminal
+// background shows through. renderMascot colors it with a vivid multi-stop
+// gradient (mascotStops). Only shown when unicodeEnabled(). The header-height
+// reservation (mascotExtraRows) is derived from len(splashMascot), so this row
+// count is free to change without touching splitDims.
 var splashMascot = []string{
-	`██████████`,
-	`███ ██ ███`,
-	`██  ██  ██`,
+	`██    ██`,
+	` ██████ `,
+	` █ ██ █ `,
+	` ██████ `,
+	` █    █ `,
 }
 
 // splashBanner is the ASCII-art block for "warden" (ANSI Shadow font), 6 rows
