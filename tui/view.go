@@ -142,12 +142,17 @@ func dashboardView(m model) string {
 
 // contentView renders the active tab's body. The Inventory tab is the
 // master-detail tree browser (driven by the `--detail` fetch) with a per-type
-// color counts bar stacked above the split; the other five tabs remain the
-// "coming soon" placeholder card.
+// color counts bar stacked above the split. Section tabs (Conflicts, Orphans)
+// render a summary bar above a flat-list split pane. The other tabs remain
+// "coming soon" placeholder cards.
 func contentView(m model, cardW int) string {
 	if m.currentView == viewInventory {
 		bar := countsBarView(m.inv.Result.Counts, m.width)
 		return lipgloss.JoinVertical(lipgloss.Left, bar, inventorySplitView(m))
+	}
+	if isSectionView(m.currentView) {
+		bar := sectionSummaryBar(m.currentView, m.sections[m.currentView], m.width)
+		return lipgloss.JoinVertical(lipgloss.Left, bar, sectionSplitView(m))
 	}
 	return placeholderView(m.currentView, cardW)
 }
