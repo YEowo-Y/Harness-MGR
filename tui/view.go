@@ -403,6 +403,12 @@ func componentDetail(c Component, fg lipgloss.Color, width int) string {
 	if p := strings.TrimSpace(c.Source.Plugin); p != "" {
 		b.WriteString(detailField("Plugin", p, width))
 	}
+	if mk := strings.TrimSpace(c.Source.Marketplace); mk != "" {
+		b.WriteString(detailField("Marketplace", mk, width))
+	}
+	if v := strings.TrimSpace(c.Source.Version); v != "" {
+		b.WriteString(detailField("Version", v, width))
+	}
 
 	b.WriteString("\n")
 	b.WriteString(detailSection("Location", fg, width))
