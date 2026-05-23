@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -41,15 +42,8 @@ var (
 	// Placeholder text for not-yet-built tabs.
 	placeholderStyle = lipgloss.NewStyle().Foreground(configGray).Italic(true)
 
-	// Inventory list-row styles (custom delegate). Selected rows use the teal
-	// accent; unselected titles are light-gray, descriptions dimmer.
-	listTitleStyle    = lipgloss.NewStyle().Foreground(labelGray)
-	listDescStyle     = lipgloss.NewStyle().Foreground(configGray)
-	listSelTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	listSelDescStyle  = lipgloss.NewStyle().Foreground(labelGray)
-
-	// Detail-pane styles. Title in teal; field labels in gray; values default.
-	detailTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
+	// Detail-pane styles. Field labels in gray; values default. (The per-type
+	// detail title color is applied inline by detailTitle().)
 	detailLabelStyle = lipgloss.NewStyle().Foreground(labelGray)
 	detailValueStyle = lipgloss.NewStyle().Foreground(statusDim)
 	detailEmptyStyle = lipgloss.NewStyle().Foreground(configGray).Italic(true)
@@ -132,7 +126,9 @@ func glyph(uni, ascii string) string {
 
 // dashboardView is the top-level composer: tab bar, the active tab's content,
 // and the status bar, stacked vertically with the status bar pinned to the
-// bottom of the terminal.
+// bottom of the terminal. On the Inventory tab a counts overview bar sits between
+// the tab bar and the tree (composed inside contentView so the height math in
+// padContent stays correct).
 func dashboardView(m model) string {
 	cardW := cardWidth(m.width)
 
@@ -146,13 +142,50 @@ func dashboardView(m model) string {
 }
 
 // contentView renders the active tab's body. The Inventory tab is the
-// master-detail split-pane browser (driven by the `--detail` component fetch);
-// the other five tabs remain the "coming soon" placeholder card.
+// master-detail tree browser (driven by the `--detail` fetch) with a per-type
+// color counts bar stacked above the split; the other five tabs remain the
+// "coming soon" placeholder card.
 func contentView(m model, cardW int) string {
 	if m.currentView == viewInventory {
-		return inventorySplitView(m)
+		bar := countsBarView(m.inv.Result.Counts, m.width)
+		return lipgloss.JoinVertical(lipgloss.Left, bar, inventorySplitView(m))
 	}
 	return placeholderView(m.currentView, cardW)
+}
+
+// ── Counts overview bar (Inventory tab) ─────────────────────────────────────
+
+// countsBarView renders the single-line overview above the tree:
+// "240 skills · 19 agents · 79 commands · 13 plugins · 4 marketplaces · 6 mcp",
+// each "<n> <label>" segment colored in ITS TYPE COLOR (bold count), separated by
+// a dim middle dot. Sourced from result.counts.
+func countsBarView(c Counts, termWidth int) string {
+	type seg struct {
+		n     int
+		label string
+		fg    lipgloss.Color
+	}
+	segs := []seg{
+		{c.Skills, "skills", colorSkill},
+		{c.Agents, "agents", colorAgent},
+		{c.Commands, "commands", colorCommand},
+		{c.Plugins, "plugins", colorPlugin},
+		{c.Marketplaces, "marketplaces", colorMarketplace},
+		{c.McpServers, "mcp", colorMcp},
+	}
+	sep := lipgloss.NewStyle().Foreground(leaderDim).Render(" · ")
+	parts := make([]string, 0, len(segs))
+	for _, s := range segs {
+		style := lipgloss.NewStyle().Foreground(s.fg)
+		parts = append(parts, style.Bold(true).Render(strconv.Itoa(s.n))+style.Render(" "+s.label))
+	}
+	line := strings.Join(parts, sep)
+
+	style := lipgloss.NewStyle().Padding(0, 1)
+	if termWidth > 0 {
+		style = style.Width(termWidth)
+	}
+	return style.Render(line)
 }
 
 // padContent inserts blank lines between the content block and the status bar
@@ -204,16 +237,19 @@ func tabBarView(active viewID, termWidth int) string {
 // ── Status bar ─────────────────────────────────────────────────────────────────
 
 // statusBarView renders the bottom hint bar spanning the full terminal width.
-// Hints reflect the U2a key model: 1-6 / [ ] switch sections, Tab toggles pane
-// focus, j/k move within the focused pane, q quits.
+// Hints reflect the tree key model: Enter expands/collapses a folder (or selects
+// an item), j/k move the cursor, Tab toggles pane focus, 1-6 / [ ] switch
+// sections, q quits.
 func statusBarView(termWidth int) string {
 	dim := lipgloss.NewStyle().Foreground(statusDim)
 	sep := lipgloss.NewStyle().Foreground(tabDim).Render(" · ")
-	hint := keyStyle.Render("1-6/[ ]") + dim.Render(" section") +
+	hint := keyStyle.Render("Enter") + dim.Render(" expand") +
+		sep +
+		keyStyle.Render("j/k") + dim.Render(" move") +
 		sep +
 		keyStyle.Render("Tab") + dim.Render(" focus") +
 		sep +
-		keyStyle.Render("j/k") + dim.Render(" move") +
+		keyStyle.Render("1-6") + dim.Render(" section") +
 		sep +
 		keyStyle.Render("q") + dim.Render(" quit")
 
@@ -229,8 +265,8 @@ func statusBarView(termWidth int) string {
 
 // ── Inventory split-pane view (Inventory tab) ───────────────────────────────────
 //
-// The Inventory tab is a master-detail browser: the bubbles/list on the left
-// and the bubbles/viewport on the right, each in a bordered box. The focused
+// The Inventory tab is a master-detail browser: the color-coded tree on the
+// left and the detail viewport on the right, each in a bordered box. The focused
 // pane gets a teal border; the unfocused pane a dim border. The two boxes are
 // joined horizontally and sit between the tab bar and the status bar.
 
@@ -255,68 +291,88 @@ func paneBorderStyle(focused bool, boxW, boxH int) lipgloss.Style {
 	return s
 }
 
-// inventorySplitView composes the two panes side by side. While the component
-// fetch is in flight a spinner shows in the list pane; a fetch error renders in
-// both panes. The list pane width is ~42% of the model width; the detail pane
-// takes the remainder. Heights derive from the model height (room left for the
-// tab bar + status bar).
+// inventorySplitView composes the two panes side by side. While the detail fetch
+// is in flight a spinner shows in the tree pane; a fetch error renders in both
+// panes. The tree pane width is ~42% of the model width; the detail pane takes
+// the remainder. Heights derive from the model height (room left for the tab bar
+// + counts bar + status bar).
 func inventorySplitView(m model) string {
-	listW, detailW, boxH := m.splitDims()
+	treeW, detailW, boxH := m.splitDims()
 
-	left := paneBorderStyle(m.focus == focusList, listW, boxH).
-		Render(listPaneBody(m))
+	left := paneBorderStyle(m.focus == focusTree, treeW, boxH).
+		Render(treePaneBody(m))
 	right := paneBorderStyle(m.focus == focusDetail, detailW, boxH).
 		Render(detailPaneBody(m))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
-// listPaneBody renders the master pane's inner content: a spinner while loading,
-// the fetch error, an empty-state hint, or the bubbles/list itself.
-func listPaneBody(m model) string {
+// treePaneBody renders the master pane's inner content: a spinner while loading,
+// the fetch error, an empty-state hint, or the color-coded tree itself sized to
+// the pane's inner dimensions.
+func treePaneBody(m model) string {
 	switch {
-	case m.compLoading:
-		return m.spinner.View() + " " + configStyle.Render("loading components…")
-	case m.compErr != nil:
+	case m.detailLoading:
+		return m.spinner.View() + " " + configStyle.Render("loading inventory…")
+	case m.detailErr != nil:
 		return lipgloss.NewStyle().Foreground(colorRed).
 			Render(glyph("✗", "[x]")+" load failed") + "\n\n" +
-			configStyle.Render(truncate(m.compErr.Error(), m.detail.Width))
-	case len(m.components) == 0:
-		return detailEmptyStyle.Render("no components found")
+			configStyle.Render(truncate(m.detailErr.Error(), m.detail.Width))
+	case len(m.tree.visible) == 0:
+		return detailEmptyStyle.Render("no objects found")
 	default:
-		return m.list.View()
+		return m.tree.render(m.treeInnerW, m.treeInnerH)
 	}
 }
 
 // detailPaneBody renders the detail pane's inner content: the bubbles/viewport
-// showing the selected component's fields, or matching loading/error/empty
-// states so the right pane never looks broken.
+// showing the selected node's fields, or matching loading/error/empty states so
+// the right pane never looks broken.
 func detailPaneBody(m model) string {
 	switch {
-	case m.compLoading:
+	case m.detailLoading:
 		return detailEmptyStyle.Render("…")
-	case m.compErr != nil:
+	case m.detailErr != nil:
 		return detailEmptyStyle.Render("—")
-	case len(m.components) == 0:
-		return detailEmptyStyle.Render("select a component")
+	case len(m.tree.visible) == 0:
+		return detailEmptyStyle.Render("select an object")
 	default:
 		return m.detail.View()
 	}
 }
 
-// detailContent builds the styled text for the detail viewport from a selected
-// component: a teal title, then Kind / Source / Path field rows. width truncates
-// the path so it never wraps awkwardly. With no selection it returns a hint.
-func detailContent(c Component, ok bool, width int) string {
+// detailContent builds the styled text for the detail viewport from the selected
+// tree node, dispatching on its type and theming the title in the type color.
+// width truncates values so they never wrap awkwardly. With no item selected
+// (folder row or empty tree) it returns a hint.
+func detailContent(n treeNode, ok bool, width int) string {
 	if !ok {
-		return detailEmptyStyle.Render("select a component on the left")
+		return detailEmptyStyle.Render("select an object on the left")
 	}
 	if width < 1 {
 		width = defaultWidth
 	}
+	fg := kindMetas[n.kind].folderFg
 
+	switch {
+	case n.comp != nil:
+		return componentDetail(*n.comp, fg, width)
+	case n.plug != nil:
+		return pluginDetail(*n.plug, fg, width)
+	case n.mkt != nil:
+		return marketplaceDetail(*n.mkt, fg, width)
+	case n.mcp != nil:
+		return mcpDetail(*n.mcp, fg, width)
+	default:
+		return detailEmptyStyle.Render("—")
+	}
+}
+
+// componentDetail renders Name / Kind / Source / Path / Description for a
+// skill/agent/command, titled in the type color.
+func componentDetail(c Component, fg lipgloss.Color, width int) string {
 	var b strings.Builder
-	b.WriteString(detailTitleStyle.Render(truncate(c.Name, width)))
+	b.WriteString(detailTitle(c.Name, fg, width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Kind", c.Kind, width))
 	b.WriteString(detailField("Source", sourceSummary(c.Source), width))
@@ -324,7 +380,60 @@ func detailContent(c Component, ok bool, width int) string {
 		b.WriteString(detailField("Plugin", p, width))
 	}
 	b.WriteString(detailField("Path", c.Path, width))
+	b.WriteString(detailField("Description", c.Description, width))
 	return b.String()
+}
+
+// pluginDetail renders Name / Key / Marketplace / Version / Enabled / Cache
+// present for an installed plugin, titled in the plugin color.
+func pluginDetail(p Plugin, fg lipgloss.Color, width int) string {
+	var b strings.Builder
+	b.WriteString(detailTitle(p.Name, fg, width))
+	b.WriteString("\n\n")
+	b.WriteString(detailField("Key", p.Key, width))
+	b.WriteString(detailField("Marketplace", p.Marketplace, width))
+	b.WriteString(detailField("Version", p.Version, width))
+	b.WriteString(detailField("Enabled", boolText(p.Enabled), width))
+	b.WriteString(detailField("Cache present", boolText(p.CachePresent), width))
+	return b.String()
+}
+
+// marketplaceDetail renders Name / Source repo / On disk / Install location for
+// a marketplace, titled in the marketplace color.
+func marketplaceDetail(mk Marketplace, fg lipgloss.Color, width int) string {
+	var b strings.Builder
+	b.WriteString(detailTitle(mk.Name, fg, width))
+	b.WriteString("\n\n")
+	b.WriteString(detailField("Source repo", mk.SourceRepo, width))
+	b.WriteString(detailField("On disk", boolText(mk.OnDisk), width))
+	b.WriteString(detailField("Install location", mk.InstallLocation, width))
+	return b.String()
+}
+
+// mcpDetail renders Name / Transport / Scope / Command / Args for an MCP server,
+// titled in the MCP color. Args are space-joined.
+func mcpDetail(ms McpServer, fg lipgloss.Color, width int) string {
+	var b strings.Builder
+	b.WriteString(detailTitle(ms.Name, fg, width))
+	b.WriteString("\n\n")
+	b.WriteString(detailField("Transport", ms.Transport, width))
+	b.WriteString(detailField("Scope", ms.Scope, width))
+	b.WriteString(detailField("Command", ms.Command, width))
+	b.WriteString(detailField("Args", strings.Join(ms.Args, " "), width))
+	return b.String()
+}
+
+// detailTitle renders the detail header in the given type color (bold).
+func detailTitle(name string, fg lipgloss.Color, width int) string {
+	return lipgloss.NewStyle().Bold(true).Foreground(fg).Render(truncate(name, width))
+}
+
+// boolText renders a bool as "yes"/"no" for the detail rows.
+func boolText(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // detailField renders one "label  value" row, the value truncated to fit width.
