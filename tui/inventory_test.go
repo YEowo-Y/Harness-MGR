@@ -428,7 +428,7 @@ func TestCountsBarPresent(t *testing.T) {
 	out := m.View()
 	// At width 120 the brand wordmark fits on the counts row alongside every
 	// per-type count.
-	for _, want := range []string{"claude-mgr", "240 skills", "19 agents", "79 commands", "13 plugins", "4 marketplaces", "6 mcp"} {
+	for _, want := range []string{"warden", "240 skills", "19 agents", "79 commands", "13 plugins", "4 marketplaces", "6 mcp"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("counts bar missing %q in frame:\n%s", want, out)
 		}
@@ -442,7 +442,7 @@ func TestCountsBarOmitsWordmarkNarrow(t *testing.T) {
 	m := loadedModel(80, 30)
 	m.inv.Result.Counts = Counts{Skills: 240, Agents: 19, Commands: 79, Plugins: 13, Marketplaces: 4, McpServers: 6}
 	out := m.View()
-	if strings.Contains(out, "claude-mgr") {
+	if strings.Contains(out, "warden") {
 		t.Fatalf("wordmark should be dropped at width 80 to avoid wrapping, but frame contains it:\n%s", out)
 	}
 	for _, want := range []string{"240 skills", "6 mcp"} {
