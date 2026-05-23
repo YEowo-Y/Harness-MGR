@@ -136,6 +136,52 @@ func TestDetailTitleHeader(t *testing.T) {
 	_ = detailTitle("x", accent, "◆", 40)
 }
 
+// ── detailSection tests ───────────────────────────────────────────────────────
+
+// TestDetailSectionRenders asserts detailSection renders the group label plus a
+// dim rule glyph, and that degenerate widths (0 and negative) do not panic.
+func TestDetailSectionRenders(t *testing.T) {
+	got := stripANSI(detailSection("Provenance", accent, 60))
+	if !strings.Contains(got, "Provenance") {
+		t.Fatalf("detailSection missing label: %q", got)
+	}
+	// The rule uses glyph("─","-"): the Unicode bar when a color profile is
+	// detected, the ASCII fallback otherwise (the test binary has no TTY).
+	if !strings.Contains(got, glyph("─", "-")) {
+		t.Fatalf("detailSection missing rule glyph: %q", got)
+	}
+	// Degenerate widths must not panic.
+	_ = detailSection("X", accent, 0)
+	_ = detailSection("X", accent, -5)
+}
+
+// TestComponentDetailGrouped asserts componentDetail wraps its fields in the new
+// group headers (Provenance/Location/About) while preserving every field label
+// and value — proving grouping was added without changing content.
+func TestComponentDetailGrouped(t *testing.T) {
+	c := Component{
+		Name:        "demo",
+		Kind:        "skill",
+		Source:      ComponentSource{Tier: "user"},
+		Path:        "/p/demo",
+		Description: "does things",
+	}
+	got := stripANSI(componentDetail(c, accent, 80))
+
+	for _, want := range []string{
+		// New group headers.
+		"Provenance", "Location", "About",
+		// Preserved field labels.
+		"Kind", "Source", "Path", "Description",
+		// Preserved values.
+		"skill", "does things",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("componentDetail missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // ── stripANSI helper ──────────────────────────────────────────────────────────
 
 // stripANSI removes ANSI CSI escape sequences (ESC [ ... m) from s so we can
