@@ -95,45 +95,13 @@ func TestDetailMsgDoesNotDismissSplash(t *testing.T) {
 }
 
 // TestDetailMsgErrorDoesNotDismissSplash verifies the splash also stays up when
-// the detail fetch FAILED — the user still presses a key or clicks to enter.
+// the detail fetch FAILED — the user still presses a key to enter.
 func TestDetailMsgErrorDoesNotDismissSplash(t *testing.T) {
 	m := initialModel("x")
 	next, _ := m.Update(detailMsg{err: errors.New("fetch failed")})
 	nm := next.(model)
 	if !nm.showSplash {
 		t.Fatal("showSplash should still be true after error detailMsg — user must enter manually")
-	}
-}
-
-// TestMouseClickDismissesSplash verifies that a left-button press MouseMsg while
-// showSplash=true sets showSplash=false (click-to-enter).
-func TestMouseClickDismissesSplash(t *testing.T) {
-	m := initialModel("x")
-	if !m.showSplash {
-		t.Fatal("precondition: showSplash should be true")
-	}
-	click := tea.MouseMsg{
-		Action: tea.MouseActionPress,
-		Button: tea.MouseButtonLeft,
-	}
-	next, _ := m.Update(click)
-	nm := next.(model)
-	if nm.showSplash {
-		t.Fatal("showSplash should be false after a left-click while splash is shown")
-	}
-}
-
-// TestMouseRightClickDoesNotDismissSplash verifies only a LEFT press enters; a
-// right-click leaves the splash up (guards the button check).
-func TestMouseRightClickDoesNotDismissSplash(t *testing.T) {
-	m := initialModel("x")
-	rightClick := tea.MouseMsg{
-		Action: tea.MouseActionPress,
-		Button: tea.MouseButtonRight,
-	}
-	next, _ := m.Update(rightClick)
-	if !next.(model).showSplash {
-		t.Fatal("a right-click should not dismiss the splash")
 	}
 }
 
