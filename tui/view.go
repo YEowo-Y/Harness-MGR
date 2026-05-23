@@ -168,22 +168,28 @@ func contentView(m model, cardW int) string {
 func countsBarView(c Counts, termWidth int) string {
 	type seg struct {
 		n     int
-		label string
+		label string // display label (plural)
+		kind  string // singular type key for typeIcon
 		fg    lipgloss.Color
 	}
 	segs := []seg{
-		{c.Skills, "skills", colorSkill},
-		{c.Agents, "agents", colorAgent},
-		{c.Commands, "commands", colorCommand},
-		{c.Plugins, "plugins", colorPlugin},
-		{c.Marketplaces, "marketplaces", colorMarketplace},
-		{c.McpServers, "mcp", colorMcp},
+		{c.Skills, "skills", "skill", colorSkill},
+		{c.Agents, "agents", "agent", colorAgent},
+		{c.Commands, "commands", "command", colorCommand},
+		{c.Plugins, "plugins", "plugin", colorPlugin},
+		{c.Marketplaces, "marketplaces", "marketplace", colorMarketplace},
+		{c.McpServers, "mcp", "mcp", colorMcp},
 	}
 	sep := lipgloss.NewStyle().Foreground(leaderDim).Render(" · ")
 	parts := make([]string, 0, len(segs))
 	for _, s := range segs {
 		style := lipgloss.NewStyle().Foreground(s.fg)
-		parts = append(parts, style.Bold(true).Render(strconv.Itoa(s.n))+style.Render(" "+s.label))
+		iconStr := glyph(typeIcon(s.kind), "")
+		prefix := ""
+		if iconStr != "" {
+			prefix = style.Render(iconStr) + " "
+		}
+		parts = append(parts, prefix+style.Bold(true).Render(strconv.Itoa(s.n))+style.Render(" "+s.label))
 	}
 	counts := strings.Join(parts, sep)
 
@@ -388,7 +394,7 @@ func detailContent(n treeNode, ok bool, width int) string {
 // skill/agent/command, titled in the type color.
 func componentDetail(c Component, fg lipgloss.Color, width int) string {
 	var b strings.Builder
-	b.WriteString(detailTitle(c.Name, fg, width))
+	b.WriteString(detailTitle(c.Name, fg, typeIcon(c.Kind), width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Kind", c.Kind, width))
 	b.WriteString(detailField("Source", sourceSummary(c.Source), width))
@@ -404,7 +410,7 @@ func componentDetail(c Component, fg lipgloss.Color, width int) string {
 // present for an installed plugin, titled in the plugin color.
 func pluginDetail(p Plugin, fg lipgloss.Color, width int) string {
 	var b strings.Builder
-	b.WriteString(detailTitle(p.Name, fg, width))
+	b.WriteString(detailTitle(p.Name, fg, typeIcon("plugin"), width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Key", p.Key, width))
 	b.WriteString(detailField("Marketplace", p.Marketplace, width))
@@ -418,7 +424,7 @@ func pluginDetail(p Plugin, fg lipgloss.Color, width int) string {
 // a marketplace, titled in the marketplace color.
 func marketplaceDetail(mk Marketplace, fg lipgloss.Color, width int) string {
 	var b strings.Builder
-	b.WriteString(detailTitle(mk.Name, fg, width))
+	b.WriteString(detailTitle(mk.Name, fg, typeIcon("marketplace"), width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Source repo", mk.SourceRepo, width))
 	b.WriteString(detailField("On disk", boolText(mk.OnDisk), width))
@@ -430,7 +436,7 @@ func marketplaceDetail(mk Marketplace, fg lipgloss.Color, width int) string {
 // titled in the MCP color. Args are space-joined.
 func mcpDetail(ms McpServer, fg lipgloss.Color, width int) string {
 	var b strings.Builder
-	b.WriteString(detailTitle(ms.Name, fg, width))
+	b.WriteString(detailTitle(ms.Name, fg, typeIcon("mcp"), width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Transport", ms.Transport, width))
 	b.WriteString(detailField("Scope", ms.Scope, width))
@@ -439,12 +445,18 @@ func mcpDetail(ms McpServer, fg lipgloss.Color, width int) string {
 	return b.String()
 }
 
-// detailTitle renders the detail header: a type-colored accent bar + the bold
-// name, then a dim full-width rule beneath it — giving every detail pane a clear
-// header/body split without changing its content.
-func detailTitle(name string, fg lipgloss.Color, width int) string {
+// detailTitle renders the detail header: a type-colored accent marker + the
+// bold name, then a dim full-width rule beneath it. When icon is non-empty AND
+// unicode is enabled, the icon is used as the marker in place of the ▌ bar.
+// When icon is "" or unicode is off, the ▌ bar is kept unchanged.
+func detailTitle(name string, fg lipgloss.Color, icon string, width int) string {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(fg)
-	bar := titleStyle.Render(glyph("▌", "|")) + " "
+	var bar string
+	if icon != "" && unicodeEnabled() {
+		bar = titleStyle.Render(icon) + " "
+	} else {
+		bar = titleStyle.Render(glyph("▌", "|")) + " "
+	}
 	avail := width - lipgloss.Width(bar)
 	if avail < 1 {
 		avail = 1
