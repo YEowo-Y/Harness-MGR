@@ -603,6 +603,7 @@ func main() {
 	probe := flag.Bool("probe", false, "headless: fetch data, print counts as plain text, exit (no TUI)")
 	snapshot := flag.Bool("snapshot", false, "headless: fetch data, render the styled View() frame to stdout, exit (no TUI)")
 	splash := flag.Bool("splash", false, "headless: render the startup splash screen to stdout, exit (no TUI)")
+	icons := flag.Bool("icons", false, "headless: print the candidate icon sets (emoji vs symbols) to stdout, exit")
 	cliFlag := flag.String("cli", "", "path to the claude-mgr Node CLI entry (src/cli.mjs)")
 	flag.Parse()
 
@@ -616,6 +617,11 @@ func main() {
 
 	if *splash {
 		fmt.Println(splashView(defaultWidth, defaultHeight))
+		os.Exit(0)
+	}
+
+	if *icons {
+		fmt.Print(iconsTestView())
 		os.Exit(0)
 	}
 
