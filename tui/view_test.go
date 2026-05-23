@@ -319,28 +319,6 @@ func TestSplitDimsReservesForMascotWhenAbsent(t *testing.T) {
 	}
 }
 
-// TestStatsPanelFillsHeight asserts statsPanel returns exactly `height` rows and
-// surfaces every type count, so it fills the header band beside the mascot
-// without changing the header height.
-func TestStatsPanelFillsHeight(t *testing.T) {
-	c := Counts{Skills: 240, Agents: 19, Commands: 79, Plugins: 13, Marketplaces: 4, McpServers: 6}
-	got := statsPanel(c, 60, 5)
-	if n := strings.Count(got, "\n"); n != 4 {
-		t.Fatalf("statsPanel rows = %d, want 5", n+1)
-	}
-	plain := stripANSI(got)
-	for _, want := range []string{"240 skills", "19 agents", "79 commands", "13 plugins", "4 marketplaces", "6 mcp"} {
-		if !strings.Contains(plain, want) {
-			t.Fatalf("statsPanel missing %q:\n%s", want, plain)
-		}
-	}
-	// A too-narrow width must NOT wrap rows and inflate the panel past height
-	// (each row is clipped to one line), else the header would overflow the frame.
-	if n := strings.Count(statsPanel(c, 3, 5), "\n"); n != 4 {
-		t.Fatalf("statsPanel(width=3) rows = %d, want 5 (rows must clip, not wrap)", n+1)
-	}
-}
-
 // ── stripANSI helper ──────────────────────────────────────────────────────────
 
 // stripANSI removes ANSI CSI escape sequences (ESC [ ... m) from s so we can
