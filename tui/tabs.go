@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -17,7 +18,8 @@ import (
 // isSectionView reports whether v is one of the flat-list section tabs.
 // Extend this list when new section tabs are added.
 func isSectionView(v viewID) bool {
-	return v == viewConflicts || v == viewOrphans
+	return v == viewConflicts || v == viewOrphans ||
+		v == viewConfig || v == viewHooks || v == viewSelftest
 }
 
 // ── Conflicts ────────────────────────────────────────────────────────────────
@@ -192,12 +194,160 @@ func sectionEmptyLabel(v viewID) string {
 		return "no conflicts found"
 	case viewOrphans:
 		return "no orphans found"
+	case viewConfig:
+		return "no config keys found"
+	case viewHooks:
+		return "no hooks found"
+	case viewSelftest:
+		return "no checks found"
 	default:
 		return "no items found"
 	}
 }
 
 // ── Summary bar ─────────────────────────────────────────────────────────────
+
+// ── Config ───────────────────────────────────────────────────────────────────
+
+// configItems converts a ConfigResult into sectionItems for the Config list.
+// One item per key, sorted by key name (map order is random). Color reflects
+// mergeConfidence: "known"→colorPlugin (green), "unknown"→colorCommand (amber),
+// else labelGray. The detail shows merge confidence, strategy, and one row per
+// perLayer entry with a compact JSON value.
+func configItems(r ConfigResult) []sectionItem {
+	keys := make([]string, 0, len(r.Keys))
+	for k := range r.Keys {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	items := make([]sectionItem, 0, len(keys))
+	for _, k := range keys {
+		ck := r.Keys[k]
+		items = append(items, sectionItem{
+			title:  k,
+			color:  configKeyColor(ck.MergeConfidence),
+			detail: configDetail(ck),
+		})
+	}
+	return items
+}
+
+// configKeyColor maps a mergeConfidence string to a palette color.
+func configKeyColor(confidence string) lipgloss.Color {
+	switch strings.ToLower(strings.TrimSpace(confidence)) {
+	case "known":
+		return colorPlugin // green
+	case "unknown":
+		return colorCommand // amber
+	default:
+		return labelGray
+	}
+}
+
+// configDetail builds the pre-formatted detail body for a ConfigKey.
+func configDetail(ck ConfigKey) string {
+	width := defaultWidth
+	fg := configKeyColor(ck.MergeConfidence)
+
+	var b strings.Builder
+	b.WriteString(detailTitle(ck.Key, fg, width))
+	b.WriteString("\n\n")
+	b.WriteString(detailField("Merge confidence", ck.MergeConfidence, width))
+	b.WriteString(detailField("Strategy", ck.Strategy, width))
+	for _, layer := range ck.PerLayer {
+		v := strings.TrimSpace(string(layer.Value))
+		b.WriteString(detailField("Layer "+layer.Name, v, width))
+	}
+	return b.String()
+}
+
+// ── Hooks ────────────────────────────────────────────────────────────────────
+
+// hooksItems converts a HooksResult into sectionItems for the Hooks list.
+// One item per event, sorted by event name. The title includes the entry count.
+// Color is accent (teal). The detail lists matchers and commands per entry.
+func hooksItems(r HooksResult) []sectionItem {
+	events := make([]string, 0, len(r.Hooks))
+	for e := range r.Hooks {
+		events = append(events, e)
+	}
+	sort.Strings(events)
+
+	items := make([]sectionItem, 0, len(events))
+	for _, e := range events {
+		entries := r.Hooks[e]
+		items = append(items, sectionItem{
+			title:  fmt.Sprintf("%s (%d)", e, len(entries)),
+			color:  accent,
+			detail: hooksDetail(e, entries),
+		})
+	}
+	return items
+}
+
+// hooksDetail builds the pre-formatted detail body for a hook event.
+func hooksDetail(event string, entries []HookEntry) string {
+	width := defaultWidth
+
+	var b strings.Builder
+	b.WriteString(detailTitle(event, accent, width))
+	b.WriteString("\n\n")
+	for _, entry := range entries {
+		if entry.Matcher != "" {
+			b.WriteString(detailField("Matcher", entry.Matcher, width))
+		}
+		for _, cmd := range entry.Hooks {
+			b.WriteString(detailField("Command", cmd.Command, width))
+		}
+	}
+	return b.String()
+}
+
+// ── Selftest ─────────────────────────────────────────────────────────────────
+
+// selftestItems converts a SelftestResult into sectionItems for the Selftest
+// list. One item per check. Passing checks are green (colorPlugin); failing
+// checks are red (colorRed). The detail shows the check name and status.
+func selftestItems(r SelftestResult) []sectionItem {
+	items := make([]sectionItem, 0, len(r.Checks))
+	for _, ch := range r.Checks {
+		var title string
+		var color lipgloss.Color
+		if ch.Ok {
+			title = glyph("✓", "[ok]") + " " + ch.Name
+			color = colorPlugin // green
+		} else {
+			title = glyph("✗", "[x]") + " " + ch.Name
+			color = colorRed
+		}
+		items = append(items, sectionItem{
+			title:  title,
+			color:  color,
+			detail: selftestDetail(ch),
+		})
+	}
+	return items
+}
+
+// selftestDetail builds the pre-formatted detail body for a SelftestCheck.
+func selftestDetail(ch SelftestCheck) string {
+	width := defaultWidth
+	color := colorPlugin
+	if !ch.Ok {
+		color = colorRed
+	}
+	status := "ok"
+	if !ch.Ok {
+		status = "failing"
+	}
+
+	var b strings.Builder
+	b.WriteString(detailTitle(ch.Name, color, width))
+	b.WriteString("\n\n")
+	b.WriteString(detailField("Status", status, width))
+	return b.String()
+}
 
 // sectionSummaryBar renders a one-line header for the active section tab —
 // the tab label plus a summary string (e.g. "3 conflicts" or "2 hard · 0 soft"),
