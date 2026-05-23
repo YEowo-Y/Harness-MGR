@@ -72,9 +72,13 @@ func conflictDetail(c ConflictCluster, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(c.Key, fg, typeIcon(c.Kind), width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Classification", fg, width))
 	b.WriteString(detailField("Kind", c.Kind, width))
 	b.WriteString(detailField("Confidence", c.Confidence, width))
 
+	b.WriteString("\n")
+	b.WriteString(detailSection("Resolution", fg, width))
 	winnerDesc := c.LikelyWinner.Name
 	if src := sourceSummary(c.LikelyWinner.Source); src != "" && src != "—" {
 		winnerDesc += " (" + src + ")"
@@ -86,6 +90,9 @@ func conflictDetail(c ConflictCluster, width int) string {
 		names = append(names, pw.Name)
 	}
 	b.WriteString(detailField("Possible winners", strings.Join(names, ", "), width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Explanation", fg, width))
 	b.WriteString(detailField("Reason", c.Reason, width))
 	b.WriteString(detailField("Fix", c.Fix, width))
 	return b.String()
@@ -128,10 +135,18 @@ func orphanDetail(o Orphan, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(o.Name, fg, "", width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Classification", fg, width))
 	b.WriteString(detailField("Category", o.Category, width))
 	b.WriteString(detailField("Entry type", o.EntryType, width))
 	b.WriteString(detailField("Container", o.Container, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Explanation", fg, width))
 	b.WriteString(detailField("Reason", o.Reason, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Location", fg, width))
 	b.WriteString(detailField("Path", o.Path, width))
 	return b.String()
 }
@@ -259,15 +274,22 @@ func configDetail(ck ConfigKey, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(ck.Key, fg, "", width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Merge", fg, width))
 	b.WriteString(detailField("Merge confidence", ck.MergeConfidence, width))
 	b.WriteString(detailField("Strategy", ck.Strategy, width))
-	for _, layer := range ck.PerLayer {
-		v := strings.TrimSpace(string(layer.Value))
-		var buf bytes.Buffer
-		if err := json.Compact(&buf, layer.Value); err == nil && buf.Len() > 0 {
-			v = buf.String()
+
+	if len(ck.PerLayer) > 0 {
+		b.WriteString("\n")
+		b.WriteString(detailSection("Layers", fg, width))
+		for _, layer := range ck.PerLayer {
+			v := strings.TrimSpace(string(layer.Value))
+			var buf bytes.Buffer
+			if err := json.Compact(&buf, layer.Value); err == nil && buf.Len() > 0 {
+				v = buf.String()
+			}
+			b.WriteString(detailField("Layer "+layer.Name, v, width))
 		}
-		b.WriteString(detailField("Layer "+layer.Name, v, width))
 	}
 	return b.String()
 }
@@ -302,7 +324,11 @@ func hooksDetail(event string, entries []HookEntry, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(event, accent, "", width))
 	b.WriteString("\n\n")
-	for _, entry := range entries {
+	for i, entry := range entries {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(detailSection(fmt.Sprintf("Binding %d", i+1), accent, width))
 		if entry.Matcher != "" {
 			b.WriteString(detailField("Matcher", entry.Matcher, width))
 		}
@@ -354,6 +380,8 @@ func selftestDetail(ch SelftestCheck, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(ch.Name, color, "", width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Result", color, width))
 	b.WriteString(detailField("Status", status, width))
 	return b.String()
 }
