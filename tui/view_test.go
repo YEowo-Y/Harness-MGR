@@ -182,6 +182,24 @@ func TestComponentDetailGrouped(t *testing.T) {
 	}
 }
 
+// TestComponentDetailShowsMarketplaceVersion asserts the Provenance group
+// surfaces the optional Marketplace and Version source fields when present.
+func TestComponentDetailShowsMarketplaceVersion(t *testing.T) {
+	c := Component{
+		Name:        "x",
+		Kind:        "skill",
+		Source:      ComponentSource{Tier: "plugin", Plugin: "alpha", Marketplace: "acme", Version: "1.2.3"},
+		Path:        "/p",
+		Description: "d",
+	}
+	got := stripANSI(componentDetail(c, accent, 80))
+	for _, want := range []string{"Marketplace", "acme", "Version", "1.2.3"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("componentDetail missing %q:\n%s", want, got)
+		}
+	}
+}
+
 // ── stripANSI helper ──────────────────────────────────────────────────────────
 
 // stripANSI removes ANSI CSI escape sequences (ESC [ ... m) from s so we can
