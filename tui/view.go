@@ -396,12 +396,20 @@ func componentDetail(c Component, fg lipgloss.Color, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(c.Name, fg, typeIcon(c.Kind), width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Provenance", fg, width))
 	b.WriteString(detailField("Kind", c.Kind, width))
 	b.WriteString(detailField("Source", sourceSummary(c.Source), width))
 	if p := strings.TrimSpace(c.Source.Plugin); p != "" {
 		b.WriteString(detailField("Plugin", p, width))
 	}
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Location", fg, width))
 	b.WriteString(detailField("Path", c.Path, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("About", fg, width))
 	b.WriteString(detailField("Description", c.Description, width))
 	return b.String()
 }
@@ -412,9 +420,14 @@ func pluginDetail(p Plugin, fg lipgloss.Color, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(p.Name, fg, typeIcon("plugin"), width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Identity", fg, width))
 	b.WriteString(detailField("Key", p.Key, width))
 	b.WriteString(detailField("Marketplace", p.Marketplace, width))
 	b.WriteString(detailField("Version", p.Version, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Status", fg, width))
 	b.WriteString(detailField("Enabled", boolText(p.Enabled), width))
 	b.WriteString(detailField("Cache present", boolText(p.CachePresent), width))
 	return b.String()
@@ -426,7 +439,12 @@ func marketplaceDetail(mk Marketplace, fg lipgloss.Color, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(mk.Name, fg, typeIcon("marketplace"), width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Repository", fg, width))
 	b.WriteString(detailField("Source repo", mk.SourceRepo, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Local", fg, width))
 	b.WriteString(detailField("On disk", boolText(mk.OnDisk), width))
 	b.WriteString(detailField("Install location", mk.InstallLocation, width))
 	return b.String()
@@ -438,8 +456,13 @@ func mcpDetail(ms McpServer, fg lipgloss.Color, width int) string {
 	var b strings.Builder
 	b.WriteString(detailTitle(ms.Name, fg, typeIcon("mcp"), width))
 	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Connection", fg, width))
 	b.WriteString(detailField("Transport", ms.Transport, width))
 	b.WriteString(detailField("Scope", ms.Scope, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Invocation", fg, width))
 	b.WriteString(detailField("Command", ms.Command, width))
 	b.WriteString(detailField("Args", strings.Join(ms.Args, " "), width))
 	return b.String()
@@ -492,6 +515,24 @@ func detailField(label, value string, width int) string {
 		avail = 1
 	}
 	return lbl + " " + detailValueStyle.Render(truncate(v, avail)) + "\n"
+}
+
+// detailSection renders a sub-section header within a detail pane: a short
+// type-colored bold label followed by a dim rule filling the remaining width.
+// It groups related fields (e.g. "Provenance", "Location") so the detail reads
+// as layered cards rather than a flat list. The label color ties the group to
+// the object's type; the rule recedes (leaderDim) so it divides without noise.
+// width <= 0 (or narrower than the label) yields just the label with no rule.
+func detailSection(label string, fg lipgloss.Color, width int) string {
+	name := lipgloss.NewStyle().Foreground(fg).Bold(true).Render(label)
+	head := name + " "
+	ruleW := width - lipgloss.Width(head)
+	if ruleW < 0 {
+		ruleW = 0
+	}
+	rule := lipgloss.NewStyle().Foreground(leaderDim).
+		Render(strings.Repeat(glyph("─", "-"), ruleW))
+	return head + rule + "\n"
 }
 
 // sourceSummary describes a component's provenance: "tier" or "tier (plugin)".
