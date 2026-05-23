@@ -15,28 +15,28 @@ var mascotStops = []string{"#FB7185", "#FBBF24", "#34D399", "#38BDF8", "#C084FC"
 // never should); it keeps renderMascot degrading to a single hue, never blank.
 var mascotColor = lipgloss.Color("#F4845C")
 
-// splashMascot is the corner pet's "eyes open" frame: a 4-line block-pixel CAT
-// FACE (rounded ears, a face with two eyes, a chin) shown in the dashboard's
-// top-right. renderMascot colors it with a vivid multi-stop gradient
+// splashMascot is the corner pet's "eyes open" frame: a 4-line line-art CAT FACE
+// (pointy /\ ears, big ◉ eyes, a ▿ nose, a rounded chin) shown in the
+// dashboard's top-right. renderMascot colors it with a vivid multi-stop gradient
 // (mascotStops); the Update loop briefly swaps in splashMascotBlink to blink.
 // Only shown when unicodeEnabled(). The header-height reservation
 // (mascotExtraRows) is derived from len(splashMascot), so the row count is free
 // to change without touching splitDims.
 var splashMascot = []string{
-	` ▟███▙ `,
-	`███████`,
-	`█ ▀ ▀ █`,
-	` █▄▄▄█ `,
+	` /\_/\ `,
+	`(◉   ◉)`,
+	` \ ▿ / `,
+	`  \_/  `,
 }
 
 // splashMascotBlink is the "eyes closed" frame: identical to splashMascot except
-// the open eyes (▀ ▀) drop to ▄ ▄, so briefly swapping to it reads as a blink.
-// Same dimensions as splashMascot, so the layout never shifts mid-blink.
+// the big eyes (◉ ◉) close to dashes (- -), so briefly swapping to it reads as a
+// blink. Same dimensions as splashMascot, so the layout never shifts mid-blink.
 var splashMascotBlink = []string{
-	` ▟███▙ `,
-	`███████`,
-	`█ ▄ ▄ █`,
-	` █▄▄▄█ `,
+	` /\_/\ `,
+	`(-   -)`,
+	` \ ▿ / `,
+	`  \_/  `,
 }
 
 // splashBanner is the ASCII-art block for "warden" (ANSI Shadow font), 6 rows
