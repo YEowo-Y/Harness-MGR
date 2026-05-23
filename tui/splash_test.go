@@ -32,9 +32,9 @@ func TestSplashViewNarrowFallback(t *testing.T) {
 	if got == "" {
 		t.Fatal("splashView(10,5) returned empty string — expected fallback content")
 	}
-	// brandWordmark() always contains "claude-mgr" in the no-color test env.
-	if !strings.Contains(got, "claude-mgr") {
-		t.Fatalf("splashView(10,5) fallback should contain \"claude-mgr\"\ngot: %q", got)
+	// brandWordmark() always contains "warden" in the no-color test env.
+	if !strings.Contains(got, "warden") {
+		t.Fatalf("splashView(10,5) fallback should contain \"warden\"\ngot: %q", got)
 	}
 }
 
@@ -166,7 +166,7 @@ func TestSplashViewNoUnicodeFallback(t *testing.T) {
 		t.Fatal("splashView returned empty on no-unicode terminal")
 	}
 	// Wordmark fallback must be present.
-	if !strings.Contains(got, "claude-mgr") {
+	if !strings.Contains(got, "warden") {
 		t.Fatalf("splashView no-unicode: missing wordmark fallback, got: %q", got)
 	}
 	// Mascot glyph must NOT appear (it's gated on unicodeEnabled).
