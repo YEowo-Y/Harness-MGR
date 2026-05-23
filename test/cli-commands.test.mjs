@@ -84,6 +84,30 @@ test('inventoryCommand: minimal/ counts are 1/1/1 + zeros; no error diagnostics'
   assert.equal(bySeverity(diagnostics, 'error').length, 0);
 });
 
+test('inventoryCommand: without --detail there is NO components key (unchanged shape)', () => {
+  const { result } = inventoryCommand({ configDir: MIN, args: {} });
+  assert.ok(!('components' in result), 'counts-only result must not carry a components array');
+});
+
+test('inventoryCommand: --detail adds a components array sized to the total count, each {name,kind,source}', () => {
+  const plain = inventoryCommand({ configDir: MIN, args: {} });
+  const { result } = inventoryCommand({ configDir: MIN, args: { detail: true } });
+
+  // counts are identical whether or not --detail is set
+  assert.deepEqual(result.counts, plain.result.counts);
+
+  const total = result.counts.skills + result.counts.agents + result.counts.commands;
+  assert.ok(Array.isArray(result.components), 'components must be an array');
+  assert.equal(result.components.length, total, 'one record per discovered skill/agent/command');
+
+  for (const c of result.components) {
+    assert.equal(typeof c.name, 'string');
+    assert.ok(['skill', 'agent', 'command'].includes(c.kind), `unexpected kind: ${c.kind}`);
+    assert.ok(c.source && typeof c.source === 'object', 'each record carries a source object');
+    assert.equal(typeof c.source.tier, 'string', 'source.tier is present');
+  }
+});
+
 // ── C. conflicts ────────────────────────────────────────────────────────────────
 
 test('conflictsCommand: minimal/ has no conflicts + emits the version-guard info', () => {
