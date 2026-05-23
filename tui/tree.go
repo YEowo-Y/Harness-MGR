@@ -30,6 +30,7 @@ var (
 	colorPlugin      = lipgloss.Color("#34D399") // green
 	colorMarketplace = lipgloss.Color("#60A5FA") // blue
 	colorMcp         = lipgloss.Color("#22D3EE") // cyan
+	colorOrange      = lipgloss.Color("#FB923C") // orange — hard orphan (replaces red)
 
 	// Dimmer item shades (one step down per type) for the rows under a folder.
 	dimSkill       = lipgloss.Color("#14B8A6")
