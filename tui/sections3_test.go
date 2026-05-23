@@ -324,24 +324,24 @@ func TestConfigItemsUnknownConfidenceAmber(t *testing.T) {
 func TestConfigItemsDetailContainsMergeConfidence(t *testing.T) {
 	items := configItems(sampleConfigResult())
 	// any item's detail should mention its confidence
-	if !strings.Contains(items[2].detail, "known") {
-		t.Fatalf("config detail missing mergeConfidence:\n%s", items[2].detail)
+	if !strings.Contains(items[2].detail(80), "known") {
+		t.Fatalf("config detail missing mergeConfidence:\n%s", items[2].detail(80))
 	}
 }
 
 func TestConfigItemsDetailContainsLayerName(t *testing.T) {
 	items := configItems(sampleConfigResult())
 	// "theme" has layer "user"
-	if !strings.Contains(items[2].detail, "user") {
-		t.Fatalf("config detail missing layer name:\n%s", items[2].detail)
+	if !strings.Contains(items[2].detail(80), "user") {
+		t.Fatalf("config detail missing layer name:\n%s", items[2].detail(80))
 	}
 }
 
 func TestConfigItemsDetailContainsLayerValue(t *testing.T) {
 	items := configItems(sampleConfigResult())
 	// "theme" layer value is "dark"
-	if !strings.Contains(items[2].detail, "dark") {
-		t.Fatalf("config detail missing layer value:\n%s", items[2].detail)
+	if !strings.Contains(items[2].detail(80), "dark") {
+		t.Fatalf("config detail missing layer value:\n%s", items[2].detail(80))
 	}
 }
 
@@ -399,15 +399,15 @@ func TestHooksItemsColor(t *testing.T) {
 func TestHooksItemsDetailContainsMatcher(t *testing.T) {
 	items := hooksItems(sampleHooksResult())
 	// PostToolUse has matcher "Bash"
-	if !strings.Contains(items[0].detail, "Bash") {
-		t.Fatalf("hooks detail missing matcher:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "Bash") {
+		t.Fatalf("hooks detail missing matcher:\n%s", items[0].detail(80))
 	}
 }
 
 func TestHooksItemsDetailContainsCommand(t *testing.T) {
 	items := hooksItems(sampleHooksResult())
-	if !strings.Contains(items[0].detail, "echo done") {
-		t.Fatalf("hooks detail missing command:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "echo done") {
+		t.Fatalf("hooks detail missing command:\n%s", items[0].detail(80))
 	}
 }
 
@@ -469,12 +469,12 @@ func TestSelftestItemsFailingTitleContainsName(t *testing.T) {
 func TestSelftestItemsDetailContainsStatus(t *testing.T) {
 	items := selftestItems(sampleSelftestResult())
 	// passing: "ok"
-	if !strings.Contains(items[0].detail, "ok") {
-		t.Fatalf("passing detail missing status:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "ok") {
+		t.Fatalf("passing detail missing status:\n%s", items[0].detail(80))
 	}
 	// failing: "failing"
-	if !strings.Contains(items[2].detail, "failing") {
-		t.Fatalf("failing detail missing status:\n%s", items[2].detail)
+	if !strings.Contains(items[2].detail(80), "failing") {
+		t.Fatalf("failing detail missing status:\n%s", items[2].detail(80))
 	}
 }
 
