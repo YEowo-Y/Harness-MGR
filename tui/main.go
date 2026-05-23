@@ -249,7 +249,7 @@ func (m model) anyLoading() bool {
 }
 
 // Init kicks off all async fetches and starts the spinner ticking. The splash
-// persists until the user presses a key or clicks — no auto-dismiss timer.
+// persists until the user presses a key — no auto-dismiss timer.
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchCmd(m.cliPath),
@@ -276,15 +276,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailErr = msg.err
 		m.tree = newTreeModel(msg.data)
 		m.refreshDetail()
-		// Splash persists — the user must press a key or click to enter.
-		return m, nil
-	case tea.MouseMsg:
-		// A left-button press while the splash is up enters the dashboard. Once
-		// the splash is gone, dashboard mouse events are intentionally dropped
-		// here — route them to a widget if one ever needs the mouse.
-		if m.showSplash && msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			m.showSplash = false
-		}
+		// Splash persists — the user must press a key to enter.
 		return m, nil
 	case conflictsMsg:
 		st := m.sections[viewConflicts]
@@ -614,10 +606,10 @@ func main() {
 		os.Exit(runSnapshot(cliPath))
 	}
 
-	// WithMouseCellMotion enables mouse events so a click can dismiss the splash;
-	// the tradeoff is that native terminal text-selection is disabled while the
-	// TUI runs.
-	p := tea.NewProgram(initialModel(cliPath), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	// Mouse capture is intentionally NOT enabled: the splash is dismissed by any
+	// key (handleKey), and leaving mouse reporting off preserves the terminal's
+	// native text selection / copy while the TUI runs.
+	p := tea.NewProgram(initialModel(cliPath), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
 		os.Exit(1)
