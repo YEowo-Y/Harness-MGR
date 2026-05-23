@@ -13,12 +13,12 @@ func gradientText(s, fromHex, toHex string) string {
 	return gradientStops(s, []string{fromHex, toHex})
 }
 
-// brandWordmark renders "claude-mgr" in a vivid teal→cyan→blue→violet gradient,
+// brandWordmark renders "warden" in a vivid teal→cyan→blue→violet gradient,
 // blended in HCL space so the midtones stay saturated (a Lab blend washes out
 // through the middle). The stop list is rebuilt per call so no shared mutable
 // slice can be aliased.
 func brandWordmark() string {
-	return gradientStops("claude-mgr", []string{"#2DD4BF", "#22D3EE", "#3B82F6", "#A855F7"})
+	return gradientStops("warden", []string{"#2DD4BF", "#22D3EE", "#3B82F6", "#A855F7"})
 }
 
 // gradientStops renders s with a per-rune color blend across an ordered list of
