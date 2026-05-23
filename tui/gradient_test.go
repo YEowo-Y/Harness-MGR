@@ -45,6 +45,22 @@ func TestGradientTextSingleRune(t *testing.T) {
 	}
 }
 
+// TestGradientStops covers the multi-stop path: a 4-stop blend preserves the
+// text without panicking; a single stop renders a solid color; no stops falls
+// back to plain bold (non-empty), not "".
+func TestGradientStops(t *testing.T) {
+	multi := gradientStops("claude-mgr", []string{"#2DD4BF", "#22D3EE", "#3B82F6", "#A855F7"})
+	if !strings.Contains(multi, "claude-mgr") {
+		t.Fatalf("multi-stop gradient lost text: %q", multi)
+	}
+	if single := gradientStops("hi", []string{"#2DD4BF"}); !strings.Contains(single, "hi") {
+		t.Fatalf("single-stop gradient lost text: %q", single)
+	}
+	if none := gradientStops("x", nil); none == "" {
+		t.Fatalf("no-stops should fall back to plain bold, got empty string")
+	}
+}
+
 // TestBrandWordmarkContainsText verifies brandWordmark() returns text containing
 // "claude-mgr" in a no-TTY test environment.
 func TestBrandWordmarkContainsText(t *testing.T) {
