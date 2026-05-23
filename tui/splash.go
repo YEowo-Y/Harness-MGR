@@ -58,36 +58,14 @@ func splashView(width, height int) string {
 		}
 	}
 
-	// Measure the widest mascot line (visible runes, no ANSI yet).
-	mascotWidth := 0
-	for _, line := range splashMascot {
-		if n := len([]rune(line)); n > mascotWidth {
-			mascotWidth = n
-		}
-	}
-
 	// Build the gradient banner block or fall back to the single-line wordmark.
-	// The mascot is shown only when Unicode is enabled and the terminal is wide
-	// enough to display it without wrapping.
 	var bannerBlock string
-	var mascotBlock string
 	if unicodeEnabled() && bannerWidth > 0 && bannerWidth <= width {
 		lines := make([]string, len(splashBanner))
 		for i, line := range splashBanner {
 			lines[i] = gradientStops(line, splashStops)
 		}
 		bannerBlock = strings.Join(lines, "\n")
-
-		// Show mascot only when the terminal is wide enough for it.
-		if mascotWidth > 0 && mascotWidth <= width {
-			mStyle := lipgloss.NewStyle().Foreground(mascotColor)
-			centerStyle := lipgloss.NewStyle().Width(mascotWidth).Align(lipgloss.Center)
-			mLines := make([]string, len(splashMascot))
-			for i, line := range splashMascot {
-				mLines[i] = mStyle.Render(centerStyle.Render(line))
-			}
-			mascotBlock = strings.Join(mLines, "\n")
-		}
 	} else {
 		// Narrow or non-Unicode terminal: single-line wordmark fallback (the
 		// banner's box-drawing glyphs would be mojibake on an Ascii profile).
@@ -97,13 +75,7 @@ func splashView(width, height int) string {
 	tagStyle := lipgloss.NewStyle().Foreground(configGray)
 	hintStyle := lipgloss.NewStyle().Foreground(leaderDim)
 
-	var block string
-	if mascotBlock != "" {
-		block = mascotBlock + "\n" + bannerBlock
-	} else {
-		block = bannerBlock
-	}
-	block = block +
+	block := bannerBlock +
 		"\n\n" + tagStyle.Render(splashTagline) +
 		"\n" + hintStyle.Render(splashHint)
 
