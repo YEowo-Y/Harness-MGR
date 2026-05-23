@@ -187,8 +187,8 @@ func TestOrphanItemsTitles(t *testing.T) {
 
 func TestOrphanItemsHardColor(t *testing.T) {
 	items := orphanItems(sampleOrphansResult())
-	if items[0].color != colorRed {
-		t.Fatalf("hard orphan color = %v, want colorRed", items[0].color)
+	if items[0].color != colorOrange {
+		t.Fatalf("hard orphan color = %v, want colorOrange", items[0].color)
 	}
 }
 
@@ -460,6 +460,39 @@ func TestHooksDetailGrouped(t *testing.T) {
 	}
 	out := stripANSI(hooksDetail("PreToolUse", entries, 80))
 	for _, want := range []string{"Binding 1", "Binding 2", "Matcher", "Command"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("hooksDetail missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestConflictDetailShowsSeverityAndWinnerPath verifies conflictDetail surfaces
+// the cluster Severity (Classification group) and the LikelyWinner Path
+// (Resolution group) when present.
+func TestConflictDetailShowsSeverityAndWinnerPath(t *testing.T) {
+	c := ConflictCluster{
+		Kind:         "skill",
+		Key:          "seo",
+		Confidence:   "likely",
+		Severity:     "warn",
+		LikelyWinner: ConflictMember{Name: "seo", Path: "/user/seo.md"},
+		Reason:       "r",
+		Fix:          "f",
+	}
+	out := stripANSI(conflictDetail(c, 80))
+	for _, want := range []string{"Severity", "warn", "Winner path", "/user/seo.md"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("conflictDetail missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestHooksDetailShowsType verifies hooksDetail surfaces each command's Type
+// alongside its Command.
+func TestHooksDetailShowsType(t *testing.T) {
+	entries := []HookEntry{{Matcher: "Bash", Hooks: []HookCmd{{Type: "command", Command: "echo a"}}}}
+	out := stripANSI(hooksDetail("PreToolUse", entries, 80))
+	for _, want := range []string{"Type", "command"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("hooksDetail missing %q:\n%s", want, out)
 		}
