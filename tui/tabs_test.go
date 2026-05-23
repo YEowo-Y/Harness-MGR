@@ -124,22 +124,22 @@ func TestConflictItemsColors(t *testing.T) {
 
 func TestConflictItemsDetailContainsKind(t *testing.T) {
 	items := conflictItems(sampleClusters())
-	if !strings.Contains(items[0].detail, "skill") {
-		t.Fatalf("conflict detail missing kind %q:\n%s", "skill", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "skill") {
+		t.Fatalf("conflict detail missing kind %q:\n%s", "skill", items[0].detail(80))
 	}
 }
 
 func TestConflictItemsDetailContainsLikelyWinner(t *testing.T) {
 	items := conflictItems(sampleClusters())
-	if !strings.Contains(items[0].detail, "seo") {
-		t.Fatalf("conflict detail missing likely winner name:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "seo") {
+		t.Fatalf("conflict detail missing likely winner name:\n%s", items[0].detail(80))
 	}
 }
 
 func TestConflictItemsDetailContainsReason(t *testing.T) {
 	items := conflictItems(sampleClusters())
-	if !strings.Contains(items[0].detail, "shadows") {
-		t.Fatalf("conflict detail missing reason:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "shadows") {
+		t.Fatalf("conflict detail missing reason:\n%s", items[0].detail(80))
 	}
 }
 
@@ -201,22 +201,22 @@ func TestOrphanItemsSoftColor(t *testing.T) {
 
 func TestOrphanItemsDetailContainsCategory(t *testing.T) {
 	items := orphanItems(sampleOrphansResult())
-	if !strings.Contains(items[0].detail, "hard") {
-		t.Fatalf("hard orphan detail missing category:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "hard") {
+		t.Fatalf("hard orphan detail missing category:\n%s", items[0].detail(80))
 	}
 }
 
 func TestOrphanItemsDetailContainsPath(t *testing.T) {
 	items := orphanItems(sampleOrphansResult())
-	if !strings.Contains(items[0].detail, "/user/.claude/stale.txt") {
-		t.Fatalf("orphan detail missing path:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "/user/.claude/stale.txt") {
+		t.Fatalf("orphan detail missing path:\n%s", items[0].detail(80))
 	}
 }
 
 func TestOrphanItemsDetailContainsEntryType(t *testing.T) {
 	items := orphanItems(sampleOrphansResult())
-	if !strings.Contains(items[0].detail, "file") {
-		t.Fatalf("orphan detail missing entry type:\n%s", items[0].detail)
+	if !strings.Contains(items[0].detail(80), "file") {
+		t.Fatalf("orphan detail missing entry type:\n%s", items[0].detail(80))
 	}
 }
 
