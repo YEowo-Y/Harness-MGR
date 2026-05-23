@@ -11,3 +11,4 @@ coverage/
 
 # Go TUI build artifacts (tui/)
 *.exe
+*.exe~
