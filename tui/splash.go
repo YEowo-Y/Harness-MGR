@@ -6,6 +6,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// mascotColor is the warm amber used to render the mascot so it stands out
+// from the teal→violet wordmark gradient.
+var mascotColor = lipgloss.Color("#F59E0B")
+
+// splashMascot is the small ASCII companion rendered above the wordmark.
+// Uses Unicode box-drawing and face glyphs; only shown when unicodeEnabled().
+var splashMascot = []string{
+	`     ·  ✦  ·     `,
+	`    ╭───────╮    `,
+	`    │ ◕   ◕ │    `,
+	`    │   ◡   │    `,
+	`    ╰───────╯    `,
+}
+
 // splashBanner is the ASCII-art block for "claude-mgr", 7 rows tall, ≤64 columns.
 // Each line is individually gradient-colored at render time.
 var splashBanner = []string{
@@ -44,14 +58,35 @@ func splashView(width, height int) string {
 		}
 	}
 
+	// Measure the widest mascot line (visible runes, no ANSI yet).
+	mascotWidth := 0
+	for _, line := range splashMascot {
+		if n := len([]rune(line)); n > mascotWidth {
+			mascotWidth = n
+		}
+	}
+
 	// Build the gradient banner block or fall back to the single-line wordmark.
+	// The mascot is shown only when Unicode is enabled and the terminal is wide
+	// enough to display it without wrapping.
 	var bannerBlock string
+	var mascotBlock string
 	if unicodeEnabled() && bannerWidth > 0 && bannerWidth <= width {
 		lines := make([]string, len(splashBanner))
 		for i, line := range splashBanner {
 			lines[i] = gradientStops(line, splashStops)
 		}
 		bannerBlock = strings.Join(lines, "\n")
+
+		// Show mascot only when the terminal is wide enough for it.
+		if mascotWidth > 0 && mascotWidth <= width {
+			mStyle := lipgloss.NewStyle().Foreground(mascotColor)
+			mLines := make([]string, len(splashMascot))
+			for i, line := range splashMascot {
+				mLines[i] = mStyle.Render(line)
+			}
+			mascotBlock = strings.Join(mLines, "\n")
+		}
 	} else {
 		// Narrow or non-Unicode terminal: single-line wordmark fallback (the
 		// banner's box-drawing glyphs would be mojibake on an Ascii profile).
@@ -61,7 +96,13 @@ func splashView(width, height int) string {
 	tagStyle := lipgloss.NewStyle().Foreground(configGray)
 	hintStyle := lipgloss.NewStyle().Foreground(leaderDim)
 
-	block := bannerBlock +
+	var block string
+	if mascotBlock != "" {
+		block = mascotBlock + "\n" + bannerBlock
+	} else {
+		block = bannerBlock
+	}
+	block = block +
 		"\n\n" + tagStyle.Render(splashTagline) +
 		"\n" + hintStyle.Render(splashHint)
 
