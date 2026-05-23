@@ -125,9 +125,16 @@ func glyph(uni, ascii string) string {
 
 // ── Corner mascot (dashboard header) ────────────────────────────────────────
 
-// mascotExtraRows is how many extra rows the 3-line mascot adds to the 1-line
-// counts/summary bar region when shown (3 - 1).
-const mascotExtraRows = 2
+// mascotExtraRows is how many extra rows the multi-line mascot adds to the
+// 1-line counts/summary bar region when shown: the sprite's line count minus the
+// single bar row. Derived from splashMascot so the mascot's row count can change
+// without desyncing the splitDims header-height reservation.
+func mascotExtraRows() int {
+	if n := len(splashMascot) - 1; n > 0 {
+		return n
+	}
+	return 0
+}
 
 // mascotEligible reports the cheap precondition for the corner mascot: Unicode
 // glyph support (else the sprite would be mojibake) and a known, positive
@@ -157,9 +164,12 @@ func barFitsOneLine(bar string) bool {
 	return lipgloss.Height(bar) == 1
 }
 
-// renderMascot returns the 3-line amber sprite as a single rectangular block
-// (each line centered to the sprite's max display width). NOT gated — callers
-// gate via model.mascotVisible. Reuses splashMascot + mascotColor from splash.go.
+// renderMascot returns the mascot cat as a rectangular block, colored with a
+// vertical multi-stop gradient (mascotStops): each row is rendered in one color
+// interpolated along the stops by its position, so the sprite sweeps through the
+// palette top to bottom. Lines are centered to the sprite's max display width.
+// NOT gated — callers gate via model.mascotVisible. Falls back to a solid
+// mascotColor if the stops can't be parsed. Reuses splashMascot from splash.go.
 func renderMascot() string {
 	w := 0
 	for _, line := range splashMascot {
@@ -167,11 +177,16 @@ func renderMascot() string {
 			w = n
 		}
 	}
-	style := lipgloss.NewStyle().Foreground(mascotColor)
 	center := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
-	lines := make([]string, len(splashMascot))
+	cols, ok := parseStops(mascotStops)
+	rows := len(splashMascot)
+	lines := make([]string, rows)
 	for i, line := range splashMascot {
-		lines[i] = style.Render(center.Render(line))
+		fg := mascotColor
+		if ok {
+			fg = lipgloss.Color(stopColorAt(cols, len(cols)-1, fraction(i, rows)).Hex())
+		}
+		lines[i] = lipgloss.NewStyle().Foreground(fg).Render(center.Render(line))
 	}
 	return strings.Join(lines, "\n")
 }
