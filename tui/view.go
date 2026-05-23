@@ -123,6 +123,56 @@ func glyph(uni, ascii string) string {
 	return ascii
 }
 
+// ── Corner mascot (dashboard header) ────────────────────────────────────────
+
+// mascotMinWidth is the smallest terminal width at which the dashboard shows the
+// corner mascot. Below this we keep the full-width bar and omit the mascot. The
+// floor is set so the counts bar — narrowed by mascotBlockWidth and carrying its
+// per-type icons in a real terminal (~90 columns) — still fits on one line beside
+// the mascot rather than wrapping under it.
+const mascotMinWidth = 100
+
+// mascotExtraRows is how many extra rows the 3-line mascot adds to the 1-line
+// counts/summary bar region when shown (3 - 1).
+const mascotExtraRows = 2
+
+// mascotShownAt reports whether the corner mascot should render at the given
+// terminal width: only when Unicode is enabled (else the sprite glyphs would be
+// mojibake) and the terminal is at least mascotMinWidth wide.
+func mascotShownAt(width int) bool {
+	return unicodeEnabled() && width >= mascotMinWidth
+}
+
+// renderMascot returns the 3-line amber sprite as a single rectangular block
+// (each line centered to the sprite's max display width). NOT gated — callers
+// gate via mascotShownAt. Reuses splashMascot + mascotColor from splash.go.
+func renderMascot() string {
+	w := 0
+	for _, line := range splashMascot {
+		if n := lipgloss.Width(line); n > w {
+			w = n
+		}
+	}
+	style := lipgloss.NewStyle().Foreground(mascotColor)
+	center := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
+	lines := make([]string, len(splashMascot))
+	for i, line := range splashMascot {
+		lines[i] = style.Render(center.Render(line))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// mascotBlockWidth is the display width of the rendered mascot block.
+func mascotBlockWidth() int {
+	w := 0
+	for _, line := range splashMascot {
+		if n := lipgloss.Width(line); n > w {
+			w = n
+		}
+	}
+	return w
+}
+
 // ── Dashboard shell ────────────────────────────────────────────────────────────
 
 // dashboardView is the top-level composer: tab bar, the active tab's content,
@@ -149,14 +199,37 @@ func dashboardView(m model) string {
 // "coming soon" placeholder cards.
 func contentView(m model, cardW int) string {
 	if m.currentView == viewInventory {
-		bar := countsBarView(m.inv.Result.Counts, m.width)
-		return lipgloss.JoinVertical(lipgloss.Left, bar, inventorySplitView(m))
+		header := headerWithMascot(countsBarView(m.inv.Result.Counts, headerBarWidth(m.width)), m.width)
+		return lipgloss.JoinVertical(lipgloss.Left, header, inventorySplitView(m))
 	}
 	if isSectionView(m.currentView) {
-		bar := sectionSummaryBar(m.currentView, m.sections[m.currentView], m.width)
-		return lipgloss.JoinVertical(lipgloss.Left, bar, sectionSplitView(m))
+		bar := sectionSummaryBar(m.currentView, m.sections[m.currentView], headerBarWidth(m.width))
+		header := headerWithMascot(bar, m.width)
+		return lipgloss.JoinVertical(lipgloss.Left, header, sectionSplitView(m))
 	}
 	return placeholderView(m.currentView, cardW)
+}
+
+// headerBarWidth is the width passed to the counts/summary bar: full width
+// normally, reduced to leave room for the corner mascot when it is shown.
+func headerBarWidth(termWidth int) int {
+	if termWidth <= 0 || !mascotShownAt(termWidth) {
+		return termWidth
+	}
+	w := termWidth - mascotBlockWidth()
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// headerWithMascot joins the corner mascot to the right of the bar when shown,
+// producing a 3-line header; otherwise returns the bar unchanged.
+func headerWithMascot(bar string, termWidth int) string {
+	if !mascotShownAt(termWidth) {
+		return bar
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, bar, renderMascot())
 }
 
 // ── Counts overview bar (Inventory tab) ─────────────────────────────────────
