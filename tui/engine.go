@@ -343,6 +343,146 @@ func fetchOrphans(cliPath string) (OrphansResult, error) {
 	return parseOrphans(data)
 }
 
+// ── Config structs ────────────────────────────────────────────────────────────
+
+// ConfigLayer is one layer entry in a ConfigKey's perLayer array.
+type ConfigLayer struct {
+	Name  string          `json:"name"`
+	Value json.RawMessage `json:"value"` // arbitrary JSON; render via string(Value)
+}
+
+// ConfigKey is one key entry from the `config show-effective --format json`
+// result. Value is ARBITRARY JSON (string or object).
+type ConfigKey struct {
+	Key             string        `json:"key"`
+	MergeConfidence string        `json:"mergeConfidence"`
+	Strategy        string        `json:"strategy"`
+	PerLayer        []ConfigLayer `json:"perLayer"`
+}
+
+// ConfigResult bundles the keys map from the `config show-effective` command.
+type ConfigResult struct {
+	Keys map[string]ConfigKey `json:"keys"`
+}
+
+// ── Hooks structs ────────────────────────────────────────────────────────────
+
+// HookCmd is one command entry inside a HookEntry.
+type HookCmd struct {
+	Type    string `json:"type"`
+	Command string `json:"command"`
+}
+
+// HookEntry is one entry in a hook event's array.
+type HookEntry struct {
+	Matcher string    `json:"matcher"`
+	Hooks   []HookCmd `json:"hooks"`
+}
+
+// HooksResult bundles the hooks map from the `hooks --format json` command.
+type HooksResult struct {
+	Hooks map[string][]HookEntry `json:"hooks"`
+}
+
+// ── Selftest structs ──────────────────────────────────────────────────────────
+
+// SelftestCheck is one check entry from the `selftest --format json` result.
+type SelftestCheck struct {
+	Name string `json:"name"`
+	Ok   bool   `json:"ok"`
+}
+
+// SelftestResult bundles the checks slice and overall ok flag.
+type SelftestResult struct {
+	Checks []SelftestCheck `json:"checks"`
+	Ok     bool            `json:"ok"`
+}
+
+// ── Narrow envelopes for config / hooks / selftest decoding ──────────────────
+
+type configEnvelope struct {
+	Result struct {
+		Keys map[string]ConfigKey `json:"keys"`
+	} `json:"result"`
+}
+
+type hooksEnvelope struct {
+	Result struct {
+		Hooks map[string][]HookEntry `json:"hooks"`
+	} `json:"result"`
+}
+
+type selftestEnvelope struct {
+	Result struct {
+		Checks []SelftestCheck `json:"checks"`
+		Ok     bool            `json:"ok"`
+	} `json:"result"`
+}
+
+// ── Pure parse functions ──────────────────────────────────────────────────────
+
+// parseConfig unmarshals a raw `config show-effective --format json` envelope
+// into a ConfigResult. Pure function — no exec, never panics.
+func parseConfig(data []byte) (ConfigResult, error) {
+	var env configEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return ConfigResult{}, fmt.Errorf("parsing config JSON: %w", err)
+	}
+	return ConfigResult{Keys: env.Result.Keys}, nil
+}
+
+// parseHooks unmarshals a raw `hooks --format json` envelope into a HooksResult.
+// Pure function — no exec, never panics.
+func parseHooks(data []byte) (HooksResult, error) {
+	var env hooksEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return HooksResult{}, fmt.Errorf("parsing hooks JSON: %w", err)
+	}
+	return HooksResult{Hooks: env.Result.Hooks}, nil
+}
+
+// parseSelftest unmarshals a raw `selftest --format json` envelope into a
+// SelftestResult. Pure function — no exec, never panics.
+func parseSelftest(data []byte) (SelftestResult, error) {
+	var env selftestEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return SelftestResult{}, fmt.Errorf("parsing selftest JSON: %w", err)
+	}
+	return SelftestResult{Checks: env.Result.Checks, Ok: env.Result.Ok}, nil
+}
+
+// ── Fetchers ──────────────────────────────────────────────────────────────────
+
+// fetchConfig shells out to `node <cliPath> config show-effective --format json`,
+// captures stdout, and unmarshals it into a ConfigResult. It never panics.
+func fetchConfig(cliPath string) (ConfigResult, error) {
+	data, err := runJSON(cliPath, "config", "show-effective", "--format", "json")
+	if err != nil {
+		return ConfigResult{}, err
+	}
+	return parseConfig(data)
+}
+
+// fetchHooks shells out to `node <cliPath> hooks --format json`, captures
+// stdout, and unmarshals it into a HooksResult. It never panics.
+func fetchHooks(cliPath string) (HooksResult, error) {
+	data, err := runJSON(cliPath, "hooks", "--format", "json")
+	if err != nil {
+		return HooksResult{}, err
+	}
+	return parseHooks(data)
+}
+
+// fetchSelftest shells out to `node <cliPath> selftest --format json`, captures
+// stdout, and unmarshals it into a SelftestResult. It never panics.
+func fetchSelftest(cliPath string) (SelftestResult, error) {
+	data, err := runJSON(cliPath, "selftest", "--format", "json")
+	if err != nil {
+		return SelftestResult{}, err
+	}
+	return parseSelftest(data)
+}
+
 // sortComponents orders components by kind then name (both ascending), in place.
 // Ordering is case-insensitive on the surface text so "Foo" and "foo" cluster
 // naturally; ties fall back to the case-sensitive value for determinism.
