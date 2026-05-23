@@ -2,6 +2,28 @@ package main
 
 import "strings"
 
+// typeIcon returns the single-width Unicode symbol for an object-type "kind"
+// string, or "" for an unknown kind. The returned icon is NOT gated here —
+// callers must wrap it in glyph() so it disappears on non-Unicode terminals.
+func typeIcon(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "skill":
+		return "◆"
+	case "agent":
+		return "●"
+	case "command":
+		return "▸"
+	case "plugin":
+		return "✦"
+	case "marketplace":
+		return "■"
+	case "mcp":
+		return "◇"
+	default:
+		return ""
+	}
+}
+
 // iconCandidate pairs a type label with two zero-dependency icon options — a
 // color emoji (native in Windows Terminal, but double-width) and a single-width
 // Unicode geometric symbol. The --icons render test prints both sets so the user
