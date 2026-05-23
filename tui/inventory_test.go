@@ -32,10 +32,14 @@ func sampleDetail() DetailData {
 }
 
 // loadedModel builds a model with detail data loaded and panes sized, as the
-// live Update loop would after a detailMsg + WindowSizeMsg.
+// live Update loop would after a detailMsg + splashTimerMsg + WindowSizeMsg.
+// Both detailMsg and splashTimerMsg are required to dismiss the splash before
+// tests can interact with the dashboard.
 func loadedModel(w, h int) model {
 	m := initialModel("unused")
 	mm, _ := m.Update(detailMsg{data: sampleDetail()})
+	m = mm.(model)
+	mm, _ = m.Update(splashTimerMsg{})
 	m = mm.(model)
 	mm, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return mm.(model)
@@ -313,6 +317,8 @@ func TestRefreshDetailAppendsPreviewForComponent(t *testing.T) {
 	}
 	m := initialModel("unused")
 	mm, _ := m.Update(detailMsg{data: data})
+	m = mm.(model)
+	mm, _ = m.Update(splashTimerMsg{})
 	m = mm.(model)
 	mm, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = mm.(model)
