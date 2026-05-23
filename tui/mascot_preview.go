@@ -43,6 +43,62 @@ var mascotCandidates = []mascotCandidate{
 	}},
 }
 
+// catReplica is a best-effort terminal replica of the reference image: a
+// colorful pixel cat with pointy ears, big golden eyes (◉ = iris + pupil), a
+// pink nose (▾) and a faint smile (╰───╯). All rows are 11 columns wide.
+var catReplica = []string{
+	` █▙     ▟█ `,
+	`███████████`,
+	`██ ◉   ◉ ██`,
+	`███████████`,
+	`████ ▾ ████`,
+	`██ ╰───╯ ██`,
+	` █████████ `,
+}
+
+// catMosaic is the scattered pastel palette for the cat's body cells, giving the
+// reference image's multi-color "mosaic" look (vs. a single hue or row bands).
+var catMosaic = []string{
+	"#5EEAD4", "#F0ABFC", "#A78BFA", "#67E8F9", "#86EFAC", "#FDA4AF", "#93C5FD", "#F9A8D4",
+}
+
+// pixelCatColor picks a cell's color: golden eyes, pink nose, dim smile, and a
+// position-hashed pastel for every body cell (the mosaic). The (row*7+col*13)
+// hash scatters colors so the body doesn't band into stripes.
+func pixelCatColor(r rune, row, col int) lipgloss.Color {
+	switch r {
+	case '◉':
+		return lipgloss.Color("#FCD34D") // golden eye
+	case '▾':
+		return lipgloss.Color("#FB7185") // pink nose
+	case '╰', '─', '╯':
+		return lipgloss.Color("#334155") // faint smile
+	default:
+		return lipgloss.Color(catMosaic[(row*7+col*13)%len(catMosaic)])
+	}
+}
+
+// renderPixelCat colors each non-space cell of rows individually (per-cell
+// mosaic + special eyes/nose/mouth), the technique needed to approximate the
+// reference image. Spaces stay transparent.
+func renderPixelCat(rows []string) string {
+	out := make([]string, len(rows))
+	for row, line := range rows {
+		var b strings.Builder
+		col := 0
+		for _, r := range line {
+			if r == ' ' {
+				b.WriteRune(' ')
+			} else {
+				b.WriteString(lipgloss.NewStyle().Foreground(pixelCatColor(r, row, col)).Render(string(r)))
+			}
+			col++ // tracks the visual column (spaces count) so the mosaic stays stable
+		}
+		out[row] = b.String()
+	}
+	return strings.Join(out, "\n")
+}
+
 // renderMascotFrame renders frame lines centered to the block's max width. When
 // grad is true it applies the vertical multi-stop gradient (the same scheme as
 // renderMascot); otherwise it uses a single solid mascotColor — so the preview
@@ -77,6 +133,9 @@ func mascotPreviewView() string {
 
 	var b strings.Builder
 	b.WriteString(head.Render("Cat mascot candidates — run in a real terminal for color") + "\n\n")
+
+	b.WriteString(head.Render("replica attempt (per-cell pixel cat):") + "\n\n")
+	b.WriteString(renderPixelCat(catReplica) + "\n\n")
 
 	b.WriteString(head.Render("multicolor gradient:") + "\n\n")
 	for _, c := range mascotCandidates {
