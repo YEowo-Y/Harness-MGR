@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,19 +14,19 @@ import (
 
 // inventoryMsg carries the result of the async counts fetch into the Update
 // loop. Exactly one of inv / err is meaningful (err != nil means the fetch
-// failed). This drives the headless --probe/--snapshot counts and the health
-// pill; the interactive Inventory browser is driven by componentsMsg.
+// failed). This drives the headless --probe/--snapshot counts and the counts
+// overview bar; the interactive Inventory tree is driven by detailMsg.
 type inventoryMsg struct {
 	inv Inventory
 	err error
 }
 
-// componentsMsg carries the result of the async `inventory --detail` fetch:
-// the full component list that populates the Inventory master pane. Exactly one
-// of comps / err is meaningful.
-type componentsMsg struct {
-	comps []Component
-	err   error
+// detailMsg carries the result of the async `inventory --detail` fetch: all four
+// object arrays that populate the Inventory tree. Exactly one of data / err is
+// meaningful.
+type detailMsg struct {
+	data DetailData
+	err  error
 }
 
 // focusPane identifies which split pane currently receives j/k + arrow keys on
@@ -35,7 +34,7 @@ type componentsMsg struct {
 type focusPane int
 
 const (
-	focusList   focusPane = iota // left master list
+	focusTree   focusPane = iota // left tree
 	focusDetail                  // right detail viewport
 )
 
@@ -76,9 +75,9 @@ const defaultWidth = 80
 // the full detail pane so the snapshot is representative.
 const defaultHeight = 24
 
-// model holds the TUI state: the fetched inventory + components, fetch errors
+// model holds the TUI state: the fetched inventory + detail data, fetch errors
 // (if any), loading flags, the resolved CLI path, the active tab, the Inventory
-// split-pane widgets (list/viewport/spinner) and which pane has focus, plus the
+// split-pane widgets (tree/viewport/spinner) and which pane has focus, plus the
 // last-known terminal dimensions.
 type model struct {
 	inv         Inventory
@@ -90,26 +89,31 @@ type model struct {
 	height      int
 
 	// Inventory split-pane state.
-	components  []Component
-	compErr     error
-	compLoading bool // `inventory --detail` fetch in flight
-	list        list.Model
-	detail      viewport.Model
-	spinner     spinner.Model
-	focus       focusPane
+	detailData    DetailData
+	detailErr     error
+	detailLoading bool // `inventory --detail` fetch in flight
+	tree          treeModel
+	detail        viewport.Model
+	spinner       spinner.Model
+	focus         focusPane
+
+	// Tree pane inner size, computed by layoutPanes and consumed by the tree
+	// renderer (the custom tree widget is sized at render time, not via SetSize).
+	treeInnerW int
+	treeInnerH int
 }
 
 func initialModel(cliPath string) model {
 	return model{
-		loading:     true,
-		compLoading: true,
-		cliPath:     cliPath,
-		currentView: viewInventory,
-		width:       defaultWidth,
-		list:        newComponentList(),
-		detail:      viewport.New(0, 0),
-		spinner:     newSpinner(),
-		focus:       focusList,
+		loading:       true,
+		detailLoading: true,
+		cliPath:       cliPath,
+		currentView:   viewInventory,
+		width:         defaultWidth,
+		tree:          newTreeModel(DetailData{}),
+		detail:        viewport.New(0, 0),
+		spinner:       newSpinner(),
+		focus:         focusTree,
 	}
 }
 
@@ -122,19 +126,19 @@ func fetchCmd(cliPath string) tea.Cmd {
 	}
 }
 
-// fetchComponentsCmd returns a tea.Cmd that fetches the full component list
-// (`inventory --detail`) and reports the outcome back as a componentsMsg.
-func fetchComponentsCmd(cliPath string) tea.Cmd {
+// fetchDetailCmd returns a tea.Cmd that fetches all four object arrays
+// (`inventory --detail`) and reports the outcome back as a detailMsg.
+func fetchDetailCmd(cliPath string) tea.Cmd {
 	return func() tea.Msg {
-		comps, err := fetchComponents(cliPath)
-		return componentsMsg{comps: comps, err: err}
+		data, err := fetchDetail(cliPath)
+		return detailMsg{data: data, err: err}
 	}
 }
 
-// Init kicks off both async fetches (counts + components) and starts the
-// spinner ticking so the Inventory area animates while the detail fetch runs.
+// Init kicks off both async fetches (counts + detail) and starts the spinner
+// ticking so the Inventory area animates while the detail fetch runs.
 func (m model) Init() tea.Cmd {
-	return tea.Batch(fetchCmd(m.cliPath), fetchComponentsCmd(m.cliPath), m.spinner.Tick)
+	return tea.Batch(fetchCmd(m.cliPath), fetchDetailCmd(m.cliPath), m.spinner.Tick)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -144,16 +148,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.inv = msg.inv
 		m.err = msg.err
 		return m, nil
-	case componentsMsg:
-		m.compLoading = false
-		m.components = msg.comps
-		m.compErr = msg.err
-		m.list.SetItems(componentItems(msg.comps))
+	case detailMsg:
+		m.detailLoading = false
+		m.detailData = msg.data
+		m.detailErr = msg.err
+		m.tree = newTreeModel(msg.data)
 		m.refreshDetail()
 		return m, nil
 	case spinner.TickMsg:
 		// Keep ticking only while a fetch is still in flight.
-		if m.compLoading || m.loading {
+		if m.detailLoading || m.loading {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -174,12 +178,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //
 //	(1) quit keys (q / ctrl+c / esc);
 //	(2) section switching — number keys 1-6 jump directly, "[" / "]" cycle;
-//	(3) Tab / Shift+Tab toggle focus between the list and detail panes;
-//	(4) everything else (j/k, arrows, g/G, pgup/pgdn) routes to the focused
-//	    pane (list moves the selection, viewport scrolls).
+//	(3) Tab / Shift+Tab toggle focus between the tree and detail panes;
+//	(4) Enter / Space — on a tree folder toggle expand/collapse; on a tree item
+//	    refresh the detail to that node (only when the tree pane is focused);
+//	(5) everything else (j/k, arrows, g/G, pgup/pgdn) routes to the focused pane
+//	    (tree moves the cursor, viewport scrolls).
 //
-// Tab no longer switches sections (that was the U1 binding) — it now toggles
-// pane focus, resolving the U2a conflict.
+// Tab does not switch sections (that was the U1 binding) — it toggles pane focus.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
@@ -196,6 +201,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m.toggleFocus()
 		return m, nil
+	case "enter", " ":
+		return m.activate()
 	}
 	if v, ok := digitToView(msg.String()); ok {
 		m.currentView = v
@@ -204,35 +211,73 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m.routeToPane(msg)
 }
 
-// toggleFocus flips focus between the list and detail panes. Only meaningful on
+// toggleFocus flips focus between the tree and detail panes. Only meaningful on
 // the Inventory tab today, but cheap and harmless elsewhere.
 func (m *model) toggleFocus() {
-	if m.focus == focusList {
+	if m.focus == focusTree {
 		m.focus = focusDetail
 	} else {
-		m.focus = focusList
+		m.focus = focusTree
 	}
 }
 
+// activate handles Enter/Space on the Inventory tab when the tree pane is
+// focused: a folder row toggles expand/collapse (which can move the cursor and
+// reshape the visible rows, so refresh the detail to whatever the cursor now
+// sits on); an item row refreshes the detail to that node. Off the Inventory tab
+// or when the detail pane is focused, the key is swallowed.
+func (m model) activate() (tea.Model, tea.Cmd) {
+	if m.currentView != viewInventory || m.focus != focusTree {
+		return m, nil
+	}
+	m.tree.toggle() // no-op on an item row; toggles + rebuilds on a folder row
+	m.refreshDetail()
+	return m, nil
+}
+
 // routeToPane forwards navigation keys to whichever pane has focus. On the
-// Inventory tab the list pane owns selection movement (and a moved selection
-// refreshes the detail content live); the detail pane owns scrolling. On other
-// tabs there is nothing to navigate yet, so the key is swallowed.
+// Inventory tab the tree pane owns cursor movement (and a moved cursor refreshes
+// the detail content live); the detail pane owns scrolling. On other tabs there
+// is nothing to navigate yet, so the key is swallowed.
 func (m model) routeToPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.currentView != viewInventory {
 		return m, nil
 	}
-	var cmd tea.Cmd
-	if m.focus == focusList {
-		prev := m.list.Index()
-		m.list, cmd = m.list.Update(msg)
-		if m.list.Index() != prev {
+	if m.focus == focusTree {
+		prev := m.tree.cursor
+		m.moveTreeCursor(msg)
+		if m.tree.cursor != prev {
 			m.refreshDetail()
 		}
-	} else {
-		m.detail, cmd = m.detail.Update(msg)
+		return m, nil
 	}
+	var cmd tea.Cmd
+	m.detail, cmd = m.detail.Update(msg)
 	return m, cmd
+}
+
+// moveTreeCursor applies a navigation key to the tree cursor: j/down + k/up move
+// one row; g/G jump to top/bottom; pgup/pgdn (and the b/f/u/d aliases) page by
+// the tree pane's inner height. Unrecognized keys are ignored.
+func (m *model) moveTreeCursor(msg tea.KeyMsg) {
+	page := m.treeInnerH
+	if page < 1 {
+		page = 1
+	}
+	switch msg.String() {
+	case "j", "down":
+		m.tree.moveDown(1)
+	case "k", "up":
+		m.tree.moveUp(1)
+	case "g", "home":
+		m.tree.gotoTop()
+	case "G", "end":
+		m.tree.gotoBottom()
+	case "pgdown", "f", "d":
+		m.tree.moveDown(page)
+	case "pgup", "b", "u":
+		m.tree.moveUp(page)
+	}
 }
 
 // digitToView maps "1".."6" to the matching viewID. Returns ok=false for any
@@ -277,23 +322,25 @@ func main() {
 	}
 }
 
-// runSnapshot fetches the inventory counts AND the component list, builds a
-// loaded model, renders View() to stdout, and exits. Distinct from --probe
-// (plain text counts) — this renders the actual styled lipgloss frame for
-// non-TTY inspection. The frame shows the default view (Inventory) as the
-// split-pane master-detail browser, at defaultWidth (no WindowSizeMsg arrives
-// in a pipe), so layoutPanes() is invoked manually to size the widgets.
+// runSnapshot fetches the inventory counts AND the full detail data (all four
+// object arrays), builds a loaded model, renders View() to stdout, and exits.
+// Distinct from --probe (plain text counts) — this renders the actual styled
+// lipgloss frame for non-TTY inspection. The frame shows the default view
+// (Inventory) as the split-pane tree browser with Skills expanded, at
+// defaultWidth (no WindowSizeMsg arrives in a pipe), so layoutPanes() is invoked
+// manually to size the widgets.
 //
-// The component list is populated from whatever config dir resolves by default
-// (the live `~/.claude`). With no real config dir the list would be empty, but
-// the two-pane LAYOUT (bordered list + bordered detail) is always rendered.
+// The tree is populated from whatever config dir resolves by default (the live
+// `~/.claude`). With no real config dir the folders would be empty, but the
+// two-pane LAYOUT (bordered tree + bordered detail) plus counts bar is always
+// rendered.
 func runSnapshot(cliPath string) int {
 	inv, err := fetchInventory(cliPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "snapshot error: %v\n", err)
 		return 1
 	}
-	comps, compErr := fetchComponents(cliPath)
+	data, detailErr := fetchDetail(cliPath)
 
 	m := model{ // loading=false, err=nil → inventory content path
 		inv:         inv,
@@ -301,15 +348,18 @@ func runSnapshot(cliPath string) int {
 		currentView: viewInventory,
 		width:       defaultWidth,
 		height:      defaultHeight,
-		components:  comps,
-		compErr:     compErr,
-		list:        newComponentList(),
+		detailData:  data,
+		detailErr:   detailErr,
+		tree:        newTreeModel(data),
 		detail:      viewport.New(0, 0),
 		spinner:     newSpinner(),
-		focus:       focusList,
+		focus:       focusTree,
 	}
-	m.list.SetItems(componentItems(comps))
 	m.layoutPanes()
+	// Land the cursor on the first skill item (row 1, under the expanded Skills
+	// folder) so the snapshot frame demonstrates a populated detail pane, not the
+	// folder-header empty state. No-op when the tree has no skill items.
+	m.tree.moveDown(1)
 	m.refreshDetail()
 
 	fmt.Println(m.View())
