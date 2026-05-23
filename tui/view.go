@@ -64,10 +64,11 @@ var (
 // cardWidth(); the printable inner width derives from that via innerWidth().
 
 const (
-	minCard    = 60
-	maxCard    = 100
-	cardPadX   = 4 // cardStyle horizontal padding (each side)
-	cardBorder = 2 // rounded border (1 col each side)
+	minCard        = 60
+	maxCard        = 100
+	cardPadX       = 4  // cardStyle horizontal padding (each side)
+	cardBorder     = 2  // rounded border (1 col each side)
+	detailLabelCol = 16 // fixed column width for detail-field labels (aligns values)
 )
 
 // cardWidth clamps the terminal width into [minCard, maxCard], leaving a small
@@ -450,14 +451,16 @@ func boolText(b bool) string {
 	return "no"
 }
 
-// detailField renders one "label  value" row, the value truncated to fit width.
+// detailField renders one aligned "label  value" row. The label is padded to
+// detailLabelCol columns so values always start at the same column. The value
+// is truncated to the remaining available width.
 func detailField(label, value string, width int) string {
-	lbl := detailLabelStyle.Render(label)
+	lbl := detailLabelStyle.Width(detailLabelCol).Render(label)
 	v := strings.TrimSpace(value)
 	if v == "" {
 		v = "—"
 	}
-	avail := width - lipgloss.Width(lbl) - 1
+	avail := width - detailLabelCol - 1
 	if avail < 1 {
 		avail = 1
 	}
