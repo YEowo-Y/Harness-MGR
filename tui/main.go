@@ -41,6 +41,24 @@ type orphansMsg struct {
 	err  error
 }
 
+// configMsg carries the result of the async `config show-effective` fetch.
+type configMsg struct {
+	data ConfigResult
+	err  error
+}
+
+// hooksMsg carries the result of the async `hooks` fetch.
+type hooksMsg struct {
+	data HooksResult
+	err  error
+}
+
+// selftestMsg carries the result of the async `selftest` fetch.
+type selftestMsg struct {
+	data SelftestResult
+	err  error
+}
+
 // sectionState holds the fetch + list state for a flat-list section tab
 // (Conflicts, Orphans). loading is true while the fetch is in flight; err is
 // set on failure; list holds the rendered items; summary is the one-line header.
@@ -143,6 +161,9 @@ func initialModel(cliPath string) model {
 		sections: map[viewID]*sectionState{
 			viewConflicts: {loading: true, list: newSectionModel(nil)},
 			viewOrphans:   {loading: true, list: newSectionModel(nil)},
+			viewConfig:    {loading: true, list: newSectionModel(nil)},
+			viewHooks:     {loading: true, list: newSectionModel(nil)},
+			viewSelftest:  {loading: true, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -183,6 +204,33 @@ func fetchOrphansCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchConfigCmd returns a tea.Cmd that runs `config show-effective --format json`
+// and reports the outcome back as a configMsg.
+func fetchConfigCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchConfig(cliPath)
+		return configMsg{data: data, err: err}
+	}
+}
+
+// fetchHooksCmd returns a tea.Cmd that runs `hooks --format json` and reports
+// the outcome back as a hooksMsg.
+func fetchHooksCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchHooks(cliPath)
+		return hooksMsg{data: data, err: err}
+	}
+}
+
+// fetchSelftestCmd returns a tea.Cmd that runs `selftest --format json` and
+// reports the outcome back as a selftestMsg.
+func fetchSelftestCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchSelftest(cliPath)
+		return selftestMsg{data: data, err: err}
+	}
+}
+
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
 // ticking as long as this is true.
 func (m model) anyLoading() bool {
@@ -197,14 +245,17 @@ func (m model) anyLoading() bool {
 	return false
 }
 
-// Init kicks off all async fetches (counts, detail, conflicts, orphans) and
-// starts the spinner ticking so the UI animates while fetches run.
+// Init kicks off all async fetches and starts the spinner ticking so the UI
+// animates while fetches run.
 func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		fetchCmd(m.cliPath),
 		fetchDetailCmd(m.cliPath),
 		fetchConflictsCmd(m.cliPath),
 		fetchOrphansCmd(m.cliPath),
+		fetchConfigCmd(m.cliPath),
+		fetchHooksCmd(m.cliPath),
+		fetchSelftestCmd(m.cliPath),
 		m.spinner.Tick,
 	)
 }
@@ -253,6 +304,65 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			st.summary = fmt.Sprintf("%d hard · %d soft", s.Hard, s.Soft)
 		}
 		if m.currentView == viewOrphans {
+			m.refreshDetail()
+		}
+		return m, nil
+	case configMsg:
+		st := m.sections[viewConfig]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewConfig] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(configItems(msg.data))
+			st.summary = fmt.Sprintf("%d keys", len(msg.data.Keys))
+		}
+		if m.currentView == viewConfig {
+			m.refreshDetail()
+		}
+		return m, nil
+	case hooksMsg:
+		st := m.sections[viewHooks]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewHooks] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(hooksItems(msg.data))
+			st.summary = fmt.Sprintf("%d events", len(msg.data.Hooks))
+		}
+		if m.currentView == viewHooks {
+			m.refreshDetail()
+		}
+		return m, nil
+	case selftestMsg:
+		st := m.sections[viewSelftest]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewSelftest] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(selftestItems(msg.data))
+			n := len(msg.data.Checks)
+			failing := 0
+			for _, ch := range msg.data.Checks {
+				if !ch.Ok {
+					failing++
+				}
+			}
+			if failing == 0 {
+				st.summary = fmt.Sprintf("%d checks, all ok", n)
+			} else {
+				st.summary = fmt.Sprintf("%d checks, %d failing", n, failing)
+			}
+		}
+		if m.currentView == viewSelftest {
 			m.refreshDetail()
 		}
 		return m, nil
@@ -495,9 +605,15 @@ func runSnapshot(cliPath string) int {
 	data, detailErr := fetchDetail(cliPath)
 
 	m := model{ // loading=false, err=nil → inventory content path
-		inv:         inv,
-		cliPath:     cliPath,
-		sections:    map[viewID]*sectionState{},
+		inv:     inv,
+		cliPath: cliPath,
+		sections: map[viewID]*sectionState{
+			viewConflicts: {list: newSectionModel(nil)},
+			viewOrphans:   {list: newSectionModel(nil)},
+			viewConfig:    {list: newSectionModel(nil)},
+			viewHooks:     {list: newSectionModel(nil)},
+			viewSelftest:  {list: newSectionModel(nil)},
+		},
 		currentView: viewInventory,
 		width:       defaultWidth,
 		height:      defaultHeight,
