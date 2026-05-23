@@ -416,7 +416,19 @@ func TestIsSectionViewInventory(t *testing.T) {
 }
 
 func TestIsSectionViewConfig(t *testing.T) {
-	if isSectionView(viewConfig) {
-		t.Fatal("isSectionView(viewConfig) should be false")
+	if !isSectionView(viewConfig) {
+		t.Fatal("isSectionView(viewConfig) should be true")
+	}
+}
+
+func TestIsSectionViewHooks(t *testing.T) {
+	if !isSectionView(viewHooks) {
+		t.Fatal("isSectionView(viewHooks) should be true")
+	}
+}
+
+func TestIsSectionViewSelftest(t *testing.T) {
+	if !isSectionView(viewSelftest) {
+		t.Fatal("isSectionView(viewSelftest) should be true")
 	}
 }
