@@ -32,14 +32,15 @@ func sampleDetail() DetailData {
 }
 
 // loadedModel builds a model with detail data loaded and panes sized, as the
-// live Update loop would after a detailMsg + splashTimerMsg + WindowSizeMsg.
-// Both detailMsg and splashTimerMsg are required to dismiss the splash before
-// tests can interact with the dashboard.
+// live Update loop would after a detailMsg + key press (to dismiss the splash)
+// + WindowSizeMsg. The key press swallows itself (splash gate) so currentView
+// stays at Inventory.
 func loadedModel(w, h int) model {
 	m := initialModel("unused")
 	mm, _ := m.Update(detailMsg{data: sampleDetail()})
 	m = mm.(model)
-	mm, _ = m.Update(splashTimerMsg{})
+	// Dismiss the splash with any key (swallowed by the splash gate).
+	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 	m = mm.(model)
 	mm, _ = m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	return mm.(model)
@@ -318,7 +319,8 @@ func TestRefreshDetailAppendsPreviewForComponent(t *testing.T) {
 	m := initialModel("unused")
 	mm, _ := m.Update(detailMsg{data: data})
 	m = mm.(model)
-	mm, _ = m.Update(splashTimerMsg{})
+	// Dismiss the splash with a key press (swallowed by the splash gate).
+	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
 	m = mm.(model)
 	mm, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = mm.(model)
