@@ -164,34 +164,29 @@ func barFitsOneLine(bar string) bool {
 	return lipgloss.Height(bar) == 1
 }
 
-// renderMascot returns the mascot cat face as a rectangular block, colored with a
-// vertical multi-stop gradient (mascotStops): each row is rendered in one color
-// interpolated along the stops by its position, so the sprite sweeps through the
-// palette top to bottom. blink selects the eyes-closed frame (splashMascotBlink);
-// otherwise the eyes-open splashMascot is used. Lines are centered to the
-// sprite's max display width. NOT gated — callers gate via model.mascotVisible.
-// Falls back to a solid mascotColor if the stops can't be parsed.
+// renderMascot returns the mascot cat as a solid-block sprite: each grid cell is
+// a color KEY drawn as █ in its color (white eyes, dark pupils, brown nose, pink
+// mouth, vibrant mosaic body — see mascotCellColor); '.' cells are transparent.
+// blink selects the eyes-closed frame (splashMascotBlink), else the eyes-open
+// splashMascot. NOT gated — callers gate via model.mascotVisible.
 func renderMascot(blink bool) string {
 	frame := splashMascot
 	if blink {
 		frame = splashMascotBlink
 	}
-	w := 0
-	for _, line := range frame {
-		if n := lipgloss.Width(line); n > w {
-			w = n
+	lines := make([]string, len(frame))
+	for row, line := range frame {
+		var b strings.Builder
+		col := 0
+		for _, key := range line {
+			if key == '.' || key == ' ' {
+				b.WriteRune(' ')
+			} else {
+				b.WriteString(lipgloss.NewStyle().Foreground(mascotCellColor(key, row, col)).Render("█"))
+			}
+			col++
 		}
-	}
-	center := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
-	cols, ok := parseStops(mascotStops)
-	rows := len(frame)
-	lines := make([]string, rows)
-	for i, line := range frame {
-		fg := mascotColor
-		if ok {
-			fg = lipgloss.Color(stopColorAt(cols, len(cols)-1, fraction(i, rows)).Hex())
-		}
-		lines[i] = lipgloss.NewStyle().Foreground(fg).Render(center.Render(line))
+		lines[row] = b.String()
 	}
 	return strings.Join(lines, "\n")
 }
