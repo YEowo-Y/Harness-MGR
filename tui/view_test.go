@@ -122,7 +122,7 @@ func TestConflictDetailReflowNarrow(t *testing.T) {
 // (a newline separates the title from the rule), and that edge widths — where
 // strings.Repeat would panic on a negative count — are guarded.
 func TestDetailTitleHeader(t *testing.T) {
-	got := detailTitle("My Skill", accent, 40)
+	got := detailTitle("My Skill", accent, "", 40)
 	if !strings.Contains(got, "My Skill") {
 		t.Fatalf("detailTitle missing name: %q", got)
 	}
@@ -130,8 +130,10 @@ func TestDetailTitleHeader(t *testing.T) {
 		t.Fatalf("detailTitle missing the header rule (no newline): %q", got)
 	}
 	// Edge widths must not panic.
-	_ = detailTitle("x", accent, 0)
-	_ = detailTitle("x", accent, -1)
+	_ = detailTitle("x", accent, "", 0)
+	_ = detailTitle("x", accent, "", -1)
+	// Icon parameter must not panic when provided.
+	_ = detailTitle("x", accent, "◆", 40)
 }
 
 // ── stripANSI helper ──────────────────────────────────────────────────────────
