@@ -200,6 +200,39 @@ func TestComponentDetailShowsMarketplaceVersion(t *testing.T) {
 	}
 }
 
+// ── mascot / layout tests ─────────────────────────────────────────────────────
+
+// TestRenderMascotThreeLines asserts renderMascot returns a 3-line block with
+// non-empty content (testable regardless of Unicode — renderMascot does not gate).
+func TestRenderMascotThreeLines(t *testing.T) {
+	got := renderMascot()
+	if n := strings.Count(got, "\n"); n != 2 {
+		t.Fatalf("renderMascot newlines = %d, want 2 (3 lines)", n)
+	}
+	if stripANSI(got) == "" {
+		t.Fatal("renderMascot returned empty content")
+	}
+}
+
+// TestMascotShownAtNarrow asserts the corner mascot is hidden on a narrow
+// terminal (the width gate holds regardless of Unicode support).
+func TestMascotShownAtNarrow(t *testing.T) {
+	if mascotShownAt(10) {
+		t.Fatal("mascotShownAt(10) = true, want false (below mascotMinWidth)")
+	}
+}
+
+// TestSplitDimsReservesForMascotWhenAbsent guards the normal (no-mascot) path:
+// in the no-Unicode test env mascotShownAt is false, so splitDims reserves only
+// chromeRows and boxH = height - chromeRows.
+func TestSplitDimsReservesForMascotWhenAbsent(t *testing.T) {
+	m := model{width: 120, height: 30}
+	_, _, boxH := m.splitDims()
+	if want := 30 - chromeRows; boxH != want {
+		t.Fatalf("splitDims boxH = %d, want %d (height - chromeRows, mascot absent in test env)", boxH, want)
+	}
+}
+
 // ── stripANSI helper ──────────────────────────────────────────────────────────
 
 // stripANSI removes ANSI CSI escape sequences (ESC [ ... m) from s so we can
