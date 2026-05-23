@@ -29,6 +29,28 @@ type detailMsg struct {
 	err  error
 }
 
+// conflictsMsg carries the result of the async `conflicts` fetch.
+type conflictsMsg struct {
+	data []ConflictCluster
+	err  error
+}
+
+// orphansMsg carries the result of the async `orphans` fetch.
+type orphansMsg struct {
+	data OrphansResult
+	err  error
+}
+
+// sectionState holds the fetch + list state for a flat-list section tab
+// (Conflicts, Orphans). loading is true while the fetch is in flight; err is
+// set on failure; list holds the rendered items; summary is the one-line header.
+type sectionState struct {
+	loading bool
+	err     error
+	list    sectionModel
+	summary string
+}
+
 // focusPane identifies which split pane currently receives j/k + arrow keys on
 // the Inventory tab. Tab/Shift+Tab toggles between them.
 type focusPane int
@@ -101,6 +123,10 @@ type model struct {
 	// renderer (the custom tree widget is sized at render time, not via SetSize).
 	treeInnerW int
 	treeInnerH int
+
+	// sections holds the fetch + list state for flat-list section tabs.
+	// Keys are viewConflicts and viewOrphans; initialized in initialModel.
+	sections map[viewID]*sectionState
 }
 
 func initialModel(cliPath string) model {
@@ -114,6 +140,10 @@ func initialModel(cliPath string) model {
 		detail:        viewport.New(0, 0),
 		spinner:       newSpinner(),
 		focus:         focusTree,
+		sections: map[viewID]*sectionState{
+			viewConflicts: {loading: true, list: newSectionModel(nil)},
+			viewOrphans:   {loading: true, list: newSectionModel(nil)},
+		},
 	}
 }
 
@@ -135,10 +165,48 @@ func fetchDetailCmd(cliPath string) tea.Cmd {
 	}
 }
 
-// Init kicks off both async fetches (counts + detail) and starts the spinner
-// ticking so the Inventory area animates while the detail fetch runs.
+// fetchConflictsCmd returns a tea.Cmd that runs `conflicts --format json` and
+// reports the outcome back as a conflictsMsg.
+func fetchConflictsCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchConflicts(cliPath)
+		return conflictsMsg{data: data, err: err}
+	}
+}
+
+// fetchOrphansCmd returns a tea.Cmd that runs `orphans --format json` and
+// reports the outcome back as an orphansMsg.
+func fetchOrphansCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchOrphans(cliPath)
+		return orphansMsg{data: data, err: err}
+	}
+}
+
+// anyLoading reports whether any fetch is still in flight. The spinner keeps
+// ticking as long as this is true.
+func (m model) anyLoading() bool {
+	if m.loading || m.detailLoading {
+		return true
+	}
+	for _, st := range m.sections {
+		if st != nil && st.loading {
+			return true
+		}
+	}
+	return false
+}
+
+// Init kicks off all async fetches (counts, detail, conflicts, orphans) and
+// starts the spinner ticking so the UI animates while fetches run.
 func (m model) Init() tea.Cmd {
-	return tea.Batch(fetchCmd(m.cliPath), fetchDetailCmd(m.cliPath), m.spinner.Tick)
+	return tea.Batch(
+		fetchCmd(m.cliPath),
+		fetchDetailCmd(m.cliPath),
+		fetchConflictsCmd(m.cliPath),
+		fetchOrphansCmd(m.cliPath),
+		m.spinner.Tick,
+	)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -155,9 +223,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tree = newTreeModel(msg.data)
 		m.refreshDetail()
 		return m, nil
+	case conflictsMsg:
+		st := m.sections[viewConflicts]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewConflicts] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(conflictItems(msg.data))
+			st.summary = fmt.Sprintf("%d conflicts", len(msg.data))
+		}
+		if m.currentView == viewConflicts {
+			m.refreshDetail()
+		}
+		return m, nil
+	case orphansMsg:
+		st := m.sections[viewOrphans]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewOrphans] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(orphanItems(msg.data))
+			s := msg.data.Summary
+			st.summary = fmt.Sprintf("%d hard · %d soft", s.Hard, s.Soft)
+		}
+		if m.currentView == viewOrphans {
+			m.refreshDetail()
+		}
+		return m, nil
 	case spinner.TickMsg:
-		// Keep ticking only while a fetch is still in flight.
-		if m.detailLoading || m.loading {
+		// Keep ticking only while any fetch is still in flight.
+		if m.anyLoading() {
 			var cmd tea.Cmd
 			m.spinner, cmd = m.spinner.Update(msg)
 			return m, cmd
@@ -191,9 +292,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "]":
 		m.currentView = (m.currentView + 1) % tabCount
+		m.refreshDetail()
 		return m, nil
 	case "[":
 		m.currentView = (m.currentView - 1 + tabCount) % tabCount
+		m.refreshDetail()
 		return m, nil
 	case "tab":
 		m.toggleFocus()
@@ -206,6 +309,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if v, ok := digitToView(msg.String()); ok {
 		m.currentView = v
+		m.refreshDetail()
 		return m, nil
 	}
 	return m.routeToPane(msg)
@@ -221,12 +325,20 @@ func (m *model) toggleFocus() {
 	}
 }
 
-// activate handles Enter/Space on the Inventory tab when the tree pane is
-// focused: a folder row toggles expand/collapse (which can move the cursor and
-// reshape the visible rows, so refresh the detail to whatever the cursor now
-// sits on); an item row refreshes the detail to that node. Off the Inventory tab
-// or when the detail pane is focused, the key is swallowed.
+// activate handles Enter/Space. On the Inventory tab with the tree focused, a
+// folder row toggles expand/collapse; an item row refreshes the detail. On a
+// section tab (Conflicts/Orphans) there is no expand, so it is a no-op. Off the
+// Inventory/section tabs, or when the detail pane is focused, the key is swallowed.
 func (m model) activate() (tea.Model, tea.Cmd) {
+	if isSectionView(m.currentView) {
+		// No expand/collapse on flat lists; refresh the detail only when the LIST
+		// pane is focused — Enter on the detail pane must not reset its scroll
+		// (matching the Inventory tab's focus gate below).
+		if m.focus == focusTree {
+			m.refreshDetail()
+		}
+		return m, nil
+	}
 	if m.currentView != viewInventory || m.focus != focusTree {
 		return m, nil
 	}
@@ -236,10 +348,19 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 }
 
 // routeToPane forwards navigation keys to whichever pane has focus. On the
-// Inventory tab the tree pane owns cursor movement (and a moved cursor refreshes
-// the detail content live); the detail pane owns scrolling. On other tabs there
-// is nothing to navigate yet, so the key is swallowed.
+// Inventory tab the tree pane owns cursor movement; on section tabs the section
+// list owns cursor movement; in both cases a cursor change refreshes the detail.
+// The detail pane owns scrolling when focused. On other tabs the key is swallowed.
 func (m model) routeToPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if isSectionView(m.currentView) {
+		if m.focus == focusTree {
+			m.moveSectionCursor(msg)
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.detail, cmd = m.detail.Update(msg)
+		return m, cmd
+	}
 	if m.currentView != viewInventory {
 		return m, nil
 	}
@@ -254,6 +375,37 @@ func (m model) routeToPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.detail, cmd = m.detail.Update(msg)
 	return m, cmd
+}
+
+// moveSectionCursor applies a navigation key to the active section list cursor
+// and refreshes the detail pane when the cursor moves. Mirrors moveTreeCursor.
+func (m *model) moveSectionCursor(msg tea.KeyMsg) {
+	st := m.sections[m.currentView]
+	if st == nil {
+		return
+	}
+	page := m.treeInnerH
+	if page < 1 {
+		page = 1
+	}
+	prev := st.list.cursor
+	switch msg.String() {
+	case "j", "down":
+		st.list.moveDown(1)
+	case "k", "up":
+		st.list.moveUp(1)
+	case "g", "home":
+		st.list.gotoTop()
+	case "G", "end":
+		st.list.gotoBottom()
+	case "pgdown", "f", "d":
+		st.list.moveDown(page)
+	case "pgup", "b", "u":
+		st.list.moveUp(page)
+	}
+	if st.list.cursor != prev {
+		m.refreshDetail()
+	}
 }
 
 // moveTreeCursor applies a navigation key to the tree cursor: j/down + k/up move
@@ -345,6 +497,7 @@ func runSnapshot(cliPath string) int {
 	m := model{ // loading=false, err=nil → inventory content path
 		inv:         inv,
 		cliPath:     cliPath,
+		sections:    map[viewID]*sectionState{},
 		currentView: viewInventory,
 		width:       defaultWidth,
 		height:      defaultHeight,
