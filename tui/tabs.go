@@ -34,8 +34,13 @@ func conflictItems(cs []ConflictCluster) []sectionItem {
 	items := make([]sectionItem, 0, len(cs))
 	for _, c := range cs {
 		c := c // shadow for closure capture
+		iconStr := glyph(typeIcon(c.Kind), "")
+		prefix := ""
+		if iconStr != "" {
+			prefix = iconStr + " "
+		}
 		items = append(items, sectionItem{
-			title:  fmt.Sprintf("%s: %s", c.Kind, c.Key),
+			title:  prefix + fmt.Sprintf("%s: %s", c.Kind, c.Key),
 			color:  conflictColor(c.Kind),
 			detail: func(w int) string { return conflictDetail(c, w) },
 		})
@@ -65,7 +70,7 @@ func conflictDetail(c ConflictCluster, width int) string {
 	fg := conflictColor(c.Kind)
 
 	var b strings.Builder
-	b.WriteString(detailTitle(c.Key, fg, width))
+	b.WriteString(detailTitle(c.Key, fg, typeIcon(c.Kind), width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Kind", c.Kind, width))
 	b.WriteString(detailField("Confidence", c.Confidence, width))
@@ -121,7 +126,7 @@ func orphanDetail(o Orphan, width int) string {
 	fg := orphanColor(o.Category)
 
 	var b strings.Builder
-	b.WriteString(detailTitle(o.Name, fg, width))
+	b.WriteString(detailTitle(o.Name, fg, "", width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Category", o.Category, width))
 	b.WriteString(detailField("Entry type", o.EntryType, width))
@@ -252,7 +257,7 @@ func configDetail(ck ConfigKey, width int) string {
 	fg := configKeyColor(ck.MergeConfidence)
 
 	var b strings.Builder
-	b.WriteString(detailTitle(ck.Key, fg, width))
+	b.WriteString(detailTitle(ck.Key, fg, "", width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Merge confidence", ck.MergeConfidence, width))
 	b.WriteString(detailField("Strategy", ck.Strategy, width))
@@ -295,7 +300,7 @@ func hooksItems(r HooksResult) []sectionItem {
 // hooksDetail builds the detail body for a hook event at the given pane width.
 func hooksDetail(event string, entries []HookEntry, width int) string {
 	var b strings.Builder
-	b.WriteString(detailTitle(event, accent, width))
+	b.WriteString(detailTitle(event, accent, "", width))
 	b.WriteString("\n\n")
 	for _, entry := range entries {
 		if entry.Matcher != "" {
@@ -347,7 +352,7 @@ func selftestDetail(ch SelftestCheck, width int) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(detailTitle(ch.Name, color, width))
+	b.WriteString(detailTitle(ch.Name, color, "", width))
 	b.WriteString("\n\n")
 	b.WriteString(detailField("Status", status, width))
 	return b.String()
