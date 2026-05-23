@@ -164,24 +164,29 @@ func barFitsOneLine(bar string) bool {
 	return lipgloss.Height(bar) == 1
 }
 
-// renderMascot returns the mascot cat as a rectangular block, colored with a
+// renderMascot returns the mascot cat face as a rectangular block, colored with a
 // vertical multi-stop gradient (mascotStops): each row is rendered in one color
 // interpolated along the stops by its position, so the sprite sweeps through the
-// palette top to bottom. Lines are centered to the sprite's max display width.
-// NOT gated — callers gate via model.mascotVisible. Falls back to a solid
-// mascotColor if the stops can't be parsed. Reuses splashMascot from splash.go.
-func renderMascot() string {
+// palette top to bottom. blink selects the eyes-closed frame (splashMascotBlink);
+// otherwise the eyes-open splashMascot is used. Lines are centered to the
+// sprite's max display width. NOT gated — callers gate via model.mascotVisible.
+// Falls back to a solid mascotColor if the stops can't be parsed.
+func renderMascot(blink bool) string {
+	frame := splashMascot
+	if blink {
+		frame = splashMascotBlink
+	}
 	w := 0
-	for _, line := range splashMascot {
+	for _, line := range frame {
 		if n := lipgloss.Width(line); n > w {
 			w = n
 		}
 	}
 	center := lipgloss.NewStyle().Width(w).Align(lipgloss.Center)
 	cols, ok := parseStops(mascotStops)
-	rows := len(splashMascot)
+	rows := len(frame)
 	lines := make([]string, rows)
-	for i, line := range splashMascot {
+	for i, line := range frame {
 		fg := mascotColor
 		if ok {
 			fg = lipgloss.Color(stopColorAt(cols, len(cols)-1, fraction(i, rows)).Hex())
@@ -270,16 +275,17 @@ func (m model) mascotVisible() bool {
 }
 
 // headerView renders the active tab's counts/summary bar. When mascotVisible()
-// it narrows the bar by mascotBarWidth and joins the 3-line sprite to its right;
-// otherwise it returns the full-width bar unchanged — byte-for-byte the prior
-// no-mascot header. Placeholder tabs have no bar and yield "".
+// it narrows the bar by mascotBarWidth and joins the mascot sprite (at its
+// current blink frame) to its right; otherwise it returns the full-width bar
+// unchanged — byte-for-byte the prior no-mascot header. Placeholder tabs have no
+// bar and yield "".
 func (m model) headerView() string {
 	build, ok := m.headerBarBuilder()
 	if !ok {
 		return ""
 	}
 	if m.mascotVisible() {
-		return lipgloss.JoinHorizontal(lipgloss.Top, build(mascotBarWidth(m.width)), renderMascot())
+		return lipgloss.JoinHorizontal(lipgloss.Top, build(mascotBarWidth(m.width)), renderMascot(m.mascotBlink))
 	}
 	return build(m.width)
 }
