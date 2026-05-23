@@ -41,7 +41,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
 const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--lint', '--invariants', '--boundary', '--all']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet']);
@@ -80,7 +80,7 @@ export async function run(argv) {
  * token; boolean flags are presence-only; unknown `--flags` are ignored (lenient).
  *
  * @param {string[]} argv
- * @returns {{canonical: string|null, args: {format?:string, configDir?:string, name?:string, key?:string, type?:string, explain?:boolean, order?:boolean}}}
+ * @returns {{canonical: string|null, args: {format?:string, configDir?:string, name?:string, key?:string, type?:string, explain?:boolean, order?:boolean, detail?:boolean}}}
  */
 function parseArgs(argv) {
   const args = Object.create(null); // null-proto: a `--constructor`-style flag can never reach a prototype key
