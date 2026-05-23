@@ -99,20 +99,18 @@ func renderPixelCat(rows []string) string {
 	return strings.Join(out, "\n")
 }
 
-// colorCat is a vibrant SOLID-BLOCK cat replicating the chunky reference image:
-// pointy ears with peach inner (i), white eyes (w) with black pupils (k), a brown
-// nose (n), a pink mouth (m), four legs, and a multicolor "炫彩" mosaic body (b).
-// Each cell is a color KEY (rendered as █); '.' is transparent. Rows are 11 wide.
+// colorCat is a vibrant SOLID-BLOCK cat replicating the chunky reference image,
+// kept compact (6 rows x 9 cols) for the corner: pointy ears, white eyes (w)
+// with black pupils (k), a brown nose (n), a pink mouth (m), four legs, and a
+// multicolor "炫彩" mosaic body (b). Each cell is a color KEY (rendered as █);
+// '.' is transparent.
 var colorCat = []string{
-	`bb.......bb`,
-	`bib.....bib`,
-	`bbbbbbbbbbb`,
-	`bwkbbbbbkwb`,
-	`bbbbbbbbbbb`,
-	`bbbbnnnbbbb`,
-	`bbbmmmmmbbb`,
-	`bbbbbbbbbbb`,
-	`bb.bb.bb.bb`,
+	`bb.....bb`,
+	`bbbbbbbbb`,
+	`bwkbbbkwb`,
+	`bbbbnbbbb`,
+	`bbbmmmbbb`,
+	`.b.b.b.b.`,
 }
 
 // colorCatKey maps a colorCat cell key to its color: peach inner ear, white eye,
