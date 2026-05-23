@@ -80,28 +80,90 @@ func TestInitialModelShowSplash(t *testing.T) {
 	}
 }
 
-// TestDetailMsgDismissesSplash verifies that delivering a detailMsg sets
-// showSplash=false.
+// TestDetailMsgDismissesSplash verifies that delivering BOTH a detailMsg AND a
+// splashTimerMsg sets showSplash=false. detailMsg alone no longer dismisses
+// the splash — it waits for the minimum timer to also fire.
 func TestDetailMsgDismissesSplash(t *testing.T) {
 	m := initialModel("x")
 	if !m.showSplash {
 		t.Fatal("precondition: showSplash should be true after initialModel")
 	}
+	// detailMsg alone: splash still showing (timer not done yet).
 	next, _ := m.Update(detailMsg{data: DetailData{}})
 	nm := next.(model)
-	if nm.showSplash {
-		t.Fatal("showSplash should be false after detailMsg arrives")
+	if !nm.showSplash {
+		t.Fatal("showSplash should still be true after detailMsg alone (timer not done)")
+	}
+	// Now deliver the timer: both conditions met → dismiss.
+	next2, _ := nm.Update(splashTimerMsg{})
+	nm2 := next2.(model)
+	if nm2.showSplash {
+		t.Fatal("showSplash should be false after both detailMsg and splashTimerMsg")
 	}
 }
 
 // TestDetailMsgErrorDismissesSplash verifies the splash is dismissed even when
 // the detail fetch FAILED — otherwise a fetch error would freeze the splash.
+// Both detailMsg (with error) AND splashTimerMsg must arrive before dismissal.
 func TestDetailMsgErrorDismissesSplash(t *testing.T) {
 	m := initialModel("x")
+	// detailMsg with error alone: not yet dismissed.
 	next, _ := m.Update(detailMsg{err: errors.New("fetch failed")})
-	if next.(model).showSplash {
-		t.Fatal("showSplash should be false even when detailMsg carries an error")
+	nm := next.(model)
+	if !nm.showSplash {
+		t.Fatal("showSplash should still be true after error detailMsg alone (timer not done)")
 	}
+	// Timer fires: now dismiss.
+	next2, _ := nm.Update(splashTimerMsg{})
+	if next2.(model).showSplash {
+		t.Fatal("showSplash should be false after error detailMsg + splashTimerMsg")
+	}
+}
+
+// TestSplashTimerAloneDoesNotDismiss verifies that the timer alone (without data
+// having loaded) does not dismiss the splash.
+func TestSplashTimerAloneDoesNotDismiss(t *testing.T) {
+	m := initialModel("x")
+	// detailLoading starts true; deliver only the timer.
+	next, _ := m.Update(splashTimerMsg{})
+	nm := next.(model)
+	if !nm.showSplash {
+		t.Fatal("showSplash should still be true when timer fires but data not yet loaded")
+	}
+	if !nm.splashTimerDone {
+		t.Fatal("splashTimerDone should be true after splashTimerMsg")
+	}
+}
+
+// TestSplashDismissesWhenBothDataAndTimer verifies the splash hides when both
+// conditions are met, regardless of delivery order (timer first or data first).
+func TestSplashDismissesWhenBothDataAndTimer(t *testing.T) {
+	// Order A: timer first, then data.
+	t.Run("timer_then_data", func(t *testing.T) {
+		m := initialModel("x")
+		next, _ := m.Update(splashTimerMsg{})
+		nm := next.(model)
+		if !nm.showSplash {
+			t.Fatal("should still show after timer alone")
+		}
+		next2, _ := nm.Update(detailMsg{data: DetailData{}})
+		if next2.(model).showSplash {
+			t.Fatal("should dismiss after data arrives post-timer")
+		}
+	})
+	// Order B: data first, then timer.
+	t.Run("data_then_timer", func(t *testing.T) {
+		m := initialModel("x")
+		next, _ := m.Update(detailMsg{data: DetailData{}})
+		nm := next.(model)
+		if !nm.showSplash {
+			t.Fatal("should still show after data alone")
+		}
+		next2, _ := nm.Update(splashTimerMsg{})
+		if next2.(model).showSplash {
+			t.Fatal("should dismiss after timer fires post-data")
+		}
+	})
 }
 
 // TestKeyMsgDismissesSplash verifies that any KeyMsg while showSplash=true sets
@@ -133,6 +195,55 @@ func TestKeyMsgDoesNotChangeViewDuringSplash(t *testing.T) {
 	}
 	if nm.currentView != viewInventory {
 		t.Fatalf("currentView = %d after swallowed '2' key, want viewInventory(%d)", nm.currentView, viewInventory)
+	}
+}
+
+// ── mascot tests ──────────────────────────────────────────────────────────────
+
+// TestSplashMascotLines verifies splashMascot is non-empty and each line is
+// non-empty (guards against accidental blank-slice regression).
+func TestSplashMascotLines(t *testing.T) {
+	if len(splashMascot) == 0 {
+		t.Fatal("splashMascot is empty")
+	}
+	for i, line := range splashMascot {
+		if len([]rune(line)) == 0 {
+			t.Fatalf("splashMascot[%d] is empty", i)
+		}
+	}
+}
+
+// TestSplashViewNoUnicodeFallback verifies that on a no-color/no-Unicode terminal
+// (unicodeEnabled() == false, as in the test runner) splashView still renders
+// without panic and contains the wordmark fallback but NOT the mascot glyph.
+func TestSplashViewNoUnicodeFallback(t *testing.T) {
+	if unicodeEnabled() {
+		t.Skip("mascot IS shown in this environment — skip no-unicode fallback test")
+	}
+	got := splashView(80, 24)
+	if got == "" {
+		t.Fatal("splashView returned empty on no-unicode terminal")
+	}
+	// Wordmark fallback must be present.
+	if !strings.Contains(got, "claude-mgr") {
+		t.Fatalf("splashView no-unicode: missing wordmark fallback, got: %q", got)
+	}
+	// Mascot glyph must NOT appear (it's gated on unicodeEnabled).
+	if strings.Contains(got, "◕") {
+		t.Fatal("splashView no-unicode: mascot glyph '◕' should not appear")
+	}
+}
+
+// TestSplashMascotShownWhenUnicode verifies that when unicodeEnabled() is true
+// the mascot block is included in the splashView output. Skipped when the test
+// env has no color profile (the common CI / pipe case).
+func TestSplashMascotShownWhenUnicode(t *testing.T) {
+	if !unicodeEnabled() {
+		t.Skip("unicodeEnabled() is false in this environment — mascot not rendered")
+	}
+	got := splashView(80, 24)
+	if !strings.Contains(got, "◕") {
+		t.Fatalf("splashView unicode: expected mascot glyph '◕' in output\ngot: %q", got)
 	}
 }
 
