@@ -98,17 +98,36 @@ func (m *model) layoutPanes() {
 	m.refreshDetail()
 }
 
-// refreshDetail rebuilds the detail viewport content from the currently selected
-// tree node and scrolls it back to the top. Safe to call any time: with no item
-// selected (folder row or empty tree) it renders an empty-state hint.
-// For component nodes (skill/agent/command) it appends a file-content preview
-// below the metadata fields via previewSection. File I/O is done here, not in
-// detailContent, so View() stays pure and existing tests remain valid.
+// refreshDetail rebuilds the detail viewport content from the currently active
+// tab's selection and scrolls back to the top. Dispatches on currentView:
+//   - viewInventory: tree node → detailContent + optional file preview.
+//   - section tabs (Conflicts/Orphans): section list selected item → item.detail.
+//
+// Safe to call any time; no-ops gracefully on nil/empty state.
 func (m *model) refreshDetail() {
 	innerW := m.detail.Width
 	if innerW < 1 {
 		innerW = defaultWidth
 	}
+
+	if isSectionView(m.currentView) {
+		st := m.sections[m.currentView]
+		if st == nil {
+			m.detail.SetContent(detailEmptyStyle.Render("select an item on the left"))
+			m.detail.GotoTop()
+			return
+		}
+		item, ok := st.list.selectedItem()
+		if ok {
+			m.detail.SetContent(item.detail)
+		} else {
+			m.detail.SetContent(detailEmptyStyle.Render("select an item on the left"))
+		}
+		m.detail.GotoTop()
+		return
+	}
+
+	// viewInventory (and any other non-section tab): use the tree.
 	node, ok := m.tree.selectedNode()
 	content := detailContent(node, ok, innerW)
 	if ok && node.comp != nil {
