@@ -6,10 +6,12 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// mascotMosaic is the scattered pastel palette for the cat's body cells — the
-// vibrant "炫彩" look; renderMascot hashes each body cell's (row, col) into it.
+// mascotMosaic is the cool, calm multi-color palette for the cat's body cells:
+// teal/cyan/sky/indigo/violet/green only — deliberately NO pinks or near-white,
+// so the white eyes, hot-pink mouth, and warm-rust nose stay easy to read
+// against it. renderMascot hashes each body cell's (row, col) into it.
 var mascotMosaic = []string{
-	"#5EEAD4", "#F0ABFC", "#A78BFA", "#67E8F9", "#86EFAC", "#FDA4AF", "#93C5FD", "#F9A8D4",
+	"#2DD4BF", "#22D3EE", "#38BDF8", "#818CF8", "#A78BFA", "#34D399",
 }
 
 // mascotCellColor maps a mascot grid cell KEY to its color: white eye (w), dark
@@ -18,43 +20,41 @@ var mascotMosaic = []string{
 func mascotCellColor(key rune, row, col int) lipgloss.Color {
 	switch key {
 	case 'w':
-		return lipgloss.Color("#F8FAFC") // eye white
+		return lipgloss.Color("#FFFFFF") // eye white (max contrast)
 	case 'k':
-		return lipgloss.Color("#1F2937") // pupil / closed eye
+		return lipgloss.Color("#0F172A") // pupil / closed eye (near-black)
 	case 'n':
-		return lipgloss.Color("#7C3F1D") // brown nose
+		return lipgloss.Color("#C2410C") // warm-rust nose
 	case 'm':
-		return lipgloss.Color("#F472B6") // pink mouth
+		return lipgloss.Color("#EC4899") // hot-pink mouth
 	default: // body cell
 		return lipgloss.Color(mascotMosaic[(row*7+col*13)%len(mascotMosaic)])
 	}
 }
 
-// splashMascot is the corner pet's "eyes open" frame: a compact 6x9 SOLID-BLOCK
-// CAT (pointy ears, white eyes (w) + dark pupils (k), a brown nose (n), a pink
-// mouth (m), four legs, and a vibrant mosaic body) for the dashboard's top-right.
+// splashMascot is the corner pet's "eyes open" frame: a compact 5x7 SOLID-BLOCK
+// CAT (ears, white eyes (w) + dark pupils (k), a warm-rust nose (n), a hot-pink
+// mouth (m), four legs, and a cool mosaic body) for the dashboard's top-right.
 // Each cell is a color KEY drawn as █ by renderMascot via mascotCellColor; '.'
 // is transparent. Only shown when unicodeEnabled(). The header-height
 // reservation (mascotExtraRows) is derived from len(splashMascot).
 var splashMascot = []string{
-	`bb.....bb`,
-	`bbbbbbbbb`,
-	`bwkbbbkwb`,
-	`bbbbnbbbb`,
-	`bbbmmmbbb`,
-	`.b.b.b.b.`,
+	`bb...bb`,
+	`bwkbkwb`,
+	`bbbnbbb`,
+	`bbmmmbb`,
+	`b.b.b.b`,
 }
 
 // splashMascotBlink is the "eyes closed" frame: identical to splashMascot except
 // the eye whites (w) go dark (k), so briefly swapping to it reads as a blink.
 // Same dimensions as splashMascot, so the layout never shifts mid-blink.
 var splashMascotBlink = []string{
-	`bb.....bb`,
-	`bbbbbbbbb`,
-	`bkkbbbkkb`,
-	`bbbbnbbbb`,
-	`bbbmmmbbb`,
-	`.b.b.b.b.`,
+	`bb...bb`,
+	`bkkbkkb`,
+	`bbbnbbb`,
+	`bbmmmbb`,
+	`b.b.b.b`,
 }
 
 // splashBanner is the ASCII-art block for "warden" (ANSI Shadow font), 6 rows
