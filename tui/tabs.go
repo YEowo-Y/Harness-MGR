@@ -76,6 +76,9 @@ func conflictDetail(c ConflictCluster, width int) string {
 	b.WriteString(detailSection("Classification", fg, width))
 	b.WriteString(detailField("Kind", c.Kind, width))
 	b.WriteString(detailField("Confidence", c.Confidence, width))
+	if s := strings.TrimSpace(c.Severity); s != "" {
+		b.WriteString(detailField("Severity", s, width))
+	}
 
 	b.WriteString("\n")
 	b.WriteString(detailSection("Resolution", fg, width))
@@ -84,6 +87,9 @@ func conflictDetail(c ConflictCluster, width int) string {
 		winnerDesc += " (" + src + ")"
 	}
 	b.WriteString(detailField("Likely winner", winnerDesc, width))
+	if p := strings.TrimSpace(c.LikelyWinner.Path); p != "" {
+		b.WriteString(detailField("Winner path", p, width))
+	}
 
 	names := make([]string, 0, len(c.PossibleWinners))
 	for _, pw := range c.PossibleWinners {
@@ -101,7 +107,7 @@ func conflictDetail(c ConflictCluster, width int) string {
 // ── Orphans ─────────────────────────────────────────────────────────────────
 
 // orphanItems converts an OrphansResult into sectionItems for the Orphans list.
-// One item per orphan; hard orphans are red, soft orphans are amber (colorCommand),
+// One item per orphan; hard orphans are orange, soft orphans are amber (colorCommand),
 // anything else falls back to labelGray.
 func orphanItems(r OrphansResult) []sectionItem {
 	items := make([]sectionItem, 0, len(r.Orphans))
@@ -120,7 +126,7 @@ func orphanItems(r OrphansResult) []sectionItem {
 func orphanColor(category string) lipgloss.Color {
 	switch strings.ToLower(strings.TrimSpace(category)) {
 	case "hard":
-		return colorRed
+		return colorOrange
 	case "soft":
 		return colorCommand // amber
 	default:
@@ -333,6 +339,9 @@ func hooksDetail(event string, entries []HookEntry, width int) string {
 			b.WriteString(detailField("Matcher", entry.Matcher, width))
 		}
 		for _, cmd := range entry.Hooks {
+			if t := strings.TrimSpace(cmd.Type); t != "" {
+				b.WriteString(detailField("Type", t, width))
+			}
 			b.WriteString(detailField("Command", cmd.Command, width))
 		}
 	}
