@@ -154,7 +154,9 @@ func TestSplashMascotLines(t *testing.T) {
 
 // TestSplashViewNoUnicodeFallback verifies that on a no-color/no-Unicode terminal
 // (unicodeEnabled() == false, as in the test runner) splashView still renders
-// without panic and contains the wordmark fallback but NOT the mascot glyph.
+// without panic and contains the wordmark fallback but NOT the mascot glyph. The
+// mascot now lives in the dashboard's top-right corner, not on the splash, so its
+// glyph must never appear in the splash output regardless of Unicode support.
 func TestSplashViewNoUnicodeFallback(t *testing.T) {
 	if unicodeEnabled() {
 		t.Skip("mascot IS shown in this environment — skip no-unicode fallback test")
@@ -170,19 +172,6 @@ func TestSplashViewNoUnicodeFallback(t *testing.T) {
 	// Mascot glyph must NOT appear (it's gated on unicodeEnabled).
 	if strings.Contains(got, "◠") {
 		t.Fatal("splashView no-unicode: mascot glyph '◠' should not appear")
-	}
-}
-
-// TestSplashMascotShownWhenUnicode verifies that when unicodeEnabled() is true
-// the mascot block is included in the splashView output. Skipped when the test
-// env has no color profile (the common CI / pipe case).
-func TestSplashMascotShownWhenUnicode(t *testing.T) {
-	if !unicodeEnabled() {
-		t.Skip("unicodeEnabled() is false in this environment — mascot not rendered")
-	}
-	got := splashView(80, 24)
-	if !strings.Contains(got, "◠") {
-		t.Fatalf("splashView unicode: expected mascot glyph '◠' in output\ngot: %q", got)
 	}
 }
 
