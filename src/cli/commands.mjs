@@ -64,11 +64,14 @@ import { checkBoundary } from '../selftest/boundary.mjs';
  *   `args.type`   (optional 'skill'|'agent'|'command'|'plugin'|'mcp') narrows the
  *                 result to that kind's list instead of the count summary.
  *   `args.detail` (optional boolean) when truthy AND no `--type` narrowing is in
- *                 effect, ADDS a `components` array to the count summary — every
- *                 discovered skill/agent/command trimmed to the UI fields
- *                 `{ name, kind, source, path }`. When absent the result is the
- *                 counts-only summary, byte-for-byte as before (no `components`
- *                 key) so existing callers and the lean path are unchanged.
+ *                 effect, ADDS FOUR object arrays to the count summary so a TUI can
+ *                 build an all-object tree + detail pane: `components` (each
+ *                 skill/agent/command trimmed to `{ name, kind, source, path,
+ *                 description }`), `plugins`, `marketplaces`, and `mcpServers` (each
+ *                 a record trimmed to its UI fields — see the trim helpers below).
+ *                 When absent the result is the counts-only summary, byte-for-byte
+ *                 as before (none of these four keys) so existing callers and the
+ *                 lean path are unchanged.
  * @type {CommandHandler}
  */
 export function inventoryCommand(ctx) {
@@ -90,22 +93,64 @@ export function inventoryCommand(ctx) {
     topDirs: s.topDirs.known.filter((d) => d.present).map((d) => d.name),
     unknownTopDirs: s.topDirs.unknown,
   };
-  if (ctx.args && ctx.args.detail) result.components = s.components.map(trimComponent);
+  if (ctx.args && ctx.args.detail) {
+    result.components = s.components.map(trimComponent);
+    result.plugins = s.plugins.map(trimPlugin);
+    result.marketplaces = s.marketplaces.map(trimMarketplace);
+    result.mcpServers = s.mcpServers.map(trimMcpServer);
+  }
   return { result, diagnostics: s.diagnostics.slice() };
 }
 
 /**
  * Trim a discovered ComponentRecord down to the fields a browsing UI needs:
  * the loader identity (`name`), the `kind`, the provenance `source` (already a
- * minimal `{tier, plugin?, marketplace?, version?}` map), and the absolute file
- * `path`. Drops the raw `frontmatter` blob so `--detail` output stays lean.
- * Pure and total — a malformed record degrades to undefined fields, never throws.
+ * minimal `{tier, plugin?, marketplace?, version?}` map), the absolute file
+ * `path`, and the human-readable `description` lifted from the frontmatter (the
+ * "what this does" string; '' when absent or non-string). Drops the rest of the
+ * raw `frontmatter` blob so `--detail` output stays lean. Pure and total — a
+ * malformed record degrades to undefined fields + an empty description, never throws.
  * @param {ComponentRecord} c
- * @returns {{name: unknown, kind: unknown, source: unknown, path: unknown}}
+ * @returns {{name: unknown, kind: unknown, source: unknown, path: unknown, description: string}}
  */
 function trimComponent(c) {
   const r = c || {};
-  return { name: r.name, kind: r.kind, source: r.source, path: r.path };
+  const fm = r.frontmatter;
+  const description = fm && typeof fm.description === 'string' ? fm.description : '';
+  return { name: r.name, kind: r.kind, source: r.source, path: r.path, description };
+}
+
+/**
+ * Trim a PluginRecord to the UI fields a tree/detail pane needs. Pure and total —
+ * a malformed record degrades to undefined fields, never throws.
+ * @param {import('../discovery/plugins.mjs').PluginRecord} p
+ * @returns {{name: unknown, key: unknown, marketplace: unknown, version: unknown, enabled: unknown, cachePresent: unknown}}
+ */
+function trimPlugin(p) {
+  const r = p || {};
+  return { name: r.name, key: r.key, marketplace: r.marketplace, version: r.version, enabled: r.enabled, cachePresent: r.cachePresent };
+}
+
+/**
+ * Trim a MarketplaceRecord to the UI fields. Pure and total — never throws.
+ * @param {import('../discovery/marketplaces.mjs').MarketplaceRecord} m
+ * @returns {{name: unknown, sourceRepo: unknown, onDisk: unknown, installLocation: unknown}}
+ */
+function trimMarketplace(m) {
+  const r = m || {};
+  return { name: r.name, sourceRepo: r.sourceRepo, onDisk: r.onDisk, installLocation: r.installLocation };
+}
+
+/**
+ * Trim an McpServerRecord to the UI fields. SECRET-SAFE: copies ONLY name,
+ * transport, scope, command, and args — never `envKeys`/`url` and never any env
+ * VALUE (the record already holds no secret values). Pure and total — never throws.
+ * @param {import('../discovery/mcp.mjs').McpServerRecord} m
+ * @returns {{name: unknown, transport: unknown, scope: unknown, command: unknown, args: unknown}}
+ */
+function trimMcpServer(m) {
+  const r = m || {};
+  return { name: r.name, transport: r.transport, scope: r.scope, command: r.command, args: r.args };
 }
 
 /**
