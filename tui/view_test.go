@@ -216,28 +216,30 @@ func TestRenderMascotLineCount(t *testing.T) {
 	}
 }
 
-// TestRenderMascotBlinkDiffers asserts the blink (eyes-closed) frame renders
-// differently from the open frame but has identical dimensions — same row count
-// AND same per-row display width — so the blink changes only the eyes and never
-// shifts the header layout.
+// TestRenderMascotBlinkDiffers asserts the blink (eyes-closed) frame differs from
+// the open frame but has identical dimensions (same row count AND per-row width),
+// so the blink changes only the eyes and never shifts the header layout. The
+// blink is a per-cell COLOR change (white eye → dark), so it differs in the frame
+// DATA even though the no-TTY test render strips color and makes the rendered
+// █-grids compare equal — hence we assert on the frames, plus equal render lines.
 func TestRenderMascotBlinkDiffers(t *testing.T) {
-	open := renderMascot(false)
-	closed := renderMascot(true)
-	if open == closed {
-		t.Fatal("blink frame should differ from the eyes-open frame")
-	}
-	if a, b := strings.Count(open, "\n"), strings.Count(closed, "\n"); a != b {
-		t.Fatalf("open/closed frames differ in line count: %d vs %d", a, b)
-	}
-	// Equal raw-frame dimensions guard against a future glyph edit that would
-	// jitter the header mid-blink (e.g. swapping in a wide/CJK rune).
 	if len(splashMascot) != len(splashMascotBlink) {
 		t.Fatalf("frames differ in row count: %d vs %d", len(splashMascot), len(splashMascotBlink))
 	}
+	differs := false
 	for i := range splashMascot {
+		if splashMascot[i] != splashMascotBlink[i] {
+			differs = true
+		}
 		if a, b := lipgloss.Width(splashMascot[i]), lipgloss.Width(splashMascotBlink[i]); a != b {
 			t.Fatalf("frame row %d width differs: open=%d closed=%d (would jitter mid-blink)", i, a, b)
 		}
+	}
+	if !differs {
+		t.Fatal("blink frame should differ from the eyes-open frame (the eye row)")
+	}
+	if a, b := strings.Count(renderMascot(false), "\n"), strings.Count(renderMascot(true), "\n"); a != b {
+		t.Fatalf("open/closed render line counts differ: %d vs %d", a, b)
 	}
 }
 
