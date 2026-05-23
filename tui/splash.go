@@ -10,14 +10,14 @@ import (
 // from the teal→violet wordmark gradient.
 var mascotColor = lipgloss.Color("#F59E0B")
 
-// splashMascot is the small ASCII companion rendered above the wordmark.
-// Uses Unicode box-drawing and face glyphs; only shown when unicodeEnabled().
+// splashMascot is the small sparkle sprite rendered above the wordmark.
+// Uses Unicode fullwidth/box-drawing glyphs; only shown when unicodeEnabled().
+// Each line is individually centered to the sprite's own max width so the
+// asymmetric arm widths still look symmetric.
 var splashMascot = []string{
-	`     ·  ✦  ·     `,
-	`    ╭───────╮    `,
-	`    │ ◕   ◕ │    `,
-	`    │   ◡   │    `,
-	`    ╰───────╯    `,
+	` ＼ ✦ ／`,
+	`( ◠ ‿ ◠ )`,
+	` ╰─ ◡ ─╯`,
 }
 
 // splashBanner is the ASCII-art block for "claude-mgr", 7 rows tall, ≤64 columns.
@@ -39,7 +39,7 @@ var splashStops = []string{"#2DD4BF", "#22D3EE", "#3B82F6", "#A855F7"}
 const splashTagline = "Claude Code configuration governance · read-only"
 
 // splashHint is the dim instruction line rendered below the tagline.
-const splashHint = "loading…  ·  press any key to skip"
+const splashHint = "▸ press any key or click to enter"
 
 // splashView renders the startup splash screen centered in the given terminal
 // dimensions. Each banner line is gradient-colored via gradientStops. When the
@@ -81,9 +81,10 @@ func splashView(width, height int) string {
 		// Show mascot only when the terminal is wide enough for it.
 		if mascotWidth > 0 && mascotWidth <= width {
 			mStyle := lipgloss.NewStyle().Foreground(mascotColor)
+			centerStyle := lipgloss.NewStyle().Width(mascotWidth).Align(lipgloss.Center)
 			mLines := make([]string, len(splashMascot))
 			for i, line := range splashMascot {
-				mLines[i] = mStyle.Render(line)
+				mLines[i] = mStyle.Render(centerStyle.Render(line))
 			}
 			mascotBlock = strings.Join(mLines, "\n")
 		}
