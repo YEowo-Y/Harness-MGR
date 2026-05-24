@@ -52,6 +52,7 @@ var translations = map[string][2]string{
 	"status.move":    {"move", "移动"},
 	"status.focus":   {"focus", "切换焦点"},
 	"status.section": {"section", "切换标签"},
+	"status.filter":  {"filter", "过滤"},
 	"status.help":    {"help", "帮助"},
 	"status.quit":    {"quit", "退出"},
 
@@ -81,6 +82,7 @@ var translations = map[string][2]string{
 	"empty.selftest":         {"no checks found", "未发现检查项"},
 	"empty.items":            {"no items found", "未发现条目"},
 	"empty.objects":          {"no objects found", "未发现对象"},
+	"empty.noMatch":          {"no matches", "无匹配项"},
 
 	// Transient loading / error / uninitialized states.
 	"loading.inventory":     {"loading inventory…", "正在加载清单…"},
@@ -97,6 +99,13 @@ var translations = map[string][2]string{
 	"help.tabs":     {"prev / next tab", "上一个 / 下一个标签页"},
 	"help.help":     {"toggle this help", "开关此帮助"},
 	"help.dismiss":  {"? / Esc / q to close", "? / Esc / q 关闭"},
+	"help.filter":   {"filter items", "过滤条目"},
+
+	// Filter bar (/).
+	"filter.label": {"filter:", "过滤:"},
+	"filter.apply": {"apply", "应用"},
+	"filter.clear": {"clear", "清除"},
+	"filter.edit":  {"edit", "编辑"},
 
 	// Section summary bars (format strings — counts are filled in by tf).
 	"summary.conflicts":    {"%d conflicts", "%d 个冲突"},
