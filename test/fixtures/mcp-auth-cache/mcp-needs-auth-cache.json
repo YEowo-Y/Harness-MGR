@@ -1,0 +1,8 @@
+{
+  "fresh-server": { "timestamp": 1799136000000 },
+  "warn-server": { "timestamp": 1796112000000 },
+  "error-server": { "timestamp": 1789632000000 },
+  "no-timestamp": { "foo": 1 },
+  "not-an-object": 42,
+  "__proto__": { "timestamp": 123 }
+}
