@@ -236,6 +236,40 @@ func countMatches(nodes []treeNode, query string) int {
 	return n
 }
 
+// matchHighlight styles the matched substring of a filtered row: a yellow search
+// highlight (dark text on yellow, bold) that stands out against every per-type
+// color and against the bright cursor row.
+var matchHighlight = lipgloss.NewStyle().
+	Background(lipgloss.Color("#FACC15")).
+	Foreground(lipgloss.Color("#1F2937")).
+	Bold(true)
+
+// highlightMatch renders text with the first case-insensitive occurrence of query
+// wrapped in matchHighlight and the rest in base. With an empty query, no match,
+// or a non-length-preserving case fold (rare, non-ASCII), the whole text renders
+// in base — so callers can route every row through it unconditionally. text is
+// assumed already truncated to the row width.
+func highlightMatch(text, query string, base lipgloss.Style) string {
+	if query == "" {
+		return base.Render(text)
+	}
+	lt, lq := strings.ToLower(text), strings.ToLower(query)
+	// Only slice by byte index when BOTH operands fold without changing byte
+	// length (true for ASCII); otherwise the index math could split a rune.
+	if len(lt) != len(text) || len(lq) != len(query) {
+		return base.Render(text)
+	}
+	idx := strings.Index(lt, lq)
+	if idx < 0 {
+		return base.Render(text)
+	}
+	end := idx + len(lq)
+	if end > len(text) {
+		return base.Render(text)
+	}
+	return base.Render(text[:idx]) + matchHighlight.Render(text[idx:end]) + base.Render(text[end:])
+}
+
 // ── Cursor navigation ────────────────────────────────────────────────────────
 
 // moveUp moves the cursor toward the top by n rows, clamped at 0.
@@ -429,10 +463,10 @@ func (t *treeModel) renderItemRow(row visRow, meta kindMeta, selected bool, widt
 		bar := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg).Render(glyph("▌", ">")) + "   "
 		txt := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg)
 		avail := width - lipgloss.Width(bar)
-		return bar + txt.Render(truncate(name, avail))
+		return bar + highlightMatch(truncate(name, avail), t.filter, txt)
 	}
 	indent := "    " // 4 spaces
 	txt := lipgloss.NewStyle().Foreground(meta.itemFg)
 	avail := width - len(indent)
-	return indent + txt.Render(truncate(name, avail))
+	return indent + highlightMatch(truncate(name, avail), t.filter, txt)
 }
