@@ -1,0 +1,8 @@
+{
+  "model": "sonnet",
+  "model": "opus",
+  "statusLine": {
+    "type": "command",
+    "command": "echo hi"
+  }
+}
