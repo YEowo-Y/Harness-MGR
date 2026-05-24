@@ -214,7 +214,12 @@ func dashboardView(m model) string {
 
 	tabBar := tabBarView(m.currentView, m.width)
 	content := contentView(m, cardW)
+	// The / filter bar replaces the status bar while a filter is being typed or
+	// is applied; both are a single chrome line so the height math is unchanged.
 	statusBar := statusBarView(m.width)
+	if m.filterMode || m.filterQuery != "" {
+		statusBar = filterBarView(m)
+	}
 
 	content = padContent(tabBar, content, statusBar, m.height)
 
@@ -505,6 +510,8 @@ func statusBarView(termWidth int) string {
 		sep +
 		keyStyle.Render("1-6") + dim.Render(" "+tr("status.section")) +
 		sep +
+		keyStyle.Render("/") + dim.Render(" "+tr("status.filter")) +
+		sep +
 		keyStyle.Render("?") + dim.Render(" "+tr("status.help")) +
 		sep +
 		keyStyle.Render("q") + dim.Render(" "+tr("status.quit"))
@@ -517,6 +524,37 @@ func statusBarView(termWidth int) string {
 		style = style.Width(termWidth)
 	}
 	return style.Render(hint)
+}
+
+// filterBarView renders the / filter bar that replaces the status bar while a
+// filter is being typed or applied: the query (with a cursor while typing) plus
+// the relevant key hints, all via tr(). One line, full width, on the chrome
+// surface; clipped to one row so a long query can never inflate the height.
+func filterBarView(m model) string {
+	dim := lipgloss.NewStyle().Foreground(statusDim)
+	sep := lipgloss.NewStyle().Foreground(tabDim).Render(" · ")
+
+	cursor := ""
+	if m.filterMode {
+		cursor = lipgloss.NewStyle().Foreground(accent).Render("▌")
+	}
+	left := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(tr("filter.label")) +
+		" " + lipgloss.NewStyle().Foreground(labelGray).Render(m.filterQuery) + cursor
+
+	var hint string
+	if m.filterMode {
+		hint = keyStyle.Render("Enter") + dim.Render(" "+tr("filter.apply")) + sep +
+			keyStyle.Render("Esc") + dim.Render(" "+tr("filter.clear"))
+	} else {
+		hint = keyStyle.Render("/") + dim.Render(" "+tr("filter.edit")) + sep +
+			keyStyle.Render("Esc") + dim.Render(" "+tr("filter.clear"))
+	}
+
+	style := lipgloss.NewStyle().Background(chromeBg).Padding(0, 1).MaxHeight(1)
+	if m.width > 0 {
+		style = style.Width(m.width)
+	}
+	return style.Render(left + sep + hint)
 }
 
 // ── Inventory split-pane view (Inventory tab) ───────────────────────────────────
@@ -575,6 +613,9 @@ func treePaneBody(m model) string {
 			Render(glyph("✗", "[x]")+" "+tr("loading.failed")) + "\n\n" +
 			configStyle.Render(truncate(m.detailErr.Error(), m.detail.Width))
 	case len(m.tree.visible) == 0:
+		if m.tree.filter != "" {
+			return detailEmptyStyle.Render(tr("empty.noMatch"))
+		}
 		return detailEmptyStyle.Render(tr("empty.objects"))
 	default:
 		return m.tree.render(m.treeInnerW, m.treeInnerH)
@@ -841,6 +882,7 @@ func helpView(width, height int) string {
 		{"Tab", tr("help.focus")},
 		{"1-6", tr("help.jump")},
 		{"[ / ]", tr("help.tabs")},
+		{"/", tr("help.filter")},
 		{"?", tr("help.help")},
 		{"q / Esc", tr("status.quit")},
 	}
