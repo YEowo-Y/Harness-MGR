@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // TestMatchesFilter covers the shared case-insensitive substring matcher.
@@ -137,6 +138,28 @@ func TestTreeFilterNoMatch(t *testing.T) {
 	tm.setFilter("zzz")
 	if got := len(tm.visible); got != 0 {
 		t.Fatalf("0-match tree filter: visible rows = %d, want 0", got)
+	}
+}
+
+// TestHighlightMatch verifies the match-highlighter preserves the full text for
+// matches at any position plus the empty/no-match edge cases (the visual styling
+// is stripped in the no-TTY test env, so we assert on the plain text).
+func TestHighlightMatch(t *testing.T) {
+	base := lipgloss.NewStyle()
+	cases := []struct{ text, query string }{
+		{"agent-eval", "eval"},       // match in the middle
+		{"eval-agent", "eval"},       // match at the start
+		{"agent-eval", "EVAL"},       // case-insensitive
+		{"agent-eval", ""},           // empty query → no highlight
+		{"agent-eval", "zzz"},        // no match
+		{"agent-eval", "agent-eval"}, // whole string
+		{"İstanbul", "stan"},         // text folds to a different byte length → guard fires
+		{"istanbul", "İ"},            // query folds to a different byte length → guard fires
+	}
+	for _, c := range cases {
+		if got := stripANSI(highlightMatch(c.text, c.query, base)); got != c.text {
+			t.Errorf("highlightMatch(%q, %q) plain = %q, want %q (text must be preserved)", c.text, c.query, got, c.text)
+		}
 	}
 }
 
