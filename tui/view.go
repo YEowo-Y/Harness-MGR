@@ -505,6 +505,8 @@ func statusBarView(termWidth int) string {
 		sep +
 		keyStyle.Render("1-6") + dim.Render(" "+tr("status.section")) +
 		sep +
+		keyStyle.Render("?") + dim.Render(" "+tr("status.help")) +
+		sep +
 		keyStyle.Render("q") + dim.Render(" "+tr("status.quit"))
 
 	style := lipgloss.NewStyle().
@@ -819,6 +821,44 @@ func placeholderView(v viewID, cardW int) string {
 
 	body := title + "\n\n\n" + centered + "\n\n"
 	return cardStyleFor(cardW).Render(body)
+}
+
+// ── Help overlay ─────────────────────────────────────────────────────────────
+
+// helpView renders the full-screen keyboard-shortcuts overlay shown while
+// model.showHelp is set (toggled with ?). It mirrors the splash's centered card
+// and routes every label through tr() so it follows the active language. Guards
+// width<1 / height<1 to never panic.
+func helpView(width, height int) string {
+	if width < 1 || height < 1 {
+		return ""
+	}
+	keyCol := lipgloss.NewStyle().Foreground(accent).Bold(true).Width(10)
+	descCol := lipgloss.NewStyle().Foreground(labelGray)
+	rows := []struct{ key, desc string }{
+		{"j / k", tr("help.move")},
+		{"Enter", tr("help.activate")},
+		{"Tab", tr("help.focus")},
+		{"1-6", tr("help.jump")},
+		{"[ / ]", tr("help.tabs")},
+		{"?", tr("help.help")},
+		{"q / Esc", tr("status.quit")},
+	}
+
+	var b strings.Builder
+	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(accent).Render(tr("help.title")))
+	b.WriteString("\n\n")
+	for _, r := range rows {
+		b.WriteString(keyCol.Render(r.key) + descCol.Render(r.desc) + "\n")
+	}
+	b.WriteString("\n" + lipgloss.NewStyle().Foreground(configGray).Render(tr("help.dismiss")))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accent).
+		Padding(1, 3).
+		Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
 }
 
 // ── Card chrome helper ──────────────────────────────────────────────────────────
