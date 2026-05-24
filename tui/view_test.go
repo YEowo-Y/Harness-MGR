@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -316,6 +317,105 @@ func TestSplitDimsReservesForMascotWhenAbsent(t *testing.T) {
 	_, _, boxH := m.splitDims()
 	if want := 30 - chromeRows; boxH != want {
 		t.Fatalf("splitDims boxH = %d, want %d (height - chromeRows, mascot absent in test env)", boxH, want)
+	}
+}
+
+// TestPlural asserts the count-aware noun pluralization used by the health
+// verdict: only a count of exactly 1 keeps the singular form.
+func TestPlural(t *testing.T) {
+	cases := []struct {
+		n    int
+		word string
+		want string
+	}{
+		{0, "orphan", "0 orphans"},
+		{1, "orphan", "1 orphan"},
+		{2, "orphan", "2 orphans"},
+		{1, "conflict", "1 conflict"},
+		{3, "diagnostic", "3 diagnostics"},
+	}
+	for _, tc := range cases {
+		if got := plural(tc.n, tc.word); got != tc.want {
+			t.Errorf("plural(%d, %q) = %q, want %q", tc.n, tc.word, got, tc.want)
+		}
+	}
+}
+
+// healthModel builds a model with conflicts/orphans section state and inventory
+// diagnostics for healthVerdict/headerLeftColumn tests. loading marks both
+// sections as still fetching.
+func healthModel(conflicts, orphans, diags int, loading bool) model {
+	return model{
+		inv: Inventory{Diagnostics: make([]Diagnostic, diags)},
+		sections: map[viewID]*sectionState{
+			viewConflicts: {loading: loading, list: newSectionModel(make([]sectionItem, conflicts))},
+			viewOrphans:   {loading: loading, list: newSectionModel(make([]sectionItem, orphans))},
+		},
+	}
+}
+
+// TestHealthVerdictClean asserts a fully healthy harness (zero conflicts, orphans,
+// and diagnostics) yields the "clean" tally listing all three zero counts plus the
+// success marker ("OK" is glyph's no-TTY fallback for ✓).
+func TestHealthVerdictClean(t *testing.T) {
+	v := stripANSI(healthModel(0, 0, 0, false).healthVerdict())
+	for _, want := range []string{"0 conflicts", "0 orphans", "0 diagnostics", "OK"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("clean verdict %q missing %q", v, want)
+		}
+	}
+}
+
+// TestHealthVerdictIssues asserts a harness with problems lists each signal with
+// its count and the warning marker, pluralizing by count (1 orphan, not orphans).
+func TestHealthVerdictIssues(t *testing.T) {
+	v := stripANSI(healthModel(2, 1, 1, false).healthVerdict())
+	for _, want := range []string{"2 conflicts", "1 orphan", "1 diagnostic", "!"} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("issue verdict %q missing %q", v, want)
+		}
+	}
+	if strings.Contains(v, "1 orphans") {
+		t.Fatalf("verdict should use singular '1 orphan' for a count of 1, got %q", v)
+	}
+}
+
+// TestHealthVerdictInventoryError asserts that when the inventory fetch failed
+// (m.err set, so m.inv is zero-valued) the verdict reports "unavailable" rather
+// than a false-clean "0 diagnostics" tally.
+func TestHealthVerdictInventoryError(t *testing.T) {
+	m := healthModel(0, 0, 0, false)
+	m.err = errors.New("inventory fetch failed")
+	v := stripANSI(m.healthVerdict())
+	if strings.Contains(v, "0 diagnostics") {
+		t.Fatalf("verdict must not report a false count when inventory fetch failed, got %q", v)
+	}
+	if !strings.Contains(v, "unavailable") {
+		t.Fatalf("verdict should report checks unavailable on inventory error, got %q", v)
+	}
+}
+
+// TestHealthVerdictLoading asserts that while the conflicts/orphans fetches are
+// still in flight the verdict shows a "checking" placeholder, never a misleading
+// all-zero "clean".
+func TestHealthVerdictLoading(t *testing.T) {
+	v := stripANSI(healthModel(0, 0, 0, true).healthVerdict())
+	if !strings.Contains(v, "checking") {
+		t.Fatalf("loading verdict %q should contain 'checking'", v)
+	}
+}
+
+// TestHeaderLeftColumnRowCount guards the layout invariant: the header's left
+// column is ALWAYS exactly len(splashMascot) rows tall, so the rendered header
+// height matches the splitDims reservation (chromeRows + mascotExtraRows) and the
+// health lockup can never overflow the frame (the bug the old stats panel had).
+func TestHeaderLeftColumnRowCount(t *testing.T) {
+	m := healthModel(0, 0, 0, false)
+	m.width = 120
+	build := func(w int) string { return countsBarView(Counts{}, w) }
+	got := m.headerLeftColumn(build, 100)
+	if n, want := strings.Count(got, "\n"), len(splashMascot)-1; n != want {
+		t.Fatalf("headerLeftColumn lines = %d, want %d (== mascot height)", n+1, want+1)
 	}
 }
 
