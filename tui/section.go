@@ -30,12 +30,37 @@ type sectionModel struct {
 	items  []sectionItem
 	cursor int
 	offset int
+	filter string // case-insensitive title filter; "" = no filter
 }
 
 // newSectionModel builds a sectionModel from a caller-supplied item slice.
 // The cursor starts at 0; the items slice is used as-is (no copy).
 func newSectionModel(items []sectionItem) sectionModel {
 	return sectionModel{items: items}
+}
+
+// filtered returns the items whose title matches the current filter (all items
+// when the filter is empty). The cursor/offset index into THIS slice, so every
+// navigation and render method operates over it.
+func (m sectionModel) filtered() []sectionItem {
+	if m.filter == "" {
+		return m.items
+	}
+	out := make([]sectionItem, 0, len(m.items))
+	for _, it := range m.items {
+		if matchesFilter(it.title, m.filter) {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// setFilter applies a case-insensitive title filter and resets the cursor/offset
+// to the top of the (re)filtered list.
+func (m *sectionModel) setFilter(q string) {
+	m.filter = q
+	m.cursor = 0
+	m.offset = 0
 }
 
 // ── Cursor navigation ─────────────────────────────────────────────────────────
@@ -50,7 +75,7 @@ func (m *sectionModel) moveUp(n int) {
 
 // moveDown moves the cursor toward the bottom by n rows, clamped at the last item.
 func (m *sectionModel) moveDown(n int) {
-	last := len(m.items) - 1
+	last := len(m.filtered()) - 1
 	if last < 0 {
 		m.cursor = 0
 		return
@@ -66,7 +91,7 @@ func (m *sectionModel) gotoTop() { m.cursor = 0 }
 
 // gotoBottom moves the cursor to the last item; on an empty list cursor stays 0.
 func (m *sectionModel) gotoBottom() {
-	last := len(m.items) - 1
+	last := len(m.filtered()) - 1
 	if last < 0 {
 		m.cursor = 0
 		return
@@ -77,17 +102,18 @@ func (m *sectionModel) gotoBottom() {
 // selectedItem returns the item under the cursor, or ok=false when the list is
 // empty. The cursor is clamped defensively so a stale cursor never panics.
 func (m sectionModel) selectedItem() (sectionItem, bool) {
-	if len(m.items) == 0 {
+	items := m.filtered()
+	if len(items) == 0 {
 		return sectionItem{}, false
 	}
 	idx := m.cursor
 	if idx < 0 {
 		idx = 0
 	}
-	if idx >= len(m.items) {
-		idx = len(m.items) - 1
+	if idx >= len(items) {
+		idx = len(items) - 1
 	}
-	return m.items[idx], true
+	return items[idx], true
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
@@ -96,21 +122,22 @@ func (m sectionModel) selectedItem() (sectionItem, bool) {
 // scrolled so the cursor row stays visible. Returns "" when width<1 or height<1,
 // or when the item list is empty.
 func (m *sectionModel) render(width, height int) string {
-	if width < 1 || height < 1 || len(m.items) == 0 {
+	items := m.filtered()
+	if width < 1 || height < 1 || len(items) == 0 {
 		return ""
 	}
 	m.ensureVisible(height)
 
 	var b strings.Builder
 	end := m.offset + height
-	if end > len(m.items) {
-		end = len(m.items)
+	if end > len(items) {
+		end = len(items)
 	}
 	for i := m.offset; i < end; i++ {
 		if i > m.offset {
 			b.WriteString("\n")
 		}
-		b.WriteString(m.renderRow(i, width))
+		b.WriteString(m.renderRow(items, i, width))
 	}
 	return b.String()
 }
@@ -130,7 +157,7 @@ func (m *sectionModel) ensureVisible(height int) {
 	if m.offset < 0 {
 		m.offset = 0
 	}
-	maxOffset := len(m.items) - height
+	maxOffset := len(m.filtered()) - height
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
@@ -142,8 +169,11 @@ func (m *sectionModel) ensureVisible(height int) {
 // renderRow renders a single list row at index i, truncated to width.
 // Cursor row: leading accent bar (bold) in the row's color, then the title
 // brightened/bold. Non-cursor row: 2-space indent, title in the row's color.
-func (m *sectionModel) renderRow(i, width int) string {
-	item := m.items[i]
+func (m *sectionModel) renderRow(items []sectionItem, i, width int) string {
+	if i < 0 || i >= len(items) {
+		return ""
+	}
+	item := items[i]
 	selected := i == m.cursor
 
 	if selected {
