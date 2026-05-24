@@ -469,6 +469,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.lang = otherLang(m.lang)
 		case "enter", " ":
 			m.showSplash = false
+			return m, saveLangCmd(m.lang) // remember the choice for next launch
 		case "q", "esc":
 			return m, tea.Quit
 		}
@@ -773,7 +774,9 @@ func main() {
 	// Mouse capture is intentionally NOT enabled: the splash is dismissed by any
 	// key (handleKey), and leaving mouse reporting off preserves the terminal's
 	// native text selection / copy while the TUI runs.
-	p := tea.NewProgram(initialModel(cliPath), tea.WithAltScreen())
+	m := initialModel(cliPath)
+	m.lang = loadLang() // restore the language chosen on a previous launch
+	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
 		os.Exit(1)
