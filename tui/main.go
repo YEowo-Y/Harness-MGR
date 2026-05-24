@@ -137,10 +137,12 @@ const defaultHeight = 24
 type model struct {
 	inv         Inventory
 	err         error
-	loading     bool // counts fetch in flight
-	showSplash  bool // true while the startup splash is displayed
-	showHelp    bool // true while the ? keyboard-shortcuts overlay is displayed
-	mascotBlink bool // true briefly while the corner mascot blinks (eyes closed)
+	loading     bool   // counts fetch in flight
+	showSplash  bool   // true while the startup splash is displayed
+	showHelp    bool   // true while the ? keyboard-shortcuts overlay is displayed
+	filterMode  bool   // true while the user is typing a / filter
+	filterQuery string // the active / filter text, applied to the current view
+	mascotBlink bool   // true briefly while the corner mascot blinks (eyes closed)
 	cliPath     string
 	currentView viewID
 	lang        language // active UI language; defaults to langEN, chosen on the splash
@@ -480,14 +482,29 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// While typing a / filter, keys edit the query (live-filtering the current
+	// view) instead of navigating; handleFilterKey owns Enter/Esc/Backspace/runes.
+	if m.filterMode {
+		return m.handleFilterKey(msg)
+	}
 	switch msg.String() {
-	case "q", "ctrl+c", "esc":
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		// Esc clears an active filter first; with no filter it quits.
+		if m.filterQuery != "" {
+			m.filterQuery = ""
+			m.applyFilter()
+			return m, nil
+		}
 		return m, tea.Quit
 	case "]":
+		m.clearFilter()
 		m.currentView = (m.currentView + 1) % tabCount
 		m.refreshDetail()
 		return m, nil
 	case "[":
+		m.clearFilter()
 		m.currentView = (m.currentView - 1 + tabCount) % tabCount
 		m.refreshDetail()
 		return m, nil
@@ -500,10 +517,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.showHelp = true
 		return m, nil
+	case "/":
+		m.filterMode = true
+		return m, nil
 	case "enter", " ":
 		return m.activate()
 	}
 	if v, ok := digitToView(msg.String()); ok {
+		m.clearFilter()
 		m.currentView = v
 		m.refreshDetail()
 		return m, nil
@@ -541,6 +562,68 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	m.tree.toggle() // no-op on an item row; toggles + rebuilds on a folder row
 	m.refreshDetail()
 	return m, nil
+}
+
+// handleFilterKey processes a keypress while the / filter input is active: Esc
+// clears the query and exits, Enter keeps the (applied) filter and exits the
+// input, Backspace deletes the last rune, Space and typed runes append — each
+// edit re-applies the live filter to the current view. Other keys are swallowed.
+//
+// The value receiver + returned model is how mutations propagate in Bubble Tea's
+// Elm loop: applyFilter (pointer receiver) mutates THIS returned copy's tree and
+// the shared *sectionState, so both the tree and section filters survive.
+func (m model) handleFilterKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.filterQuery = ""
+		m.filterMode = false
+		m.applyFilter()
+	case tea.KeyEnter:
+		m.filterMode = false
+	case tea.KeyBackspace:
+		if r := []rune(m.filterQuery); len(r) > 0 {
+			m.filterQuery = string(r[:len(r)-1])
+			m.applyFilter()
+		}
+	case tea.KeySpace:
+		m.filterQuery += " "
+		m.applyFilter()
+	case tea.KeyRunes:
+		m.filterQuery += string(msg.Runes)
+		m.applyFilter()
+	}
+	return m, nil
+}
+
+// applyFilter pushes the current filterQuery into the active view's widget — the
+// Inventory tree or a section list — and refreshes the detail pane.
+func (m *model) applyFilter() {
+	if isSectionView(m.currentView) {
+		if st := m.sections[m.currentView]; st != nil {
+			st.list.setFilter(m.filterQuery)
+		}
+	} else if m.currentView == viewInventory {
+		m.tree.setFilter(m.filterQuery)
+	}
+	m.refreshDetail()
+}
+
+// clearFilter drops any active filter (query + input mode) and resets the current
+// view's widget filter. Called on a tab switch so a filter never carries a stale
+// query onto a different view.
+func (m *model) clearFilter() {
+	m.filterMode = false
+	if m.filterQuery == "" {
+		return
+	}
+	m.filterQuery = ""
+	if isSectionView(m.currentView) {
+		if st := m.sections[m.currentView]; st != nil {
+			st.list.setFilter("")
+		}
+	} else if m.currentView == viewInventory {
+		m.tree.setFilter("")
+	}
 }
 
 // routeToPane forwards navigation keys to whichever pane has focus. On the
