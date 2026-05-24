@@ -1,5 +1,5 @@
 /**
- * Hand-rolled JSONC parser (P2.U1) — the HAPPY-PATH tokenizer.
+ * Hand-rolled JSONC parser (P2.U1 happy-path + P2.U2 edge-case hardening).
  *
  * --- Why hand-rolled ---
  * The project constitution is ZERO runtime dependencies, so we cannot pull in a
@@ -23,10 +23,12 @@
  * matching JSON.parse. Parsed objects use `Object.create(null)` so a file-supplied
  * key like `__proto__` is ordinary data, never prototype pollution.
  *
- * --- Deliberately deferred to P2.U2 (happy-path simplifications) ---
- *   - A leading UTF-8 BOM is NOT stripped here (read-json.mjs strips it before the
- *     text reaches a parser); a BOM as the first char is treated as a syntax error.
- *   - NESTED block comments are not supported: the first `*​/` closes the comment.
+ * --- P2.U2 hardening ---
+ *   - A single leading UTF-8 BOM (U+FEFF) IS stripped at the top of parseJsonc
+ *     (P2.U2), defense-in-depth alongside read-json.mjs. A BOM elsewhere (e.g.
+ *     inside a string value) is ordinary data and is preserved as-is.
+ *   - NESTED block comments are NOT supported: the first `*​/` closes the comment,
+ *     by design (matches JSONC/JSON5 / VS Code behaviour); pinned by a test.
  *   - `\uXXXX` escapes are decoded best-effort; surrogate-pair precision and
  *     exhaustive control-character validation are out of scope.
  *
@@ -58,6 +60,7 @@ export function parseJsonc(text) {
   if (typeof text !== 'string') {
     return { value: undefined, errors: [{ message: 'input is not a string', line: 1, column: 1 }], duplicateKeys: [] };
   }
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const s = newScanner(text);
   try {
     skipTrivia(s);
