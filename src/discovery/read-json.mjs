@@ -1,23 +1,27 @@
 /**
  * Shared never-throws JSON file reader for discovery scanners (P1.U8).
  *
- * Discovery reads several Claude Code config files that are tool-generated
- * strict JSON (installed_plugins.json, known_marketplaces.json, .mcp.json,
- * settings.json). They share one read+parse path here so the never-throw
- * contract and BOM handling live in a single place, and so the Phase-2 JSONC
- * retrofit (settings.json gains comments/trailing-commas) is a one-module swap.
+ * Discovery reads several Claude Code config files. The tool-generated ones
+ * (installed_plugins.json, known_marketplaces.json, .mcp.json) are strict JSON
+ * and stay on `readJsonFile`. The user-authored settings.json may carry comments
+ * and trailing commas, so settings discovery (P2.U3) reads it via `readJsoncFile`,
+ * which parses with the hand-rolled JSONC tokenizer and additionally reports the
+ * duplicate keys JSON.parse silently collapses. Both readers share the same
+ * never-throw file I/O + ENOENT handling here, so that contract lives in one place.
  *
  * The result is a tagged record, not an exception:
  *   - missing:true   the file does not exist (ENOENT) — usually benign; the
  *                    caller decides whether "absent" warrants a diagnostic.
  *   - error:<string> the file exists but could not be read or parsed; the
  *                    caller turns this into a Diagnostic (it owns the `path`).
- *   - otherwise      value holds the parsed JSON.
+ *   - otherwise      value holds the parsed JSON (readJsoncFile also returns the
+ *                    `duplicateKeys` it found, an empty array when there are none).
  *
  * Zero npm dependencies. Node stdlib only.
  */
 
 import { readFileSync } from 'node:fs';
+import { parseJsonc } from '../lib/jsonc-parser.mjs';
 
 /**
  * @typedef {Object} JsonReadResult
@@ -46,6 +50,43 @@ export function readJsonFile(file) {
   } catch (err) {
     return { value: null, error: `invalid JSON: ${errMessage(err)}`, missing: false };
   }
+}
+
+/**
+ * @typedef {Object} JsoncReadResult
+ * @property {*} value             parsed value, or null on miss/error
+ * @property {string|null} error   reason when read/parse failed (no path — caller attaches it)
+ * @property {boolean} missing     true when the file does not exist (ENOENT)
+ * @property {{key: string, line: number, column: number}[]} duplicateKeys
+ *           keys repeated within one object (last value wins); empty on miss/error
+ */
+
+/**
+ * Read and JSONC-parse a file without ever throwing — the tolerant sibling of
+ * readJsonFile for user-authored config (comments, trailing commas) that also
+ * surfaces duplicate keys. The tokenizer strips its own leading BOM and never
+ * throws; a syntax error becomes a single `error` string carrying 1-based
+ * line:column (only the first issue, to match the one-line `error` shape). On
+ * any error/miss `value` is normalized to `null` (matching readJsonFile) — note
+ * parseJsonc itself reports failure as `value:undefined`, so check `error`/`missing`,
+ * not the value, to detect failure here.
+ * @param {string} file absolute path to a JSONC file
+ * @returns {JsoncReadResult}
+ */
+export function readJsoncFile(file) {
+  let text;
+  try {
+    text = readFileSync(file, 'utf-8');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { value: null, error: null, missing: true, duplicateKeys: [] };
+    return { value: null, error: `read failed: ${errMessage(err)}`, missing: false, duplicateKeys: [] };
+  }
+  const { value, errors, duplicateKeys } = parseJsonc(text);
+  if (errors.length > 0) {
+    const e = errors[0];
+    return { value: null, error: `invalid JSONC: ${e.message} (line ${e.line}, column ${e.column})`, missing: false, duplicateKeys: [] };
+  }
+  return { value, error: null, missing: false, duplicateKeys };
 }
 
 /**
