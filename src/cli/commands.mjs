@@ -369,6 +369,11 @@ function errorDiags(diags) {
  * A file is included as a layer only when present AND a JSON object; a present-but-
  * malformed/unreadable file contributes NO layer and a diagnostic instead. Read
  * once here so callers (config:show-effective, hooks) never re-read.
+ *
+ * NOTE: this merge path still uses the strict `readJsonFile` (JSON.parse), so a
+ * commented / trailing-comma settings.json is rejected here even though
+ * `discoverSettings` (the inventory path) now tolerates it via JSONC (P2.U3).
+ * TODO(P2): retrofit to `readJsoncFile` so the two paths converge.
  * @param {string} configDir
  * @returns {{layers: SettingsLayer[], diagnostics: Diagnostic[]}}
  */
