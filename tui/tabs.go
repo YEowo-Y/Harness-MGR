@@ -188,7 +188,12 @@ func sectionListBody(m model) string {
 		return lipgloss.NewStyle().Foreground(colorRed).
 			Render(glyph("✗", "[x]")+" "+tr("loading.failed")) + "\n\n" +
 			configStyle.Render(truncate(st.err.Error(), m.treeInnerW))
-	case len(st.list.items) == 0:
+	case len(st.list.filtered()) == 0:
+		// Filter-aware: a 0-match filter shows "no matches" (not the data-empty
+		// label), and never falls through to render() which would be blank.
+		if st.list.filter != "" {
+			return detailEmptyStyle.Render(tr("empty.noMatch"))
+		}
 		return detailEmptyStyle.Render(sectionEmptyLabel(m.currentView))
 	default:
 		return st.list.render(m.treeInnerW, m.treeInnerH)
