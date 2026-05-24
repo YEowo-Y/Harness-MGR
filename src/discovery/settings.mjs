@@ -19,8 +19,11 @@
  *                                 19, which is why "captures statusLine + hud +
  *                                 all 19 top dirs" is one cohesive unit.
  *
- * Phase 1 parses with JSON.parse (via read-json.mjs). The JSONC retrofit for
- * settings.json (comments / trailing commas) is P2.U3 — a one-module swap.
+ * settings.json is parsed with the JSONC reader (readJsoncFile, P2.U3), so a
+ * user's comments / trailing commas are tolerated and repeated keys surface as
+ * `settings-duplicate-key` warn diagnostics carrying 1-based line:column (the
+ * last value wins, matching JSON.parse). The doctor's `settings-json-valid`
+ * check (P2.U4) consumes those facts and decides how to present them.
  *
  * Zero npm dependencies. Node stdlib only.
  */
@@ -28,7 +31,7 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
-import { readJsonFile, isJsonObject } from './read-json.mjs';
+import { readJsoncFile, isJsonObject } from './read-json.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -72,7 +75,7 @@ export function discoverSettings(rootDir) {
   }
 
   const file = join(rootDir, 'settings.json');
-  const { value, error, missing } = readJsonFile(file);
+  const { value, error, missing, duplicateKeys } = readJsoncFile(file);
   if (missing) return { path: file, present: false, statusLine: null, diagnostics: bag.all() };
   if (error) {
     bag.add({ severity: 'error', code: 'settings-unreadable', message: error, path: file, phase: 'settings' });
@@ -81,6 +84,12 @@ export function discoverSettings(rootDir) {
   if (!isJsonObject(value)) {
     bag.add({ severity: 'warn', code: 'settings-malformed', message: 'settings.json is not a JSON object', path: file, phase: 'settings' });
     return { path: file, present: false, statusLine: null, diagnostics: bag.all() };
+  }
+
+  // A repeated key is valid JSONC (last value wins) but almost always a mistake,
+  // so surface each one as a fact for the doctor to judge (settings-json-valid).
+  for (const dup of duplicateKeys) {
+    bag.add({ severity: 'warn', code: 'settings-duplicate-key', message: `duplicate key "${dup.key}" at line ${dup.line}, column ${dup.column} (last value wins)`, path: file, phase: 'settings' });
   }
 
   return { path: file, present: true, statusLine: extractStatusLine(value.statusLine), diagnostics: bag.all() };
