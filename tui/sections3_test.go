@@ -501,8 +501,8 @@ func TestConfigMsgSetsListAndSummary(t *testing.T) {
 	if len(st.list.items) != 3 {
 		t.Fatalf("list items = %d, want 3", len(st.list.items))
 	}
-	if !strings.Contains(st.summary, "3 keys") {
-		t.Fatalf("summary = %q, want to contain %q", st.summary, "3 keys")
+	if !strings.Contains(st.summaryText(), "3 keys") {
+		t.Fatalf("summary = %q, want to contain %q", st.summaryText(), "3 keys")
 	}
 }
 
@@ -520,8 +520,8 @@ func TestHooksMsgSetsListAndSummary(t *testing.T) {
 	if len(st.list.items) != 2 {
 		t.Fatalf("list items = %d, want 2", len(st.list.items))
 	}
-	if !strings.Contains(st.summary, "2 events") {
-		t.Fatalf("summary = %q, want to contain %q", st.summary, "2 events")
+	if !strings.Contains(st.summaryText(), "2 events") {
+		t.Fatalf("summary = %q, want to contain %q", st.summaryText(), "2 events")
 	}
 }
 
@@ -539,8 +539,8 @@ func TestSelftestMsgSetsListAndSummary(t *testing.T) {
 	if len(st.list.items) != 3 {
 		t.Fatalf("list items = %d, want 3", len(st.list.items))
 	}
-	if !strings.Contains(st.summary, "1 failing") {
-		t.Fatalf("summary = %q, want to contain %q", st.summary, "1 failing")
+	if !strings.Contains(st.summaryText(), "1 failing") {
+		t.Fatalf("summary = %q, want to contain %q", st.summaryText(), "1 failing")
 	}
 }
 
@@ -549,8 +549,8 @@ func TestSelftestMsgSummaryAllOk(t *testing.T) {
 	m = injectSelftest(m, sampleSelftestAllOk())
 
 	st := m.sections[viewSelftest]
-	if !strings.Contains(st.summary, "all ok") {
-		t.Fatalf("all-ok summary = %q, want to contain %q", st.summary, "all ok")
+	if !strings.Contains(st.summaryText(), "all ok") {
+		t.Fatalf("all-ok summary = %q, want to contain %q", st.summaryText(), "all ok")
 	}
 }
 

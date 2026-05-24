@@ -117,7 +117,7 @@ func (m *model) refreshDetail() {
 	if isSectionView(m.currentView) {
 		st := m.sections[m.currentView]
 		if st == nil {
-			m.detail.SetContent(detailEmptyStyle.Render("select an item on the left"))
+			m.detail.SetContent(detailEmptyStyle.Render(tr("empty.selectItemLeft")))
 			m.detail.GotoTop()
 			return
 		}
@@ -125,7 +125,7 @@ func (m *model) refreshDetail() {
 		if ok {
 			m.detail.SetContent(item.detail(innerW))
 		} else {
-			m.detail.SetContent(detailEmptyStyle.Render("select an item on the left"))
+			m.detail.SetContent(detailEmptyStyle.Render(tr("empty.selectItemLeft")))
 		}
 		m.detail.GotoTop()
 		return

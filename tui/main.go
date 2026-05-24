@@ -61,13 +61,27 @@ type selftestMsg struct {
 }
 
 // sectionState holds the fetch + list state for a flat-list section tab
-// (Conflicts, Orphans). loading is true while the fetch is in flight; err is
-// set on failure; list holds the rendered items; summary is the one-line header.
+// (Conflicts, Orphans). loading is true while the fetch is in flight; err is set
+// on failure; list holds the rendered items; summaryKey + summaryArgs are the
+// translation key and fmt args for the one-line header. The header is formatted
+// at RENDER time (summaryText), never pre-formatted at fetch time — the fetches
+// resolve during the splash, before the user has picked a language, so a baked
+// string would freeze the wrong language.
 type sectionState struct {
-	loading bool
-	err     error
-	list    sectionModel
-	summary string
+	loading     bool
+	err         error
+	list        sectionModel
+	summaryKey  string
+	summaryArgs []any
+}
+
+// summaryText formats the section's one-line summary in the active UI language,
+// or "" when none has been set (still loading, errored, or no summary).
+func (st *sectionState) summaryText() string {
+	if st == nil || st.summaryKey == "" {
+		return ""
+	}
+	return tf(st.summaryKey, st.summaryArgs...)
 }
 
 // focusPane identifies which split pane currently receives j/k + arrow keys on
@@ -128,6 +142,7 @@ type model struct {
 	mascotBlink bool // true briefly while the corner mascot blinks (eyes closed)
 	cliPath     string
 	currentView viewID
+	lang        language // active UI language; defaults to langEN, chosen on the splash
 	width       int
 	height      int
 
@@ -308,7 +323,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		st.err = msg.err
 		if msg.err == nil {
 			st.list = newSectionModel(conflictItems(msg.data))
-			st.summary = fmt.Sprintf("%d conflicts", len(msg.data))
+			st.summaryKey, st.summaryArgs = "summary.conflicts", []any{len(msg.data)}
 		}
 		if m.currentView == viewConflicts {
 			m.refreshDetail()
@@ -325,7 +340,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			st.list = newSectionModel(orphanItems(msg.data))
 			s := msg.data.Summary
-			st.summary = fmt.Sprintf("%d hard · %d soft", s.Hard, s.Soft)
+			st.summaryKey, st.summaryArgs = "summary.orphans", []any{s.Hard, s.Soft}
 		}
 		if m.currentView == viewOrphans {
 			m.refreshDetail()
@@ -341,7 +356,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		st.err = msg.err
 		if msg.err == nil {
 			st.list = newSectionModel(configItems(msg.data))
-			st.summary = fmt.Sprintf("%d keys", len(msg.data.Keys))
+			st.summaryKey, st.summaryArgs = "summary.config", []any{len(msg.data.Keys)}
 		}
 		if m.currentView == viewConfig {
 			m.refreshDetail()
@@ -357,7 +372,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		st.err = msg.err
 		if msg.err == nil {
 			st.list = newSectionModel(hooksItems(msg.data))
-			st.summary = fmt.Sprintf("%d events", len(msg.data.Hooks))
+			st.summaryKey, st.summaryArgs = "summary.hooks", []any{len(msg.data.Hooks)}
 		}
 		if m.currentView == viewHooks {
 			m.refreshDetail()
@@ -381,9 +396,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if failing == 0 {
-				st.summary = fmt.Sprintf("%d checks, all ok", n)
+				st.summaryKey, st.summaryArgs = "summary.selftestOk", []any{n}
 			} else {
-				st.summary = fmt.Sprintf("%d checks, %d failing", n, failing)
+				st.summaryKey, st.summaryArgs = "summary.selftestFail", []any{n, failing}
 			}
 		}
 		if m.currentView == viewSelftest {
@@ -434,10 +449,20 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	// Dismiss the splash on any other key; swallow the key so it does not also
-	// act on the dashboard (currentView is left unchanged).
+	// While the splash is up it is a language picker; keys are swallowed here so
+	// they never also act on the dashboard (currentView is left unchanged).
 	if m.showSplash {
-		m.showSplash = false
+		// ← → (or h/l/Tab) toggle the highlighted language, Enter/Space confirms
+		// and enters the dashboard, q/Esc quits (ctrl+c is handled by the guard
+		// above). Other keys are ignored (no longer "any key to enter").
+		switch msg.String() {
+		case "left", "right", "h", "l", "tab":
+			m.lang = otherLang(m.lang)
+		case "enter", " ":
+			m.showSplash = false
+		case "q", "esc":
+			return m, tea.Quit
+		}
 		return m, nil
 	}
 	switch msg.String() {
@@ -599,6 +624,10 @@ func digitToView(s string) (viewID, bool) {
 }
 
 func (m model) View() string {
+	// Sync the package-level UI language from the model before rendering: this is
+	// the single writer of uiLang, so every render helper's t()/tf() lookup sees
+	// the active language without threading it through dozens of signatures.
+	uiLang = m.lang
 	if m.showSplash {
 		return splashView(m.width, m.height)
 	}
@@ -615,6 +644,8 @@ func main() {
 
 	cliPath := resolveCLIPath(*cliFlag)
 
+	// Headless paths (--probe/--snapshot/--splash/--icons) never run View(), so
+	// uiLang stays at its langEN default: diagnostic output is English by design.
 	if *probe {
 		os.Exit(runProbe(cliPath))
 	}

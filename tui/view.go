@@ -314,7 +314,7 @@ func (m model) headerLeftColumn(build func(width int) string, width int) string 
 	line := lipgloss.NewStyle().Padding(0, countsBarPadX).Width(width).MaxHeight(1)
 	content := []string{
 		line.Render(m.healthVerdict()),
-		line.Foreground(configGray).Render(splashTagline),
+		line.Foreground(configGray).Render(tr("splash.tagline")),
 	}
 
 	rows := make([]string, 0, total)
@@ -420,7 +420,7 @@ func countsBarView(c Counts, termWidth int) string {
 		if iconStr != "" {
 			prefix = style.Render(iconStr) + " "
 		}
-		parts = append(parts, prefix+style.Bold(true).Render(strconv.Itoa(s.n))+style.Render(" "+s.label))
+		parts = append(parts, prefix+style.Bold(true).Render(strconv.Itoa(s.n))+style.Render(" "+tr("count."+s.label)))
 	}
 	counts := strings.Join(parts, sep)
 
@@ -465,8 +465,8 @@ func padContent(tabBar, content, statusBar string, height int) string {
 // space fills the bar to the terminal width on the chrome background.
 func tabBarView(active viewID, termWidth int) string {
 	cells := make([]string, 0, len(tabLabels))
-	for i, label := range tabLabels {
-		text := fmt.Sprintf("%d %s", i+1, label)
+	for i := range tabLabels {
+		text := fmt.Sprintf("%d %s", i+1, tabLabel(viewID(i)))
 		if viewID(i) == active {
 			cells = append(cells, activeTabStyle.Render(text))
 		} else {
@@ -497,15 +497,15 @@ func tabBarView(active viewID, termWidth int) string {
 func statusBarView(termWidth int) string {
 	dim := lipgloss.NewStyle().Foreground(statusDim)
 	sep := lipgloss.NewStyle().Foreground(tabDim).Render(" · ")
-	hint := keyStyle.Render("Enter") + dim.Render(" expand") +
+	hint := keyStyle.Render("Enter") + dim.Render(" "+tr("status.expand")) +
 		sep +
-		keyStyle.Render("j/k") + dim.Render(" move") +
+		keyStyle.Render("j/k") + dim.Render(" "+tr("status.move")) +
 		sep +
-		keyStyle.Render("Tab") + dim.Render(" focus") +
+		keyStyle.Render("Tab") + dim.Render(" "+tr("status.focus")) +
 		sep +
-		keyStyle.Render("1-6") + dim.Render(" section") +
+		keyStyle.Render("1-6") + dim.Render(" "+tr("status.section")) +
 		sep +
-		keyStyle.Render("q") + dim.Render(" quit")
+		keyStyle.Render("q") + dim.Render(" "+tr("status.quit"))
 
 	style := lipgloss.NewStyle().
 		Background(chromeBg).
@@ -567,13 +567,13 @@ func inventorySplitView(m model) string {
 func treePaneBody(m model) string {
 	switch {
 	case m.detailLoading:
-		return m.spinner.View() + " " + configStyle.Render("loading inventory…")
+		return m.spinner.View() + " " + configStyle.Render(tr("loading.inventory"))
 	case m.detailErr != nil:
 		return lipgloss.NewStyle().Foreground(colorRed).
-			Render(glyph("✗", "[x]")+" load failed") + "\n\n" +
+			Render(glyph("✗", "[x]")+" "+tr("loading.failed")) + "\n\n" +
 			configStyle.Render(truncate(m.detailErr.Error(), m.detail.Width))
 	case len(m.tree.visible) == 0:
-		return detailEmptyStyle.Render("no objects found")
+		return detailEmptyStyle.Render(tr("empty.objects"))
 	default:
 		return m.tree.render(m.treeInnerW, m.treeInnerH)
 	}
@@ -589,7 +589,7 @@ func detailPaneBody(m model) string {
 	case m.detailErr != nil:
 		return detailEmptyStyle.Render("—")
 	case len(m.tree.visible) == 0:
-		return detailEmptyStyle.Render("select an object")
+		return detailEmptyStyle.Render(tr("empty.selectObject"))
 	default:
 		return m.detail.View()
 	}
@@ -601,7 +601,7 @@ func detailPaneBody(m model) string {
 // (folder row or empty tree) it returns a hint.
 func detailContent(n treeNode, ok bool, width int) string {
 	if !ok {
-		return detailEmptyStyle.Render("select an object on the left")
+		return detailEmptyStyle.Render(tr("empty.selectObjectLeft"))
 	}
 	if width < 1 {
 		width = defaultWidth
@@ -810,11 +810,11 @@ func truncate(s string, width int) string {
 // content card visually consistent with the inventory card (same border/padding).
 func placeholderView(v viewID, cardW int) string {
 	inner := innerWidth(cardW)
-	label := strings.ToLower(tabLabels[int(v)])
+	label := strings.ToLower(tabLabel(v))
 
 	title := accentBar(accent) + brandWordmark() +
 		"  " + subtitleStyle.Render(label)
-	msg := placeholderStyle.Render(label + " — coming soon")
+	msg := placeholderStyle.Render(label + " — " + tr("placeholder.comingSoon"))
 	centered := lipgloss.PlaceHorizontal(inner, lipgloss.Center, msg)
 
 	body := title + "\n\n\n" + centered + "\n\n"

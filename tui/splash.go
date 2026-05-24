@@ -71,11 +71,10 @@ var splashBanner = []string{
 // splashStops are the brand gradient stops: teal → cyan → blue → violet.
 var splashStops = []string{"#2DD4BF", "#22D3EE", "#3B82F6", "#A855F7"}
 
-// splashTagline is the dim subtitle rendered below the banner.
+// splashTagline is the dim subtitle rendered below the banner (English source;
+// the splash renders it via tr("splash.tagline")). Also reused by the dormant
+// header health lockup.
 const splashTagline = "agent harness configuration governance · read-only"
-
-// splashHint is the dim instruction line rendered below the tagline.
-const splashHint = "▸ press any key to enter"
 
 // splashView renders the startup splash screen centered in the given terminal
 // dimensions. Each banner line is gradient-colored via gradientStops. When the
@@ -109,12 +108,30 @@ func splashView(width, height int) string {
 	}
 
 	tagStyle := lipgloss.NewStyle().Foreground(configGray)
-	hintStyle := lipgloss.NewStyle().Foreground(leaderDim)
+	navStyle := lipgloss.NewStyle().Foreground(leaderDim)
 
 	block := bannerBlock +
-		"\n\n" + tagStyle.Render(splashTagline) +
-		"\n" + hintStyle.Render(splashHint)
+		"\n\n" + tagStyle.Render(tr("splash.tagline")) +
+		"\n\n" + languagePicker() +
+		"\n" + navStyle.Render(tr("splash.nav"))
 
 	// Center the whole block in the terminal.
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, block)
+}
+
+// languagePicker renders the splash's two language options — the active one
+// (uiLang, synced from the model in View) highlighted in the accent color with
+// brackets, the other dim. Labels are the languages' own endonyms (English /
+// 简体中文), shown untranslated so each is recognizable regardless of the
+// current selection.
+func languagePicker() string {
+	active := lipgloss.NewStyle().Foreground(accent).Bold(true)
+	dim := lipgloss.NewStyle().Foreground(configGray)
+	opt := func(label string, on bool) string {
+		if on {
+			return active.Render("[ " + label + " ]")
+		}
+		return dim.Render("  " + label + "  ")
+	}
+	return opt("English", uiLang == langEN) + "   " + opt("简体中文", uiLang == langZH)
 }

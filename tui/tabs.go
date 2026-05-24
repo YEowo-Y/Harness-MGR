@@ -179,14 +179,14 @@ func sectionSplitView(m model) string {
 func sectionListBody(m model) string {
 	st := m.sections[m.currentView]
 	if st == nil {
-		return detailEmptyStyle.Render("section not initialized")
+		return detailEmptyStyle.Render(tr("section.uninitialized"))
 	}
 	switch {
 	case st.loading:
-		return m.spinner.View() + " " + configStyle.Render("loading…")
+		return m.spinner.View() + " " + configStyle.Render(tr("loading.generic"))
 	case st.err != nil:
 		return lipgloss.NewStyle().Foreground(colorRed).
-			Render(glyph("✗", "[x]")+" load failed") + "\n\n" +
+			Render(glyph("✗", "[x]")+" "+tr("loading.failed")) + "\n\n" +
 			configStyle.Render(truncate(st.err.Error(), m.treeInnerW))
 	case len(st.list.items) == 0:
 		return detailEmptyStyle.Render(sectionEmptyLabel(m.currentView))
@@ -209,7 +209,7 @@ func sectionDetailBody(m model) string {
 	case st.err != nil:
 		return detailEmptyStyle.Render("—")
 	case len(st.list.items) == 0:
-		return detailEmptyStyle.Render("select an item on the left")
+		return detailEmptyStyle.Render(tr("empty.selectItemLeft"))
 	default:
 		return m.detail.View()
 	}
@@ -219,17 +219,17 @@ func sectionDetailBody(m model) string {
 func sectionEmptyLabel(v viewID) string {
 	switch v {
 	case viewConflicts:
-		return "no conflicts found"
+		return tr("empty.conflicts")
 	case viewOrphans:
-		return "no orphans found"
+		return tr("empty.orphans")
 	case viewConfig:
-		return "no config keys found"
+		return tr("empty.config")
 	case viewHooks:
-		return "no hooks found"
+		return tr("empty.hooks")
 	case viewSelftest:
-		return "no checks found"
+		return tr("empty.selftest")
 	default:
-		return "no items found"
+		return tr("empty.items")
 	}
 }
 
@@ -400,13 +400,14 @@ func selftestDetail(ch SelftestCheck, width int) string {
 // padded to the terminal width. Mirrors the countsBarView style: Padding(0,1)
 // with a fixed Width when known.
 func sectionSummaryBar(view viewID, st *sectionState, termWidth int) string {
-	label := tabLabels[int(view)]
+	label := tabLabel(view)
+	summary := st.summaryText()
 	text := label
-	if st != nil && st.summary != "" {
+	if summary != "" {
 		sep := lipgloss.NewStyle().Foreground(leaderDim).Render("   ")
 		text = lipgloss.NewStyle().Bold(true).Foreground(accent).Render(label) +
 			sep +
-			lipgloss.NewStyle().Foreground(labelGray).Render(st.summary)
+			lipgloss.NewStyle().Foreground(labelGray).Render(summary)
 	} else {
 		text = lipgloss.NewStyle().Bold(true).Foreground(accent).Render(label)
 	}

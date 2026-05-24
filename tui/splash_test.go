@@ -51,12 +51,15 @@ func TestSplashViewZeroDims(t *testing.T) {
 	}
 }
 
-// TestSplashViewContainsHint checks that splashView(80,24) includes the loading
-// hint text, confirming the full block is assembled.
-func TestSplashViewContainsHint(t *testing.T) {
+// TestSplashViewContainsPicker checks that splashView(80,24) includes both
+// language-picker options, confirming the full block (banner + tagline + picker)
+// is assembled.
+func TestSplashViewContainsPicker(t *testing.T) {
 	got := splashView(80, 24)
-	if !strings.Contains(got, splashHint) {
-		t.Fatalf("splashView(80,24) missing hint %q\ngot: %q", splashHint, got)
+	for _, want := range []string{"English", "简体中文"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("splashView(80,24) missing language option %q\ngot: %q", want, got)
+		}
 	}
 }
 
@@ -105,35 +108,58 @@ func TestDetailMsgErrorDoesNotDismissSplash(t *testing.T) {
 	}
 }
 
-// TestKeyMsgDismissesSplash verifies that any KeyMsg while showSplash=true sets
-// showSplash=false and does NOT change currentView (the key is swallowed).
-func TestKeyMsgDismissesSplash(t *testing.T) {
+// TestEnterDismissesSplash verifies that Enter while showSplash=true enters the
+// dashboard (showSplash=false) without changing currentView. The splash is now a
+// language picker, so it is confirmed with Enter — not "any key".
+func TestEnterDismissesSplash(t *testing.T) {
 	m := initialModel("x")
 	m.currentView = viewInventory
 
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	nm := next.(model)
 	if nm.showSplash {
-		t.Fatal("showSplash should be false after KeyMsg while splash is shown")
+		t.Fatal("showSplash should be false after Enter on the splash picker")
 	}
 	if nm.currentView != viewInventory {
-		t.Fatalf("currentView changed to %d after splash-dismiss key — key should be swallowed", nm.currentView)
+		t.Fatalf("currentView changed to %d after Enter — key should be swallowed", nm.currentView)
 	}
 }
 
-// TestKeyMsgDoesNotChangeViewDuringSplash further verifies that a section-switch
-// key (e.g. "2") is also swallowed and does not advance the tab.
-func TestKeyMsgDoesNotChangeViewDuringSplash(t *testing.T) {
+// TestNonPickerKeyIgnoredDuringSplash verifies that a key that isn't part of the
+// picker (e.g. the section-switch digit "2") neither dismisses the splash nor
+// changes the tab — the splash now waits for Enter, not "any key".
+func TestNonPickerKeyIgnoredDuringSplash(t *testing.T) {
 	m := initialModel("x")
 	m.currentView = viewInventory
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
 	nm := next.(model)
-	if nm.showSplash {
-		t.Fatal("showSplash should be false after digit key while splash shown")
+	if !nm.showSplash {
+		t.Fatal("showSplash should STAY true after a non-picker key — the splash waits for Enter")
 	}
 	if nm.currentView != viewInventory {
-		t.Fatalf("currentView = %d after swallowed '2' key, want viewInventory(%d)", nm.currentView, viewInventory)
+		t.Fatalf("currentView = %d after ignored '2' key, want viewInventory(%d)", nm.currentView, viewInventory)
+	}
+}
+
+// TestArrowTogglesLanguageOnSplash verifies that ← / → toggle the highlighted
+// language on the splash without leaving it.
+func TestArrowTogglesLanguageOnSplash(t *testing.T) {
+	m := initialModel("x")
+	if m.lang != langEN {
+		t.Fatalf("initial lang = %d, want langEN", m.lang)
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	nm := next.(model)
+	if nm.lang != langZH {
+		t.Fatalf("lang after → = %d, want langZH", nm.lang)
+	}
+	if !nm.showSplash {
+		t.Fatal("→ should only toggle the language, not dismiss the splash")
+	}
+	back, _ := nm.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if back.(model).lang != langEN {
+		t.Fatal("lang after ← should toggle back to langEN")
 	}
 }
 
