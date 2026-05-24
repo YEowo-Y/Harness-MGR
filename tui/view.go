@@ -269,20 +269,99 @@ func (m model) mascotVisible() bool {
 	return barFitsOneLine(build(mascotBarWidth(m.width)))
 }
 
-// headerView renders the active tab's counts/summary bar. When mascotVisible()
-// it narrows the bar by mascotBarWidth and joins the mascot sprite (at its
-// current blink frame) to its right; otherwise it returns the full-width bar
-// unchanged — byte-for-byte the prior no-mascot header. Placeholder tabs have no
-// bar and yield "".
+// headerView renders the active tab's header. When mascotVisible() it builds a
+// multi-line LEFT COLUMN (the tab's 1-line counts/summary bar stacked above a
+// compact health lockup), narrowed by mascotBarWidth, and joins the mascot sprite
+// (at its current blink frame) to its right — the lockup fills the band the tall
+// mascot would otherwise leave blank. Otherwise it returns the full-width 1-line
+// bar unchanged — byte-for-byte the prior no-mascot header. Placeholder tabs have
+// no bar and yield "".
 func (m model) headerView() string {
 	build, ok := m.headerBarBuilder()
 	if !ok {
 		return ""
 	}
 	if m.mascotVisible() {
-		return lipgloss.JoinHorizontal(lipgloss.Top, build(mascotBarWidth(m.width)), renderMascot(m.mascotBlink))
+		left := m.headerLeftColumn(build, mascotBarWidth(m.width))
+		return lipgloss.JoinHorizontal(lipgloss.Top, left, renderMascot(m.mascotBlink))
 	}
 	return build(m.width)
+}
+
+// headerLeftColumn stacks the tab's 1-line counts/summary bar (row 0) above a
+// compact, vertically-centered health lockup (the harness health verdict + the
+// dim governance tagline), padded with blank rows to EXACTLY len(splashMascot)
+// lines. Pinning the row count to the sprite height keeps the rendered header in
+// lock-step with the splitDims reservation (chromeRows + mascotExtraRows), so the
+// band is filled without ever overflowing the frame. Rendered at the given
+// (already mascot-narrowed) width; every lockup line is clipped to one row via
+// MaxHeight(1) so long text can never inflate the header height.
+func (m model) headerLeftColumn(build func(width int) string, width int) string {
+	total := len(splashMascot)
+	if total < 1 {
+		total = 1
+	}
+	line := lipgloss.NewStyle().Padding(0, countsBarPadX).Width(width).MaxHeight(1)
+	content := []string{
+		line.Render(m.healthVerdict()),
+		line.Foreground(configGray).Render(splashTagline),
+	}
+
+	rows := make([]string, 0, total)
+	rows = append(rows, build(width)) // row 0: the tab's counts/summary bar
+	topPad := (total - 1 - len(content)) / 2
+	for i := 0; i < topPad && len(rows) < total; i++ {
+		rows = append(rows, "")
+	}
+	for _, c := range content {
+		if len(rows) >= total {
+			break
+		}
+		rows = append(rows, c)
+	}
+	for len(rows) < total {
+		rows = append(rows, "")
+	}
+	return strings.Join(rows, "\n")
+}
+
+// healthVerdict returns the one-line, color-coded harness health summary shown in
+// the header band: a green tally when there are zero conflicts, orphans, and
+// inventory diagnostics; an orange tally when any are present; a dim placeholder
+// while the conflicts/orphans fetches (kicked off at Init) are still in flight or
+// have errored. Counts come straight from the already-fetched model state — no
+// extra plumbing: conflicts/orphans from their section item lists, diagnostics
+// from the inventory result.
+func (m model) healthVerdict() string {
+	dim := lipgloss.NewStyle().Foreground(configGray)
+	cSt := m.sections[viewConflicts]
+	oSt := m.sections[viewOrphans]
+	if m.loading || cSt == nil || oSt == nil || cSt.loading || oSt.loading {
+		return dim.Render(glyph("◷", "~") + " checking harness…")
+	}
+	// A failed inventory fetch (m.err) leaves m.inv zero-valued, so the diagnostics
+	// count would be a false 0; treat it — and section fetch errors — as unknown.
+	if m.err != nil || cSt.err != nil || oSt.err != nil {
+		return dim.Render(glyph("◌", "-") + " harness checks unavailable")
+	}
+	conflicts := len(cSt.list.items)
+	orphans := len(oSt.list.items)
+	diags := len(m.inv.Diagnostics)
+	tally := plural(conflicts, "conflict") + " · " + plural(orphans, "orphan") + " · " + plural(diags, "diagnostic")
+	mark, color := glyph("⚠", "!"), colorOrange
+	if conflicts == 0 && orphans == 0 && diags == 0 {
+		mark, color = glyph("✓", "OK"), colorPlugin
+	}
+	return lipgloss.NewStyle().Foreground(color).Bold(true).Render(mark + " " + tally)
+}
+
+// plural formats a count with its noun, appending "s" for any count other than 1
+// ("0 orphans", "1 orphan", "2 orphans").
+func plural(n int, word string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, word)
+	}
+	return fmt.Sprintf("%d %ss", n, word)
 }
 
 // ── Counts overview bar (Inventory tab) ─────────────────────────────────────
