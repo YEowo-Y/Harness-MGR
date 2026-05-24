@@ -17,10 +17,13 @@
  *     caller opts in — that is what makes "passive produces zero side effects" true.
  *   INVARIANT (plan): active probes never invoke hook command strings from settings.
  *
- * --- U4 checks (all passive) ---
- *   #6  settings-json-valid           escalate settings-* facts (dup key → error)
- *   #7  plugin-enabled-not-installed  enabledPlugins true with no matching install
- *   #11 duplicate-component-shadowing conflict cluster (size > 1) → warn
+ * --- Registered passive checks (P2 so far; see the CHECKS array) ---
+ *   #6  settings-json-valid            escalate settings-* facts (dup key → error)
+ *   #7  plugin-enabled-not-installed   enabledPlugins true with no matching install
+ *   #8  plugin-installed-not-enabled   installed record's own enabled flag is false (info)
+ *   #9  plugin-marketplace-unknown     installed plugin's marketplace not in the known set (info)
+ *   #10 plugin-cache-missing           enabled install with cachePresent === false (warn)
+ *   #11 duplicate-component-shadowing  conflict cluster (size > 1) → warn
  *
  * --- Pure consumer, by design ---
  * The doctor takes a DoctorInput bundle the caller has already gathered (scan +
@@ -42,6 +45,7 @@ import { DiagnosticBag } from '../../lib/diagnostic.mjs';
 /**
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
  * @typedef {import('../../discovery/plugins.mjs').PluginRecord} PluginRecord
+ * @typedef {import('../../discovery/marketplaces.mjs').MarketplaceRecord} MarketplaceRecord
  * @typedef {import('../conflicts.mjs').ConflictCluster} ConflictCluster
  */
 
@@ -56,8 +60,12 @@ import { DiagnosticBag } from '../../lib/diagnostic.mjs';
  * @typedef {Object} DoctorInput
  * @property {Diagnostic[]} [settingsDiagnostics]  settings-discovery facts (scan.settings.diagnostics);
  *                                                 #6 filters by code, so passing the full scan set is safe too
- * @property {Record<string, unknown>} [enabledPlugins]  merged enabledPlugins map (name@marketplace → bool)
- * @property {PluginRecord[]} [installedPlugins]   installed plugins (scan.plugins) — the "installed" set for #7
+ * @property {Record<string, unknown>} [enabledPlugins]  merged enabledPlugins map (name@marketplace → bool); the
+ *                                                 settings "enabled" signal — used by #7 (it must catch settings
+ *                                                 references to plugins that are not installed at all)
+ * @property {PluginRecord[]} [installedPlugins]   installed plugins (scan.plugins); the "installed" set for #7,
+ *                                                 and the population #8/#9/#10 judge via each record's own fields
+ * @property {MarketplaceRecord[]} [marketplaces]  known marketplaces (scan.marketplaces) — the baseline for #9
  * @property {ConflictCluster[]} [conflicts]       shadowing clusters (analyzeConflicts(...).conflicts)
  */
 
@@ -165,6 +173,83 @@ function checkPluginEnabledNotInstalled(input) {
 }
 
 /**
+ * The installed plugins as a clean list of records carrying a usable string `key`.
+ * Shared by #8/#9/#10, which all judge installed plugins by their own fields.
+ * @param {DoctorInput} input
+ * @returns {PluginRecord[]}
+ */
+function pluginList(input) {
+  const installed = Array.isArray(input.installedPlugins) ? input.installedPlugins : [];
+  return installed.filter((p) => p && typeof p.key === 'string' && p.key.length > 0);
+}
+
+/**
+ * #8 plugin-installed-not-enabled — an installed plugin whose own install record is
+ * disabled (`enabled:false`). INFO: dormant, not broken. Reads the install's own
+ * flag, NOT the settings enabledPlugins map #7 uses — #7 must catch settings
+ * references to plugins that are not installed AT ALL, whereas #8/#10 reason about
+ * the state of plugins that ARE installed.
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkPluginInstalledNotEnabled(input) {
+  /** @type {Diagnostic[]} */
+  const out = [];
+  for (const p of pluginList(input)) {
+    if (p.enabled === false) {
+      out.push({ severity: 'info', code: 'plugin-installed-not-enabled', message: `plugin "${p.key}" is installed but disabled`, phase: 'doctor', fix: 'enable it in settings if you want it active, or remove it to declutter' });
+    }
+  }
+  return out;
+}
+
+/**
+ * #9 plugin-marketplace-unknown — an installed plugin whose `marketplace` is not
+ * among the known marketplaces. INFO. Skipped entirely when NO marketplaces are
+ * known: with no baseline every plugin would look unknown, and a missing
+ * known_marketplaces.json is its own discovery diagnostic, not N repeated findings.
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkPluginMarketplaceUnknown(input) {
+  const marketplaces = Array.isArray(input.marketplaces) ? input.marketplaces : [];
+  /** @type {Set<string>} */
+  const known = new Set();
+  for (const m of marketplaces) {
+    if (m && typeof m.name === 'string' && m.name.length > 0) known.add(m.name);
+  }
+  /** @type {Diagnostic[]} */
+  const out = [];
+  if (known.size === 0) return out;
+  for (const p of pluginList(input)) {
+    const mp = typeof p.marketplace === 'string' ? p.marketplace : '';
+    if (mp.length > 0 && !known.has(mp)) {
+      out.push({ severity: 'info', code: 'plugin-marketplace-unknown', message: `plugin "${p.key}" references marketplace "${mp}", which is not a known marketplace`, phase: 'doctor', fix: 'add or reinstall the marketplace, or reinstall the plugin from a known one' });
+    }
+  }
+  return out;
+}
+
+/**
+ * #10 plugin-cache-missing — an enabled install whose plugin cache dir is absent
+ * (`cachePresent === false`). WARN: it may not load until the cache is rebuilt.
+ * cachePresent is a discovered FACT (plugins.mjs), so this stays pure judgment.
+ * Like #8 it reads the install's own enabled flag.
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkPluginCacheMissing(input) {
+  /** @type {Diagnostic[]} */
+  const out = [];
+  for (const p of pluginList(input)) {
+    if (p.enabled === true && p.cachePresent === false) {
+      out.push({ severity: 'warn', code: 'plugin-cache-missing', message: `plugin "${p.key}" is enabled but its plugin cache is missing`, phase: 'doctor', fix: 'reinstall or refresh the plugin to rebuild its cache' });
+    }
+  }
+  return out;
+}
+
+/**
  * #11 duplicate-component-shadowing — each conflict cluster (>= 2 members) means one
  * component shadows another; surface it as a WARN under the canonical doctor code,
  * reusing the cluster's own reason/fix when present. Clusters from analyzeConflicts
@@ -201,6 +286,9 @@ function checkDuplicateComponentShadowing(input) {
 export const CHECKS = Object.freeze([
   Object.freeze({ id: 6, code: 'settings-json-valid', probeLevel: 'passive', run: checkSettingsJsonValid }),
   Object.freeze({ id: 7, code: 'plugin-enabled-not-installed', probeLevel: 'passive', run: checkPluginEnabledNotInstalled }),
+  Object.freeze({ id: 8, code: 'plugin-installed-not-enabled', probeLevel: 'passive', run: checkPluginInstalledNotEnabled }),
+  Object.freeze({ id: 9, code: 'plugin-marketplace-unknown', probeLevel: 'passive', run: checkPluginMarketplaceUnknown }),
+  Object.freeze({ id: 10, code: 'plugin-cache-missing', probeLevel: 'passive', run: checkPluginCacheMissing }),
   Object.freeze({ id: 11, code: 'duplicate-component-shadowing', probeLevel: 'passive', run: checkDuplicateComponentShadowing }),
 ]);
 
