@@ -18,12 +18,18 @@
  *   INVARIANT (plan): active probes never invoke hook command strings from settings.
  *
  * --- Registered passive checks (P2 so far; see the CHECKS array) ---
+ *   #1  mcp-auth-stale                 MCP server needs-auth cache entry older than 30/90 days
+ *   #2  mcp-server-resolvable          stdio MCP command was not found on PATH at probe time
  *   #6  settings-json-valid            escalate settings-* facts (dup key → error)
  *   #7  plugin-enabled-not-installed   enabledPlugins true with no matching install
  *   #8  plugin-installed-not-enabled   installed but not in the settings enabledPlugins map (info)
  *   #9  plugin-marketplace-unknown     installed plugin's marketplace not in the known set (info)
  *   #10 plugin-cache-missing           settings-enabled install with cachePresent === false (warn)
  *   #11 duplicate-component-shadowing  conflict cluster (size > 1) → warn
+ *
+ * --- Facts gathered by the discovery probe, judged here ---
+ * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
+ * McpResolutionFact[]). The probe does the I/O; these checks stay pure.
  *
  * --- Pure consumer, by design ---
  * The doctor takes a DoctorInput bundle the caller has already gathered (scan +
@@ -41,12 +47,15 @@
  */
 
 import { DiagnosticBag } from '../../lib/diagnostic.mjs';
+import { PROBE_CHECKS } from './probe-checks.mjs';
 
 /**
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
  * @typedef {import('../../discovery/plugins.mjs').PluginRecord} PluginRecord
  * @typedef {import('../../discovery/marketplaces.mjs').MarketplaceRecord} MarketplaceRecord
  * @typedef {import('../conflicts.mjs').ConflictCluster} ConflictCluster
+ * @typedef {import('../../discovery/probe-mcp.mjs').McpAuthFact} McpAuthFact
+ * @typedef {import('../../discovery/probe-mcp.mjs').McpResolutionFact} McpResolutionFact
  */
 
 /**
@@ -67,6 +76,11 @@ import { DiagnosticBag } from '../../lib/diagnostic.mjs';
  *                                                 each record's marketplace; #8/#10 cross-reference against enabledPlugins
  * @property {MarketplaceRecord[]} [marketplaces]  known marketplaces (scan.marketplaces) — the baseline for #9
  * @property {ConflictCluster[]} [conflicts]       shadowing clusters (analyzeConflicts(...).conflicts)
+ * @property {McpAuthFact[]} [mcpAuth]             MCP needs-auth facts (probe-mcp); judged by #1
+ * @property {McpResolutionFact[]} [mcpResolution] stdio command-resolution facts (probe-mcp); judged by #2
+ * @property {number} [now]                        reference time (ms) for age-based checks; the CLI passes
+ *                                                 Date.now(). Absent → age-based checks emit nothing (keeps
+ *                                                 the doctor pure).
  */
 
 /**
@@ -301,6 +315,7 @@ function checkDuplicateComponentShadowing(input) {
  * @type {ReadonlyArray<DoctorCheck>}
  */
 export const CHECKS = Object.freeze([
+  ...PROBE_CHECKS,
   Object.freeze({ id: 6, code: 'settings-json-valid', probeLevel: 'passive', run: checkSettingsJsonValid }),
   Object.freeze({ id: 7, code: 'plugin-enabled-not-installed', probeLevel: 'passive', run: checkPluginEnabledNotInstalled }),
   Object.freeze({ id: 8, code: 'plugin-installed-not-enabled', probeLevel: 'passive', run: checkPluginInstalledNotEnabled }),
