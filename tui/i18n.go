@@ -52,6 +52,7 @@ var translations = map[string][2]string{
 	"status.move":    {"move", "移动"},
 	"status.focus":   {"focus", "切换焦点"},
 	"status.section": {"section", "切换标签"},
+	"status.help":    {"help", "帮助"},
 	"status.quit":    {"quit", "退出"},
 
 	// Counts overview bar labels (looked up by the English plural label).
@@ -86,6 +87,16 @@ var translations = map[string][2]string{
 	"loading.generic":       {"loading…", "加载中…"},
 	"loading.failed":        {"load failed", "加载失败"},
 	"section.uninitialized": {"section not initialized", "分区未初始化"},
+
+	// Help overlay (toggled with ?).
+	"help.title":    {"Keyboard shortcuts", "键盘快捷键"},
+	"help.move":     {"move cursor", "移动光标"},
+	"help.activate": {"expand / select", "展开 / 选择"},
+	"help.focus":    {"switch pane", "切换面板"},
+	"help.jump":     {"jump to tab", "跳转到标签页"},
+	"help.tabs":     {"prev / next tab", "上一个 / 下一个标签页"},
+	"help.help":     {"toggle this help", "开关此帮助"},
+	"help.dismiss":  {"? / Esc / q to close", "? / Esc / q 关闭"},
 
 	// Section summary bars (format strings — counts are filled in by tf).
 	"summary.conflicts":    {"%d conflicts", "%d 个冲突"},
