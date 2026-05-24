@@ -190,7 +190,7 @@ func (m *sectionModel) renderRow(items []sectionItem, i, width int) string {
 		if item.color != "" {
 			txtStyle = txtStyle.Foreground(item.color)
 		}
-		return bar + txtStyle.Render(truncate(item.title, avail))
+		return bar + highlightMatch(truncate(item.title, avail), m.filter, txtStyle)
 	}
 
 	// Non-cursor: 2-space indent to align with the non-bar width of the cursor row.
@@ -203,5 +203,5 @@ func (m *sectionModel) renderRow(items []sectionItem, i, width int) string {
 	if item.color != "" {
 		txtStyle = txtStyle.Foreground(item.color)
 	}
-	return indent + txtStyle.Render(truncate(item.title, avail))
+	return indent + highlightMatch(truncate(item.title, avail), m.filter, txtStyle)
 }
