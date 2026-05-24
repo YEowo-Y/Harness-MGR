@@ -44,16 +44,64 @@ test('minimal: present but no statusLine → null', () => {
   assert.equal(statusLine, null);
 });
 
-test('broken: trailing-comma settings.json → unreadable error, present false, no throw', () => {
+test('broken fixture (trailing comma) now PARSES under JSONC → present, no error', () => {
+  // P2.U3: settings.json is read with the JSONC tokenizer, which tolerates the
+  // trailing comma JSON.parse rejected. broken/settings.json has no statusLine,
+  // so the capture is null — but the file is no longer "unreadable".
   let result;
   assert.doesNotThrow(() => {
     result = discoverSettings(fix('broken'));
   });
-  assert.equal(result.present, false);
+  assert.equal(result.present, true);
   assert.equal(result.statusLine, null);
-  const err = result.diagnostics.find((d) => d.code === 'settings-unreadable');
-  assert.ok(err);
-  assert.equal(err.severity, 'error');
+  assert.equal(bySeverity(result.diagnostics, 'error').length, 0);
+  assert.equal(result.diagnostics.some((d) => d.code === 'settings-unreadable'), false);
+});
+
+test('genuinely malformed settings.json → settings-unreadable error, present false, no throw', () => {
+  withTempSettings('{ "model": }', (dir) => {
+    let result;
+    assert.doesNotThrow(() => {
+      result = discoverSettings(dir);
+    });
+    assert.equal(result.present, false);
+    assert.equal(result.statusLine, null);
+    const err = result.diagnostics.find((d) => d.code === 'settings-unreadable');
+    assert.ok(err);
+    assert.equal(err.severity, 'error');
+  });
+});
+
+test('JSONC: comments + trailing commas are tolerated, statusLine still captured', () => {
+  const content = [
+    '{',
+    '  // leading line comment',
+    '  "statusLine": {',
+    '    "type": "command",',
+    '    "command": "echo hi", /* block comment */',
+    '  },',
+    '}',
+  ].join('\n');
+  withTempSettings(content, (dir) => {
+    const { present, statusLine, diagnostics } = discoverSettings(dir);
+    assert.equal(present, true);
+    assert.deepEqual(statusLine, { type: 'command', command: 'echo hi' });
+    assert.equal(bySeverity(diagnostics, 'error').length, 0);
+  });
+});
+
+test('settings-dupkey fixture: repeated key → settings-duplicate-key warn at line:column, last value wins', () => {
+  const { present, statusLine, diagnostics } = discoverSettings(fix('settings-dupkey'));
+  assert.equal(present, true);
+  // statusLine is still captured alongside the duplicate-key warning.
+  assert.deepEqual(statusLine, { type: 'command', command: 'echo hi' });
+  assert.equal(bySeverity(diagnostics, 'error').length, 0);
+  const dup = diagnostics.find((d) => d.code === 'settings-duplicate-key');
+  assert.ok(dup, 'expected a settings-duplicate-key diagnostic');
+  assert.equal(dup.severity, 'warn');
+  assert.match(dup.message, /"model"/);
+  assert.match(dup.message, /line 3/);
+  assert.match(dup.message, /column 3/);
 });
 
 test('non-string root → discover-bad-root, never throws', () => {
