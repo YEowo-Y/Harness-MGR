@@ -20,9 +20,9 @@
  * --- Registered passive checks (P2 so far; see the CHECKS array) ---
  *   #6  settings-json-valid            escalate settings-* facts (dup key → error)
  *   #7  plugin-enabled-not-installed   enabledPlugins true with no matching install
- *   #8  plugin-installed-not-enabled   installed record's own enabled flag is false (info)
+ *   #8  plugin-installed-not-enabled   installed but not in the settings enabledPlugins map (info)
  *   #9  plugin-marketplace-unknown     installed plugin's marketplace not in the known set (info)
- *   #10 plugin-cache-missing           enabled install with cachePresent === false (warn)
+ *   #10 plugin-cache-missing           settings-enabled install with cachePresent === false (warn)
  *   #11 duplicate-component-shadowing  conflict cluster (size > 1) → warn
  *
  * --- Pure consumer, by design ---
@@ -61,10 +61,10 @@ import { DiagnosticBag } from '../../lib/diagnostic.mjs';
  * @property {Diagnostic[]} [settingsDiagnostics]  settings-discovery facts (scan.settings.diagnostics);
  *                                                 #6 filters by code, so passing the full scan set is safe too
  * @property {Record<string, unknown>} [enabledPlugins]  merged enabledPlugins map (name@marketplace → bool); the
- *                                                 settings "enabled" signal — used by #7 (it must catch settings
- *                                                 references to plugins that are not installed at all)
- * @property {PluginRecord[]} [installedPlugins]   installed plugins (scan.plugins); the "installed" set for #7,
- *                                                 and the population #8/#9/#10 judge via each record's own fields
+ *                                                 AUTHORITATIVE enable signal used by #7/#8/#10 (the install
+ *                                                 record's own `enabled` flag is unreliable — see enabledMap)
+ * @property {PluginRecord[]} [installedPlugins]   installed plugins (scan.plugins); the "installed" set. #9 judges
+ *                                                 each record's marketplace; #8/#10 cross-reference against enabledPlugins
  * @property {MarketplaceRecord[]} [marketplaces]  known marketplaces (scan.marketplaces) — the baseline for #9
  * @property {ConflictCluster[]} [conflicts]       shadowing clusters (analyzeConflicts(...).conflicts)
  */
@@ -150,7 +150,7 @@ function settingsFix(code) {
  * @returns {Diagnostic[]}
  */
 function checkPluginEnabledNotInstalled(input) {
-  const enabled = input.enabledPlugins && typeof input.enabledPlugins === 'object' ? input.enabledPlugins : {};
+  const enabled = enabledMap(input);
   const installed = Array.isArray(input.installedPlugins) ? input.installedPlugins : [];
   /** @type {Set<string>} */
   const installedKeys = new Set();
@@ -174,7 +174,8 @@ function checkPluginEnabledNotInstalled(input) {
 
 /**
  * The installed plugins as a clean list of records carrying a usable string `key`.
- * Shared by #8/#9/#10, which all judge installed plugins by their own fields.
+ * Shared by #8/#9/#10: #9 judges each record's own marketplace; #8/#10 cross-reference
+ * each record's key against the settings enabledPlugins map.
  * @param {DoctorInput} input
  * @returns {PluginRecord[]}
  */
@@ -184,20 +185,34 @@ function pluginList(input) {
 }
 
 /**
- * #8 plugin-installed-not-enabled — an installed plugin whose own install record is
- * disabled (`enabled:false`). INFO: dormant, not broken. Reads the install's own
- * flag, NOT the settings enabledPlugins map #7 uses — #7 must catch settings
- * references to plugins that are not installed AT ALL, whereas #8/#10 reason about
- * the state of plugins that ARE installed.
+ * The effective enabledPlugins map (name@marketplace → bool), or {} when absent/malformed.
+ * The AUTHORITATIVE enable signal for #7/#8/#10: verified on the real harness, the install
+ * record's own `enabled` field is `false` even for actively-used plugins, so it must NOT be
+ * used to decide whether a plugin is enabled (STABILITY-LOG 2026-05-24).
+ * @param {DoctorInput} input
+ * @returns {Record<string, unknown>}
+ */
+function enabledMap(input) {
+  const m = input.enabledPlugins;
+  return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+}
+
+/**
+ * #8 plugin-installed-not-enabled — an installed plugin that the settings enabledPlugins
+ * map does NOT mark `true`. INFO: dormant, not broken. Reads the settings map (the same
+ * authoritative signal as #7), NOT the install record's own `enabled` field — that field
+ * is `false` even for active plugins on the real harness, so keying off it flagged every
+ * installed plugin (STABILITY-LOG 2026-05-24).
  * @param {DoctorInput} input
  * @returns {Diagnostic[]}
  */
 function checkPluginInstalledNotEnabled(input) {
+  const enabled = enabledMap(input);
   /** @type {Diagnostic[]} */
   const out = [];
   for (const p of pluginList(input)) {
-    if (p.enabled === false) {
-      out.push({ severity: 'info', code: 'plugin-installed-not-enabled', message: `plugin "${p.key}" is installed but disabled`, phase: 'doctor', fix: 'enable it in settings if you want it active, or remove it to declutter' });
+    if (enabled[p.key] !== true) {
+      out.push({ severity: 'info', code: 'plugin-installed-not-enabled', message: `plugin "${p.key}" is installed but not enabled in settings`, phase: 'doctor', fix: 'enable it via settings (enabledPlugins) if you want it active, or remove it to declutter' });
     }
   }
   return out;
@@ -231,18 +246,20 @@ function checkPluginMarketplaceUnknown(input) {
 }
 
 /**
- * #10 plugin-cache-missing — an enabled install whose plugin cache dir is absent
- * (`cachePresent === false`). WARN: it may not load until the cache is rebuilt.
- * cachePresent is a discovered FACT (plugins.mjs), so this stays pure judgment.
- * Like #8 it reads the install's own enabled flag.
+ * #10 plugin-cache-missing — a settings-enabled install whose plugin cache dir is absent
+ * (`cachePresent === false`). WARN: it may not load until the cache is rebuilt. cachePresent
+ * is a discovered FACT (plugins.mjs), so this stays pure judgment. Like #8 it reads the
+ * settings enabledPlugins map — NOT the install record's own enabled flag, which is `false`
+ * even for active plugins and would make this miss every real cache gap (STABILITY-LOG 2026-05-24).
  * @param {DoctorInput} input
  * @returns {Diagnostic[]}
  */
 function checkPluginCacheMissing(input) {
+  const enabled = enabledMap(input);
   /** @type {Diagnostic[]} */
   const out = [];
   for (const p of pluginList(input)) {
-    if (p.enabled === true && p.cachePresent === false) {
+    if (enabled[p.key] === true && p.cachePresent === false) {
       out.push({ severity: 'warn', code: 'plugin-cache-missing', message: `plugin "${p.key}" is enabled but its plugin cache is missing`, phase: 'doctor', fix: 'reinstall or refresh the plugin to rebuild its cache' });
     }
   }
