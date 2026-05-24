@@ -111,6 +111,7 @@ type treeModel struct {
 	visible []visRow
 	cursor  int
 	offset  int
+	filter  string // case-insensitive name filter; "" = no filter
 }
 
 // newTreeModel builds the six folders from a DetailData. Skills start expanded
@@ -165,15 +166,33 @@ func componentKind(kind string) (nodeKind, bool) {
 	}
 }
 
-// rebuildVisible recomputes the flattened visible-rows slice: each folder header
-// followed by its items only when expanded. The cursor is clamped to the new row
-// count so it never points past the end after a collapse.
+// rebuildVisible recomputes the flattened visible-rows slice. Without a filter:
+// each folder header followed by its items only when expanded. With a filter
+// (t.filter != ""): only folders that have ≥1 name-matching node are shown, each
+// with just its matching items force-shown (regardless of expand state), so a
+// search reveals matches across every type. The cursor is clamped to the new row
+// count so it never points past the end.
 func (t *treeModel) rebuildVisible() {
 	rows := make([]visRow, 0, len(t.folders))
 	for fi := range t.folders {
+		f := &t.folders[fi]
+		if t.filter != "" {
+			shown := false
+			for ni := range f.nodes {
+				if !matchesFilter(f.nodes[ni].name, t.filter) {
+					continue
+				}
+				if !shown {
+					rows = append(rows, visRow{isFolder: true, folderIdx: fi})
+					shown = true
+				}
+				rows = append(rows, visRow{folderIdx: fi, nodeIdx: ni})
+			}
+			continue
+		}
 		rows = append(rows, visRow{isFolder: true, folderIdx: fi})
-		if t.folders[fi].expanded {
-			for ni := range t.folders[fi].nodes {
+		if f.expanded {
+			for ni := range f.nodes {
 				rows = append(rows, visRow{folderIdx: fi, nodeIdx: ni})
 			}
 		}
@@ -185,6 +204,36 @@ func (t *treeModel) rebuildVisible() {
 	if t.cursor < 0 {
 		t.cursor = 0
 	}
+}
+
+// setFilter applies a case-insensitive name filter and rebuilds the visible rows,
+// resetting the cursor/offset to the top of the (re)filtered list.
+func (t *treeModel) setFilter(q string) {
+	t.filter = q
+	t.cursor = 0
+	t.offset = 0
+	t.rebuildVisible()
+}
+
+// matchesFilter reports whether name contains query (case-insensitive). An empty
+// query matches everything. Shared by the tree and section-list filters.
+func matchesFilter(name, query string) bool {
+	if query == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(name), strings.ToLower(query))
+}
+
+// countMatches counts nodes whose name matches query — used for the folder
+// header's "(N)" count while a filter is active.
+func countMatches(nodes []treeNode, query string) int {
+	n := 0
+	for i := range nodes {
+		if matchesFilter(nodes[i].name, query) {
+			n++
+		}
+	}
+	return n
 }
 
 // ── Cursor navigation ────────────────────────────────────────────────────────
@@ -349,7 +398,15 @@ func (t *treeModel) renderFolderRow(row visRow, meta kindMeta, selected bool, wi
 	if iconStr != "" {
 		iconPrefix = iconStr + " "
 	}
-	label := iconPrefix + chevron(f.expanded) + " " + meta.label + " (" + strconv.Itoa(len(f.nodes)) + ")"
+	// While filtering, the header shows the MATCH count and a force-expanded
+	// chevron (matching items are always shown regardless of expand state).
+	count := len(f.nodes)
+	expanded := f.expanded
+	if t.filter != "" {
+		count = countMatches(f.nodes, t.filter)
+		expanded = true
+	}
+	label := iconPrefix + chevron(expanded) + " " + meta.label + " (" + strconv.Itoa(count) + ")"
 
 	style := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg)
 	if selected {
