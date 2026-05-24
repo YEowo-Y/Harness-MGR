@@ -1,0 +1,7 @@
+# Byte-exact JSONC fixtures. The edge-case tests assert on EXACT bytes (a real
+# UTF-8 BOM; genuine CRLF line endings), so the repo-root `* text=auto eol=lf`
+# normalization must NOT touch these. `-text` makes git treat them as binary:
+# no CRLF<->LF conversion and no BOM stripping, so a clone on any OS reads back
+# the same bytes these tests were written against.
+bom.json            -text
+crlf-duplicate.json -text

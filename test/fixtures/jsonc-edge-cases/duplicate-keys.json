@@ -1,0 +1,8 @@
+{
+  "name": "first",
+  "name": "second",
+  "nested": {
+    "dup": 1,
+    "dup": 2
+  }
+}
