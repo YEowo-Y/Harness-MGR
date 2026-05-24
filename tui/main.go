@@ -139,6 +139,7 @@ type model struct {
 	err         error
 	loading     bool // counts fetch in flight
 	showSplash  bool // true while the startup splash is displayed
+	showHelp    bool // true while the ? keyboard-shortcuts overlay is displayed
 	mascotBlink bool // true briefly while the corner mascot blinks (eyes closed)
 	cliPath     string
 	currentView viewID
@@ -435,12 +436,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey routes keypresses with this precedence:
 //
-//	(1) quit keys (q / ctrl+c / esc);
-//	(2) section switching — number keys 1-6 jump directly, "[" / "]" cycle;
-//	(3) Tab / Shift+Tab toggle focus between the tree and detail panes;
-//	(4) Enter / Space — on a tree folder toggle expand/collapse; on a tree item
+//	(1) ctrl+c always quits (even during the splash / help overlay);
+//	(2) while the startup splash is up it is a language picker (← →/h/l/Tab
+//	    toggle, Enter/Space enter, q/Esc quit) — all keys are swallowed;
+//	(3) while the ? help overlay is up, ? / Esc / q close it — all other keys are
+//	    swallowed;
+//	(4) quit keys (q / ctrl+c / esc);
+//	(5) section switching — number keys 1-6 jump directly, "[" / "]" cycle;
+//	(6) Tab / Shift+Tab toggle focus between the tree and detail panes;
+//	(7) ? opens the help overlay;
+//	(8) Enter / Space — on a tree folder toggle expand/collapse; on a tree item
 //	    refresh the detail to that node (only when the tree pane is focused);
-//	(5) everything else (j/k, arrows, g/G, pgup/pgdn) routes to the focused pane
+//	(9) everything else (j/k, arrows, g/G, pgup/pgdn) routes to the focused pane
 //	    (tree moves the cursor, viewport scrolls).
 //
 // Tab does not switch sections (that was the U1 binding) — it toggles pane focus.
@@ -465,6 +472,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// The ? help overlay swallows keys while open; ? / Esc / q dismiss it.
+	if m.showHelp {
+		switch msg.String() {
+		case "?", "esc", "q":
+			m.showHelp = false
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "q", "ctrl+c", "esc":
 		return m, tea.Quit
@@ -481,6 +496,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "shift+tab":
 		m.toggleFocus()
+		return m, nil
+	case "?":
+		m.showHelp = true
 		return m, nil
 	case "enter", " ":
 		return m.activate()
@@ -630,6 +648,9 @@ func (m model) View() string {
 	uiLang = m.lang
 	if m.showSplash {
 		return splashView(m.width, m.height)
+	}
+	if m.showHelp {
+		return helpView(m.width, m.height)
 	}
 	return dashboardView(m)
 }
