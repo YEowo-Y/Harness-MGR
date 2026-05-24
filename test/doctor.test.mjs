@@ -33,6 +33,9 @@ const cluster = (over = {}) => ({
   ...over,
 });
 
+/** A minimal synthetic installed-plugin record — #8/#9/#10 read key/marketplace/enabled/cachePresent. */
+const plugin = (over = {}) => ({ key: 'p@mp', name: 'p', marketplace: 'mp', version: '1.0.0', enabled: true, cachePresent: true, ...over });
+
 // ── A. #6 settings-json-valid ─────────────────────────────────────────────────
 
 test('#6: a real duplicate-key fact escalates to a settings-json-valid error with line:column', () => {
@@ -110,6 +113,67 @@ test('#7: a __proto__ own-key in enabledPlugins is not treated as a plugin (prot
   assert.equal(byCode(r.diagnostics, 'plugin-enabled-not-installed').length, 0);
 });
 
+// ── B2. #8 / #9 / #10 plugin-state checks ─────────────────────────────────────
+
+test('#10: real-harness oracle — plugins-groundtruth yields exactly 11 cache-missing warns', () => {
+  const s = scan({ targetClaudeDir: fix('plugins-groundtruth') });
+  const r = runDoctor({ installedPlugins: s.plugins });
+  const found = byCode(r.diagnostics, 'plugin-cache-missing');
+  assert.equal(found.length, 11); // 13 installed, all enabled, 2 cached → 11 missing (plan's "11/13")
+  assert.ok(found.every((d) => d.severity === 'warn'));
+});
+
+test('#10: only ENABLED installs with a missing cache are flagged (disabled is skipped)', () => {
+  const r = runDoctor({ installedPlugins: [
+    plugin({ key: 'on@m', enabled: true, cachePresent: false }),
+    plugin({ key: 'off@m', enabled: false, cachePresent: false }),
+    plugin({ key: 'cached@m', enabled: true, cachePresent: true }),
+  ] });
+  const found = byCode(r.diagnostics, 'plugin-cache-missing');
+  assert.equal(found.length, 1);
+  assert.match(found[0].message, /on@m/);
+});
+
+test('#10: a non-boolean enabled (undefined) is NOT treated as enabled (strict === true guard)', () => {
+  const r = runDoctor({ installedPlugins: [plugin({ key: 'x@m', enabled: undefined, cachePresent: false })] });
+  assert.equal(byCode(r.diagnostics, 'plugin-cache-missing').length, 0);
+});
+
+test('#8: a disabled install → info; an enabled install contributes nothing', () => {
+  const r = runDoctor({ installedPlugins: [plugin({ key: 'off@m', enabled: false }), plugin({ key: 'on@m', enabled: true })] });
+  const found = byCode(r.diagnostics, 'plugin-installed-not-enabled');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, 'info');
+  assert.match(found[0].message, /off@m/);
+});
+
+test('#9: an installed plugin from an unknown marketplace → info', () => {
+  const r = runDoctor({
+    installedPlugins: [plugin({ key: 'p@ghost', marketplace: 'ghost' }), plugin({ key: 'q@known', marketplace: 'known' })],
+    marketplaces: [{ name: 'known' }],
+  });
+  const found = byCode(r.diagnostics, 'plugin-marketplace-unknown');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, 'info');
+  assert.match(found[0].message, /ghost/);
+});
+
+test('#9: with no known marketplaces there is no baseline → no findings (avoids a flood)', () => {
+  const r = runDoctor({ installedPlugins: [plugin({ key: 'p@whatever', marketplace: 'whatever' })], marketplaces: [] });
+  assert.equal(byCode(r.diagnostics, 'plugin-marketplace-unknown').length, 0);
+});
+
+test('#9: a plugin with an empty marketplace is not flagged (no data, not "unknown")', () => {
+  const r = runDoctor({ installedPlugins: [plugin({ key: 'p@', marketplace: '' })], marketplaces: [{ name: 'known' }] });
+  assert.equal(byCode(r.diagnostics, 'plugin-marketplace-unknown').length, 0);
+});
+
+test('#9: real harness — every installed plugin uses a known marketplace → no findings', () => {
+  const s = scan({ targetClaudeDir: fix('plugins-groundtruth') });
+  const r = runDoctor({ installedPlugins: s.plugins, marketplaces: s.marketplaces });
+  assert.equal(byCode(r.diagnostics, 'plugin-marketplace-unknown').length, 0);
+});
+
 // ── C. #11 duplicate-component-shadowing ──────────────────────────────────────
 
 test('#11: a cluster of 2 members → one warn reusing the cluster reason/fix', () => {
@@ -147,8 +211,9 @@ test('aggregate: all three checks fire together; report is passive with per-chec
   assert.equal(r.probeLevel, 'passive');
   assert.equal(r.checks.length, CHECKS.length);
   assert.ok(r.checks.every((c) => c.ran), 'every passive check runs by default');
-  // findings line up with the registry order: #6=1, #7=1, #11=1.
-  assert.deepEqual(r.checks.map((c) => [c.id, c.findings]), [[6, 1], [7, 1], [11, 1]]);
+  // findings line up with the registry order; the plugin-state checks (#8/#9/#10)
+  // find nothing here (no installed plugins / marketplaces in this bundle).
+  assert.deepEqual(r.checks.map((c) => [c.id, c.findings]), [[6, 1], [7, 1], [8, 0], [9, 0], [10, 0], [11, 1]]);
   assert.equal(bySeverity(r.diagnostics, 'error').length, 2); // #6 + #7
   assert.equal(bySeverity(r.diagnostics, 'warn').length, 1);  // #11
 });
