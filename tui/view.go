@@ -254,6 +254,13 @@ func (m model) headerBarBuilder() (func(width int) string, bool) {
 	}
 }
 
+// mascotShelved hides the corner mascot — and the coupled health lockup — from
+// the dashboard while the mascot design is on hold. While set, mascotVisible is
+// always false, so headerView renders the plain one-line counts bar and splitDims
+// reserves no extra rows. Set to false to bring the mascot (and the health line)
+// back; the rendering code is preserved, just dormant.
+var mascotShelved = true
+
 // mascotVisible reports whether the corner mascot is shown for the current tab.
 // The mascot must be eligible (Unicode on, known width) AND — content-aware —
 // the active tab's header bar must still fit on one line once narrowed to leave
@@ -262,6 +269,9 @@ func (m model) headerBarBuilder() (func(width int) string, bool) {
 // the rendered header height and the reserved split rows can never disagree (a
 // mismatch would overflow the frame).
 func (m model) mascotVisible() bool {
+	if mascotShelved {
+		return false
+	}
 	build, ok := m.headerBarBuilder()
 	if !ok || !mascotEligible(m.width) {
 		return false
