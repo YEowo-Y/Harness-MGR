@@ -115,36 +115,56 @@ test('#7: a __proto__ own-key in enabledPlugins is not treated as a plugin (prot
 
 // ── B2. #8 / #9 / #10 plugin-state checks ─────────────────────────────────────
 
-test('#10: real-harness oracle — plugins-groundtruth yields exactly 11 cache-missing warns', () => {
+test('#10: real-harness oracle — plugins-groundtruth (all settings-enabled) yields exactly 11 cache-missing warns', () => {
   const s = scan({ targetClaudeDir: fix('plugins-groundtruth') });
-  const r = runDoctor({ installedPlugins: s.plugins });
+  const enabledPlugins = Object.fromEntries(s.plugins.map((p) => [p.key, true])); // settings enables all 13
+  const r = runDoctor({ installedPlugins: s.plugins, enabledPlugins });
   const found = byCode(r.diagnostics, 'plugin-cache-missing');
-  assert.equal(found.length, 11); // 13 installed, all enabled, 2 cached → 11 missing (plan's "11/13")
+  assert.equal(found.length, 11); // 13 installed + enabled, 2 cached → 11 missing (plan's "11/13")
   assert.ok(found.every((d) => d.severity === 'warn'));
 });
 
-test('#10: only ENABLED installs with a missing cache are flagged (disabled is skipped)', () => {
-  const r = runDoctor({ installedPlugins: [
-    plugin({ key: 'on@m', enabled: true, cachePresent: false }),
-    plugin({ key: 'off@m', enabled: false, cachePresent: false }),
-    plugin({ key: 'cached@m', enabled: true, cachePresent: true }),
-  ] });
+test('#10: only SETTINGS-ENABLED installs with a missing cache are flagged', () => {
+  const r = runDoctor({
+    installedPlugins: [
+      plugin({ key: 'on@m', cachePresent: false }),
+      plugin({ key: 'off@m', cachePresent: false }),  // missing cache but not enabled in settings
+      plugin({ key: 'cached@m', cachePresent: true }),
+    ],
+    enabledPlugins: { 'on@m': true, 'cached@m': true },
+  });
   const found = byCode(r.diagnostics, 'plugin-cache-missing');
   assert.equal(found.length, 1);
   assert.match(found[0].message, /on@m/);
 });
 
-test('#10: a non-boolean enabled (undefined) is NOT treated as enabled (strict === true guard)', () => {
-  const r = runDoctor({ installedPlugins: [plugin({ key: 'x@m', enabled: undefined, cachePresent: false })] });
-  assert.equal(byCode(r.diagnostics, 'plugin-cache-missing').length, 0);
+test('#10: record.enabled is IGNORED — only the settings map enables (regression, STABILITY-LOG 2026-05-24)', () => {
+  // record enabled:true but absent from the settings map → NOT flagged (settings is authoritative).
+  const r1 = runDoctor({ installedPlugins: [plugin({ key: 'x@m', enabled: true, cachePresent: false })], enabledPlugins: {} });
+  assert.equal(byCode(r1.diagnostics, 'plugin-cache-missing').length, 0);
+  // record enabled:false but settings-enabled → MUST be flagged (the latent false-negative we fixed).
+  const r2 = runDoctor({ installedPlugins: [plugin({ key: 'x@m', enabled: false, cachePresent: false })], enabledPlugins: { 'x@m': true } });
+  assert.equal(byCode(r2.diagnostics, 'plugin-cache-missing').length, 1);
 });
 
-test('#8: a disabled install → info; an enabled install contributes nothing', () => {
-  const r = runDoctor({ installedPlugins: [plugin({ key: 'off@m', enabled: false }), plugin({ key: 'on@m', enabled: true })] });
+test('#8: an installed plugin absent from the settings map → info; a settings-enabled one is silent', () => {
+  // Both records default enabled:true, so this also proves #8 ignores record.enabled:
+  // off@m has record enabled:true yet is flagged because settings does not enable it.
+  const r = runDoctor({
+    installedPlugins: [plugin({ key: 'off@m' }), plugin({ key: 'on@m' })],
+    enabledPlugins: { 'on@m': true },
+  });
   const found = byCode(r.diagnostics, 'plugin-installed-not-enabled');
   assert.equal(found.length, 1);
   assert.equal(found[0].severity, 'info');
   assert.match(found[0].message, /off@m/);
+});
+
+test('#8: real-harness shape — all installed plugins enabled in settings → no findings', () => {
+  const s = scan({ targetClaudeDir: fix('plugins-groundtruth') });
+  const enabledPlugins = Object.fromEntries(s.plugins.map((p) => [p.key, true]));
+  const r = runDoctor({ installedPlugins: s.plugins, enabledPlugins });
+  assert.equal(byCode(r.diagnostics, 'plugin-installed-not-enabled').length, 0);
 });
 
 test('#9: an installed plugin from an unknown marketplace → info', () => {
@@ -248,6 +268,16 @@ test('boundary: a malformed cluster member is skipped, not thrown on', () => {
   let r;
   assert.doesNotThrow(() => { r = runDoctor({ conflicts: [null, 5, cluster()] }); });
   assert.equal(byCode(r.diagnostics, 'duplicate-component-shadowing').length, 1);
+});
+
+test('boundary: an array enabledPlugins is treated as empty, not iterated (never throws)', () => {
+  let r;
+  assert.doesNotThrow(() => {
+    r = runDoctor({ enabledPlugins: /** @type {any} */ ([1, 2, 3]), installedPlugins: [plugin({ key: 'a@m', cachePresent: false })] });
+  });
+  // typeof [] === 'object', but enabledMap excludes arrays → {} → nothing is "enabled".
+  assert.equal(byCode(r.diagnostics, 'plugin-enabled-not-installed').length, 0);
+  assert.equal(byCode(r.diagnostics, 'plugin-cache-missing').length, 0);
 });
 
 // ── F. DETERMINISM ────────────────────────────────────────────────────────────
