@@ -120,16 +120,56 @@ test('#2: missing mcpResolution field → 0 findings, no throw', () => {
   assert.equal(byCode(r.diagnostics, 'mcp-server-resolvable').length, 0);
 });
 
+// ── B2. #18 statusline-resolvable ─────────────────────────────────────────────
+
+test('#18: statusline.status missing → one warn statusline-resolvable mentioning target', () => {
+  const r = runDoctor({
+    statusline: { command: 'node /x.mjs', kind: 'file', target: '/x.mjs', status: 'missing' },
+  });
+  const found = byCode(r.diagnostics, 'statusline-resolvable');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, 'warn');
+  assert.match(found[0].message, /\/x\.mjs/);
+  assert.equal(found[0].phase, 'doctor');
+  assert.equal(typeof found[0].fix, 'string');
+});
+
+test('#18: statusline.status found → 0 findings', () => {
+  const r = runDoctor({
+    statusline: { command: 'node /x.mjs', kind: 'file', target: '/x.mjs', status: 'found' },
+  });
+  assert.equal(byCode(r.diagnostics, 'statusline-resolvable').length, 0);
+});
+
+test('#18: statusline.status indeterminate → 0 findings (must NOT be flagged)', () => {
+  const r = runDoctor({
+    statusline: { command: 'node $DIR/x.mjs', kind: 'file', target: '$DIR/x.mjs', status: 'indeterminate' },
+  });
+  assert.equal(byCode(r.diagnostics, 'statusline-resolvable').length, 0);
+});
+
+test('#18: statusline absent → 0 findings, no throw', () => {
+  let r;
+  assert.doesNotThrow(() => { r = runDoctor({}); });
+  assert.equal(byCode(r.diagnostics, 'statusline-resolvable').length, 0);
+});
+
+test('#18: statusline null → 0 findings, no throw', () => {
+  let r;
+  assert.doesNotThrow(() => { r = runDoctor({ statusline: null }); });
+  assert.equal(byCode(r.diagnostics, 'statusline-resolvable').length, 0);
+});
+
 // ── C. INTEGRATION — both checks in a full runDoctor call ────────────────────
 
-test('integration: checks array is [1,2,3,5,6,7,8,9,10,11,12,22,23,13,14,20,21,25] with #1 error + #2 warn', () => {
+test('integration: checks array is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25] with #1 error + #2 warn', () => {
   const r = runDoctor({
     now: NOW,
     mcpAuth: [{ name: 's', timestamp: NOW - 120 * DAY }],
     mcpResolution: [{ name: 'a', command: 'x', resolved: false }],
   });
 
-  assert.deepEqual(r.checks.map((c) => c.id), [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 20, 21, 25]);
+  assert.deepEqual(r.checks.map((c) => c.id), [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25]);
   assert.equal(r.probeLevel, 'passive');
 
   const s1 = r.checks.find((c) => c.id === 1);
@@ -144,8 +184,8 @@ test('integration: checks array is [1,2,3,5,6,7,8,9,10,11,12,22,23,13,14,20,21,2
   assert.equal(byCode(r.diagnostics, 'mcp-server-resolvable')[0].severity, 'warn');
 });
 
-test('integration: CHECKS registry has 18 entries starting with ids 1 and 2', () => {
-  assert.equal(CHECKS.length, 18);
+test('integration: CHECKS registry has 20 entries starting with ids 1 and 2', () => {
+  assert.equal(CHECKS.length, 20);
   assert.equal(CHECKS[0].id, 1);
   assert.equal(CHECKS[1].id, 2);
 });
