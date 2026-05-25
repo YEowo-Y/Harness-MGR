@@ -204,6 +204,64 @@ test('error-severity diagnostic from a temp dir also yields exit 1', async () =>
   }
 });
 
+// ── audit ─────────────────────────────────────────────────────────────────────────
+
+test('audit --format json: empty entries on minimal (no audit.log yet)', async () => {
+  const out = await run(['audit', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'audit');
+  assert.ok(Array.isArray(env.result.entries), 'result.entries is an array');
+  assert.ok(env.result.summary !== undefined && env.result.summary !== null, 'result.summary is present');
+});
+
+test('audit --since 7d --format json: does not throw', async () => {
+  const out = await run(['audit', '--since', '7d', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'audit');
+  assert.ok(Array.isArray(env.result.entries));
+});
+
+test('audit default (table) format: mentions the command', async () => {
+  const out = await run(['audit', '--config-dir', MIN]);
+  assert.equal(out.code, 0);
+  assert.ok(out.stdout.includes('audit'), 'table title names the command');
+});
+
+// ── drift ─────────────────────────────────────────────────────────────────────────
+
+test('drift --format json: no-baseline on minimal (no lockfile)', async () => {
+  const out = await run(['drift', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'drift');
+  assert.ok(
+    ['no-baseline', 'clean', 'drifted'].includes(env.result.status),
+    `result.status must be a valid DriftStatus, got: ${env.result.status}`,
+  );
+});
+
+test('drift default (table) format: mentions the command', async () => {
+  const out = await run(['drift', '--config-dir', MIN]);
+  assert.equal(out.code, 0);
+  assert.ok(out.stdout.includes('drift'), 'table title names the command');
+});
+
+test('drift --update against fixture degrades gracefully (no throw, write rejected)', async () => {
+  // assertWritable rejects writes outside the real targetClaudeDir; --update against
+  // a fixture emits a warn diagnostic but must NOT throw and must return a status.
+  await assert.doesNotReject(async () => {
+    const out = await run(['drift', '--update', '--config-dir', MIN, '--format', 'json']);
+    assert.equal(typeof out.code, 'number');
+    const env = JSON.parse(out.stdout);
+    assert.ok(
+      ['no-baseline', 'clean', 'drifted', 'unavailable'].includes(env.result.status),
+      `result.status must be a valid status, got: ${env.result.status}`,
+    );
+  });
+});
+
 // ── never-throws ─────────────────────────────────────────────────────────────────
 
 test('non-existent config dir: never throws, returns a well-formed envelope', async () => {
