@@ -26,7 +26,7 @@
 import { pathToFileURL } from 'node:url';
 import { COMMANDS } from './cli/commands.mjs';
 import { resolveConfigDir } from './cli/resolve-config.mjs';
-import { formatJson } from './output/json.mjs';
+import { formatJson, formatNdjson } from './output/json.mjs';
 import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /**
@@ -44,7 +44,7 @@ const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key'
 const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
-const FORMATS = Object.freeze(['table', 'json', 'quiet']);
+const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
 
 /**
  * Parse argv, resolve the config dir, dispatch to the command, and render. Never
@@ -147,6 +147,7 @@ function flagKey(flag) {
 function render(canonical, result, diagnostics, format) {
   const fmt = FORMATS.includes(format) ? format : 'table';
   if (fmt === 'json') return formatJson({ command: canonical, result, diagnostics });
+  if (fmt === 'ndjson') return formatNdjson({ command: canonical, result, diagnostics });
   if (fmt === 'quiet') return renderQuiet(canonical, countSeverity(diagnostics, 'error'), countSeverity(diagnostics, 'warn'));
   return appendFooter(renderTable(canonical, result), diagnostics);
 }
