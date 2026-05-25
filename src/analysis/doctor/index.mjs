@@ -56,6 +56,7 @@ import { PROBE_CHECKS } from './probe-checks.mjs';
  * @typedef {import('../conflicts.mjs').ConflictCluster} ConflictCluster
  * @typedef {import('../../discovery/probe-mcp.mjs').McpAuthFact} McpAuthFact
  * @typedef {import('../../discovery/probe-mcp.mjs').McpResolutionFact} McpResolutionFact
+ * @typedef {import('../../discovery/probe-hooks.mjs').HookFact} HookFact
  */
 
 /**
@@ -78,6 +79,7 @@ import { PROBE_CHECKS } from './probe-checks.mjs';
  * @property {ConflictCluster[]} [conflicts]       shadowing clusters (analyzeConflicts(...).conflicts)
  * @property {McpAuthFact[]} [mcpAuth]             MCP needs-auth facts (probe-mcp); judged by #1
  * @property {McpResolutionFact[]} [mcpResolution] stdio command-resolution facts (probe-mcp); judged by #2
+ * @property {HookFact[]} [hookFacts]              hook resolution facts (probe-hooks); judged by #3/#5
  * @property {number} [now]                        reference time (ms) for age-based checks; the CLI passes
  *                                                 Date.now(). Absent → age-based checks emit nothing (keeps
  *                                                 the doctor pure).
