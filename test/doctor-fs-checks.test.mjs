@@ -387,11 +387,49 @@ test('#25: future doc (mtimeMs > now) → no findings', () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// E2. #16 disk-budget
+// ══════════════════════════════════════════════════════════════════════════════
+
+test('#16: diskUsage.bytes strictly over 5 GiB → one warn disk-budget with .path', () => {
+  const check = byId(16);
+  const diags = check.run({ fsFacts: { diskUsage: { path: '/s', bytes: 6 * 1024 * 1024 * 1024 } } });
+  assert.equal(diags.length, 1);
+  assert.equal(diags[0].severity, 'warn');
+  assert.equal(diags[0].code, 'disk-budget');
+  assert.equal(diags[0].path, '/s');
+  assert.equal(diags[0].phase, 'doctor');
+  assert.equal(typeof diags[0].fix, 'string');
+});
+
+test('#16: bytes exactly at 5 GiB boundary → [] (not strictly over)', () => {
+  const check = byId(16);
+  const diags = check.run({ fsFacts: { diskUsage: { path: '/s', bytes: 5 * 1024 * 1024 * 1024 } } });
+  assert.deepEqual(diags, []);
+});
+
+test('#16: bytes 0 → []', () => {
+  const check = byId(16);
+  assert.deepEqual(check.run({ fsFacts: { diskUsage: { path: '/s', bytes: 0 } } }), []);
+});
+
+test('#16: diskUsage null → []', () => {
+  const check = byId(16);
+  assert.deepEqual(check.run({ fsFacts: { diskUsage: null } }), []);
+});
+
+test('#16: missing fsFacts → [], no throw', () => {
+  const check = byId(16);
+  let diags;
+  assert.doesNotThrow(() => { diags = check.run({}); });
+  assert.deepEqual(diags, []);
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // F. REGISTRY
 // ══════════════════════════════════════════════════════════════════════════════
 
-test('registry: FS_CHECKS ids are [13, 14, 20, 21, 25]', () => {
-  assert.deepEqual(FS_CHECKS.map((c) => c.id), [13, 14, 20, 21, 25]);
+test('registry: FS_CHECKS ids are [13, 14, 16, 20, 21, 25]', () => {
+  assert.deepEqual(FS_CHECKS.map((c) => c.id), [13, 14, 16, 20, 21, 25]);
 });
 
 test('registry: all FS_CHECKS are probeLevel passive', () => {
@@ -405,12 +443,12 @@ test('registry: ids 13, 14, 20, 21, 25 all present in the full CHECKS registry',
   }
 });
 
-test('registry: full CHECKS length is 18', () => {
-  assert.equal(CHECKS.length, 18);
+test('registry: full CHECKS length is 20', () => {
+  assert.equal(CHECKS.length, 20);
 });
 
-test('registry: full id order is [1,2,3,5,6,7,8,9,10,11,12,22,23,13,14,20,21,25]', () => {
-  assert.deepEqual(CHECKS.map((c) => c.id), [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 20, 21, 25]);
+test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25]', () => {
+  assert.deepEqual(CHECKS.map((c) => c.id), [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25]);
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
