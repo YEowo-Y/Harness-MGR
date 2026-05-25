@@ -130,6 +130,8 @@ function buildAllowlistCases(targetClaudeDir, mgrStateDir) {
   return [
     { label: 'mgrStateDir/snapshots/x.json apply -> ALLOW',
       target: join(mgrStateDir, 'snapshots', 'x.json'), context: 'apply', expectAllow: true },
+    { label: 'mgrStateDir/lockfile.json apply -> ALLOW (U9 drift lockfile)',
+      target: join(mgrStateDir, 'lockfile.json'), context: 'apply', expectAllow: true },
     { label: 'parent-of-targetClaudeDir/some-outside-file apply -> THROW write-outside-target',
       target: join(dirname(targetClaudeDir), 'some-outside-file'), context: 'apply',
       expectAllow: false, expectedCode: 'write-outside-target' },
