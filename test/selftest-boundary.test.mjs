@@ -45,6 +45,8 @@ function isUnderFake(child, parent) {
   return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
+const FAKE_PROBE_NAME_RE = /^__mgr-probe-[0-9a-f-]+\.md$/i;
+
 /**
  * Correct fake that mirrors the real assertWritable rules.
  * @param {string} target
@@ -53,6 +55,7 @@ function isUnderFake(child, parent) {
  */
 function fakeAssertWritable(target, context = 'apply') {
   const { targetClaudeDir, mgrStateDir } = fakeRoots;
+  const ctx = (context === 'rollback' || context === 'probe') ? context : 'apply';
 
   // Always writable: under mgrStateDir
   if (isUnderFake(target, mgrStateDir)) {
@@ -75,6 +78,20 @@ function fakeAssertWritable(target, context = 'apply') {
     }
   }
 
+  // Probe context: only agents/__mgr-probe-*.md directly in agents/.
+  // NOTE: this fake is intentionally string-only (no canonical()/realpath). The
+  // real gate's traversal/symlink-escape handling is covered by paths.test.mjs,
+  // not here — do not "upgrade" this fake to resolve paths.
+  if (ctx === 'probe') {
+    const agentsDir = join(targetClaudeDir, 'agents');
+    const parentDir = target.slice(0, target.lastIndexOf(sep));
+    const filename = target.slice(target.lastIndexOf(sep) + 1);
+    if (parentDir === agentsDir && FAKE_PROBE_NAME_RE.test(filename)) {
+      return target;
+    }
+    throw Object.assign(new Error('probe-only: ' + target), { code: 'write-probe-only' });
+  }
+
   // Rollback-only surfaces
   const rollbackOnly = [
     join(targetClaudeDir, 'CLAUDE.md'),
@@ -85,7 +102,7 @@ function fakeAssertWritable(target, context = 'apply') {
   ];
   for (const r of rollbackOnly) {
     if (isUnderFake(target, r)) {
-      if (context === 'rollback') return target;
+      if (ctx === 'rollback') return target;
       throw Object.assign(new Error('rollback-only: ' + target), { code: 'write-rollback-only' });
     }
   }
