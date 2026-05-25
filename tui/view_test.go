@@ -72,24 +72,41 @@ func TestDetailFieldEmptyValueDash(t *testing.T) {
 	}
 }
 
-// TestDetailFieldTruncatesLongValue asserts a value longer than the available
-// space is truncated with an ellipsis.
-func TestDetailFieldTruncatesLongValue(t *testing.T) {
+// TestDetailFieldWrapsLongValue asserts a value longer than the available space
+// is word-wrapped across multiple lines (no ellipsis) and each visual line fits
+// within the pane width. The full value text must be present across those lines.
+func TestDetailFieldWrapsLongValue(t *testing.T) {
+	const width = 60
 	long := strings.Repeat("x", 200)
-	row := detailField("Kind", long, 60)
+	row := detailField("Kind", long, width)
 	stripped := stripANSI(row)
-	// The stripped row (minus newline) must fit within width columns.
-	stripped = strings.TrimRight(stripped, "\n")
-	if len([]rune(stripped)) > 60 {
-		t.Fatalf("detailField row wider than width=60: %d runes", len([]rune(stripped)))
+
+	// The full value text must be recoverable across lines (no truncation/ellipsis).
+	// Join all visual lines and strip spaces to reconstruct the wrapped value.
+	joined := strings.ReplaceAll(strings.TrimRight(stripped, "\n"), "\n", "")
+	joined = strings.ReplaceAll(joined, " ", "")
+	if !strings.Contains(joined, long) {
+		t.Fatalf("detailField should contain full value text (no ellipsis), reconstructed: %q", joined)
+	}
+
+	// Every line must fit within width columns.
+	for i, line := range strings.Split(strings.TrimRight(stripped, "\n"), "\n") {
+		if n := len([]rune(line)); n > width {
+			t.Fatalf("line %d wider than width=%d: %d runes: %q", i, width, n, line)
+		}
+	}
+
+	// Output must span more than one line (wrapping occurred).
+	if strings.Count(stripped, "\n") < 1 {
+		t.Fatalf("detailField with long value should wrap to multiple lines")
 	}
 }
 
 // ── conflictDetail reflow test ────────────────────────────────────────────────
 
 // TestConflictDetailReflowNarrow asserts that a long value (the Reason field)
-// is shorter/ellipsized at width=40 compared to width=120, confirming the
-// detail builder respects the live pane width.
+// is fully visible at both narrow and wide widths — wrapping keeps the full text
+// readable at any width, with narrower widths producing more lines.
 func TestConflictDetailReflowNarrow(t *testing.T) {
 	c := ConflictCluster{
 		Kind:         "skill",
@@ -106,14 +123,19 @@ func TestConflictDetailReflowNarrow(t *testing.T) {
 	narrowStripped := stripANSI(narrow)
 	wideStripped := stripANSI(wide)
 
-	// The wide version must contain the full reason text; the narrow must not
-	// (it gets truncated). Check for a suffix that would only survive at width=120.
+	// Both narrow and wide must contain the full reason text (wrapping, not truncation).
 	longSuffix := "exceeds narrow widths"
 	if !strings.Contains(wideStripped, longSuffix) {
 		t.Fatalf("wide detail missing expected reason text %q:\n%s", longSuffix, wideStripped)
 	}
-	if strings.Contains(narrowStripped, longSuffix) {
-		t.Fatalf("narrow detail should have truncated reason but still contains %q:\n%s", longSuffix, narrowStripped)
+	if !strings.Contains(narrowStripped, longSuffix) {
+		t.Fatalf("narrow detail should wrap (not truncate) and still contain %q:\n%s", longSuffix, narrowStripped)
+	}
+
+	// The narrow version must produce more lines than the wide version.
+	if strings.Count(narrowStripped, "\n") <= strings.Count(wideStripped, "\n") {
+		t.Fatalf("narrow detail should have more lines than wide (wrapping), narrow=%d wide=%d",
+			strings.Count(narrowStripped, "\n"), strings.Count(wideStripped, "\n"))
 	}
 }
 
