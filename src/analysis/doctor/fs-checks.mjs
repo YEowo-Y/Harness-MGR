@@ -22,6 +22,7 @@ import { numOr } from './util.mjs';
 
 const MAX_CLAUDE_MD_BACKUPS = 3;
 const STALE_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const DISK_BUDGET_BYTES = 5 * 1024 * 1024 * 1024; // 5 GiB
 
 /**
  * Defensive accessor for input.fsFacts. Returns {} when absent or not an object.
@@ -83,6 +84,28 @@ function checkSnapshotRetention(input) {
     });
   }
   return out;
+}
+
+/**
+ * #16 disk-budget — flag when .mgr-state/ exceeds 5 GiB. ONE warn total.
+ * bytes === 0 when the dir is absent — that is benign, skip it.
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkDiskBudget(input) {
+  const facts = getFacts(input);
+  const du = facts.diskUsage;
+  if (!du || typeof du !== 'object') return [];
+  const bytes = numOr(du.bytes, 0);
+  if (bytes <= DISK_BUDGET_BYTES) return [];
+  return [{
+    severity: 'warn',
+    code: 'disk-budget',
+    message: `state dir is ${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB — over the 5 GB budget`,
+    phase: 'doctor',
+    path: typeof du.path === 'string' ? du.path : undefined,
+    fix: 'prune old snapshots to reclaim space',
+  }];
 }
 
 /**
@@ -166,14 +189,15 @@ function checkConfigRulesStale(input) {
 }
 
 /**
- * The five pure filesystem checks, frozen in registry order. Imported by
+ * The six pure filesystem checks, frozen in registry order. Imported by
  * index.mjs and spread into CHECKS after ...CONFIG_CHECKS → registry becomes
- * [1,2,3,5,6,7,8,9,10,11,12,22,23,13,14,20,21,25].
+ * [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25].
  * @type {ReadonlyArray<import('./index.mjs').DoctorCheck>}
  */
 export const FS_CHECKS = Object.freeze([
   Object.freeze({ id: 13, code: 'claude-md-backup-bloat', probeLevel: 'passive', run: checkClaudeMdBackupBloat }),
   Object.freeze({ id: 14, code: 'snapshot-retention', probeLevel: 'passive', run: checkSnapshotRetention }),
+  Object.freeze({ id: 16, code: 'disk-budget', probeLevel: 'passive', run: checkDiskBudget }),
   Object.freeze({ id: 20, code: 'probe-residue', probeLevel: 'passive', run: checkProbeResidue }),
   Object.freeze({ id: 21, code: 'apply-leftover-files', probeLevel: 'passive', run: checkApplyLeftoverFiles }),
   Object.freeze({ id: 25, code: 'config-rules-stale', probeLevel: 'passive', run: checkConfigRulesStale }),
