@@ -122,14 +122,14 @@ test('#2: missing mcpResolution field → 0 findings, no throw', () => {
 
 // ── C. INTEGRATION — both checks in a full runDoctor call ────────────────────
 
-test('integration: checks array is [1,2,3,5,6,7,8,9,10,11,12,22,23] with #1 error + #2 warn', () => {
+test('integration: checks array is [1,2,3,5,6,7,8,9,10,11,12,22,23,13,14,20,21,25] with #1 error + #2 warn', () => {
   const r = runDoctor({
     now: NOW,
     mcpAuth: [{ name: 's', timestamp: NOW - 120 * DAY }],
     mcpResolution: [{ name: 'a', command: 'x', resolved: false }],
   });
 
-  assert.deepEqual(r.checks.map((c) => c.id), [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 22, 23]);
+  assert.deepEqual(r.checks.map((c) => c.id), [1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 20, 21, 25]);
   assert.equal(r.probeLevel, 'passive');
 
   const s1 = r.checks.find((c) => c.id === 1);
@@ -144,8 +144,8 @@ test('integration: checks array is [1,2,3,5,6,7,8,9,10,11,12,22,23] with #1 erro
   assert.equal(byCode(r.diagnostics, 'mcp-server-resolvable')[0].severity, 'warn');
 });
 
-test('integration: CHECKS registry has 13 entries starting with ids 1 and 2', () => {
-  assert.equal(CHECKS.length, 13);
+test('integration: CHECKS registry has 18 entries starting with ids 1 and 2', () => {
+  assert.equal(CHECKS.length, 18);
   assert.equal(CHECKS[0].id, 1);
   assert.equal(CHECKS[1].id, 2);
 });
