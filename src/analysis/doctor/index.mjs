@@ -36,6 +36,7 @@
  *   #20 probe-residue                 leftover __mgr-probe-* temp file from crashed loader probe → warn
  *   #21 apply-leftover-files          leftover *.mgr-new / *.mgr-old from interrupted atomic write → warn
  *   #25 config-rules-stale            effective-config-rules.md older than 90 days → info
+ *   #17 windows-file-locks            settings.json appears exclusively locked by another process → warn
  *
  * --- Facts gathered by the discovery probe, judged here ---
  * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
@@ -60,6 +61,7 @@ import { DiagnosticBag } from '../../lib/diagnostic.mjs';
 import { PROBE_CHECKS } from './probe-checks.mjs';
 import { CONFIG_CHECKS } from './config-checks.mjs';
 import { FS_CHECKS } from './fs-checks.mjs';
+import { ACCESS_CHECKS } from './access-checks.mjs';
 import { strOr, numOr } from './util.mjs';
 
 /**
@@ -103,6 +105,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {{allow?:string[],ask?:string[],deny?:string[]}} [permissions]  merged effective.permissions (mergeSettings); #23 judges .allow for wildcards
  * @property {import('../../discovery/probe-fs.mjs').FsFacts} [fsFacts]  filesystem facts (probe-fs); judged by #13/#14/#16/#20/#21/#25
  * @property {StatuslineFact} [statusline]  statusLine resolution fact (probe-statusline); judged by #18
+ * @property {import('../../discovery/probe-access.mjs').LockFact} [lock]  settings.json lock fact (probe-access); judged by #17
  */
 
 /**
@@ -346,6 +349,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({ id: 11, code: 'duplicate-component-shadowing', probeLevel: 'passive', run: checkDuplicateComponentShadowing }),
   ...CONFIG_CHECKS,
   ...FS_CHECKS,
+  ...ACCESS_CHECKS,
 ]);
 
 /**
