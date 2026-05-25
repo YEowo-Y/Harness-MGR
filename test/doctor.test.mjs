@@ -233,7 +233,7 @@ test('aggregate: all three checks fire together; report is passive with per-chec
   assert.ok(r.checks.every((c) => c.ran), 'every passive check runs by default');
   // findings line up with the registry order; the plugin-state checks (#8/#9/#10)
   // find nothing here (no installed plugins / marketplaces in this bundle).
-  assert.deepEqual(r.checks.map((c) => [c.id, c.findings]), [[1, 0], [2, 0], [6, 1], [7, 1], [8, 0], [9, 0], [10, 0], [11, 1]]);
+  assert.deepEqual(r.checks.map((c) => [c.id, c.findings]), [[1, 0], [2, 0], [3, 0], [5, 0], [6, 1], [7, 1], [8, 0], [9, 0], [10, 0], [11, 1]]);
   assert.equal(bySeverity(r.diagnostics, 'error').length, 2); // #6 + #7
   assert.equal(bySeverity(r.diagnostics, 'warn').length, 1);  // #11
 });
