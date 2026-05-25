@@ -185,10 +185,13 @@ export function parseIcaclsAcl(stdout, path) {
  *
  * Security note: only ONE positional (the path) is passed, validated by the
  * schema's positionalPattern (a drive-lettered path). icacls MUTATION flags
- * (/grant, /deny, /remove, /inheritance, ...) begin with `/`, not `-`, so they
- * are blocked here by FAILING positionalPattern (a `/`-token is not a path) —
- * NOT by safeSpawn's flag gate, which only rejects `-`-prefixed tokens. maxArgs:1
- * additionally forbids injecting a second argument.
+ * (/grant, /deny, /remove, /inheritance, ...) begin with `/`, so they are now
+ * rejected by safeSpawn's flag gate BY DEFAULT — a `/`-token is treated as a
+ * flag (and none are allowlisted here) unless a consumer opts into
+ * allowSlashPositionals, which this one deliberately does NOT. The path
+ * positional is a drive-lettered `C:\...` (never `/`-leading), so the secure
+ * default does not break the legitimate call. maxArgs:1 additionally forbids
+ * injecting a second argument.
  * @param {string} aclDir
  * @returns {Promise<string>}  resolves with stdout
  */
