@@ -1,5 +1,6 @@
 /**
- * Doctor active checks — #4 hook-node-syntax (P2.U7a), #15 claude-cli-resolvable (P2.U7b).
+ * Doctor active checks — #4 hook-node-syntax (P2.U7a), #15 claude-cli-resolvable
+ * (P2.U7b), #19 loader-probe (P2.U7c-2). U7 now complete.
  *
  * The PURE judgment layer for facts gathered by the active discovery probes.
  * These checks are dispatched ONLY when the caller opts in via `--active-probes`;
@@ -7,15 +8,16 @@
  *
  * No I/O, no clock; pure data in, Diagnostic[] out. Never throws.
  * Zero npm dependencies. Node stdlib only.
- *
- * Future active check (#19 loader-probe) will be added in P2.U7c.
  */
+
+import { loaderConfidence } from '../load-order.mjs';
 
 /**
  * @typedef {import('./index.mjs').DoctorInput} DoctorInput
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
  * @typedef {import('../../discovery/probe-hook-syntax.mjs').HookSyntaxFact} HookSyntaxFact
  * @typedef {import('../../discovery/probe-cli.mjs').CliFact} CliFact
+ * @typedef {import('../../discovery/probe-loader.mjs').LoaderProbeFact} LoaderProbeFact
  */
 
 /**
@@ -105,6 +107,42 @@ function checkClaudeCliResolvable(input) {
 }
 
 /**
+ * #19 loader-probe — judge the LoaderProbeFact gathered by probe-loader.
+ *
+ *   cleanedUp === false              → WARN: a probe file was left in agents/;
+ *                                      the passive #20 probe-residue check also flags it
+ *   wrote === true && observed false → WARN: wrote a probe agent but discovery
+ *                                      missed it → component discovery may be misconfigured
+ *   wrote === true && cleanedUp ok  → surface loader precedence confidence ONLY when
+ *                                      NOT 'verified' (verified → silent, the healthy case).
+ *                                      Confidence derived from ccVersion via loaderConfidence.
+ *
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkLoaderProbe(input) {
+  const fact = input.loader;
+  if (!fact || typeof fact !== 'object') return [];
+  /** @type {Diagnostic[]} */
+  const out = [];
+  const probeName = typeof fact.probeName === 'string' && fact.probeName.length > 0 ? fact.probeName : '__mgr-probe-*';
+  if (fact.cleanedUp === false) {
+    out.push({ severity: 'warn', code: 'loader-probe', message: `loader probe left a residue file in agents/: ${probeName}.md`, phase: 'doctor', fix: 'remove the leftover __mgr-probe-*.md file (the passive probe-residue check also reports it)' });
+  }
+  if (fact.wrote === true && fact.observed === false) {
+    out.push({ severity: 'warn', code: 'loader-probe', message: 'loader probe wrote a probe agent but discovery did not detect it; component discovery may be misconfigured', phase: 'doctor', fix: 'verify the agents/ path is being scanned correctly' });
+  }
+  if (fact.wrote === true && fact.cleanedUp !== false) {
+    const ver = typeof fact.ccVersion === 'string' && fact.ccVersion.length > 0 ? fact.ccVersion : null;
+    const { confidence } = loaderConfidence(ver ?? undefined);
+    if (confidence !== 'verified') {
+      out.push({ severity: 'info', code: 'loader-probe', message: `loader precedence is best-effort (${confidence}); claude version ${ver ?? 'unknown'} not confirmed in the verified 2.1.x line`, phase: 'doctor', fix: '(informational) precedence may differ outside Claude Code 2.1.x' });
+    }
+  }
+  return out;
+}
+
+/**
  * Active checks, frozen in registry order. Spread LAST into index.mjs CHECKS
  * (active checks group at the end of the registry).
  * @type {ReadonlyArray<import('./index.mjs').DoctorCheck>}
@@ -112,4 +150,5 @@ function checkClaudeCliResolvable(input) {
 export const ACTIVE_CHECKS = Object.freeze([
   Object.freeze({ id: 4, code: 'hook-node-syntax', probeLevel: 'active', run: checkHookNodeSyntax }),
   Object.freeze({ id: 15, code: 'claude-cli-resolvable', probeLevel: 'active', run: checkClaudeCliResolvable }),
+  Object.freeze({ id: 19, code: 'loader-probe', probeLevel: 'active', run: checkLoaderProbe }),
 ]);
