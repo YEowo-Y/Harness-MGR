@@ -12,6 +12,13 @@
  *
  * execFile (NOT exec/spawn-with-shell) is used so arguments are passed as an
  * argv array with no shell interpolation. Zero npm dependencies.
+ *
+ * HARDENING (slash-flag gate): a `/`-prefixed token (e.g. icacls's /grant,
+ * /deny) is treated as a FLAG by default — allowed ONLY if listed in
+ * schema.allowedFlags — so Windows-style mutation flags are denied by default,
+ * not merely by incidentally failing a positionalPattern. A consumer that
+ * legitimately passes POSIX absolute-path positionals (which begin with `/`)
+ * opts out via schema.allowSlashPositionals:true.
  */
 
 import { execFile } from 'node:child_process';
@@ -22,6 +29,15 @@ import { isAbsolute } from 'node:path';
  * @property {string[]} [allowedFlags]        exact flag tokens permitted (e.g. '-C', '--mirror')
  * @property {RegExp} [positionalPattern]     each non-flag token must match this
  * @property {number} [maxArgs]               hard cap on argv length
+ * @property {boolean} [allowSlashPositionals]
+ *   Secure-by-default switch for `/`-prefixed tokens. By DEFAULT (absent/false)
+ *   a `/`-token is treated as a FLAG — allowed only if it appears in
+ *   allowedFlags — so Windows-style mutation flags (icacls /grant, /deny, ...)
+ *   are denied by the flag gate, not merely by incidentally failing
+ *   positionalPattern. Set true ONLY for a consumer whose legitimate positionals
+ *   are POSIX absolute paths (which begin with `/`, e.g. `node --check /abs.mjs`
+ *   on Linux/macOS); then a `/`-token falls through to the positional branch and
+ *   is validated by positionalPattern as before.
  */
 
 /**
@@ -87,7 +103,13 @@ export function validateSpawnSpec(spec) {
     if (typeof tok !== 'string') {
       throw new SafeSpawnError('argv tokens must be strings', 'spawn-argv-nonstring');
     }
-    if (tok.startsWith('-')) {
+    // Secure-by-default: `-`-tokens are always flags; `/`-tokens are flags too
+    // UNLESS the consumer opted into POSIX absolute-path positionals. This shuts
+    // the door on Windows-style mutation flags (icacls /grant, /deny, ...) by
+    // default rather than relying on them incidentally failing positionalPattern.
+    const isFlag =
+      tok.startsWith('-') || (tok.startsWith('/') && schema.allowSlashPositionals !== true);
+    if (isFlag) {
       // Flags: allowed ONLY if explicitly listed (no list => no flags).
       if (!schema.allowedFlags || !schema.allowedFlags.includes(tok)) {
         throw new SafeSpawnError(`flag not allowed: ${tok}`, 'spawn-flag-not-allowed');
