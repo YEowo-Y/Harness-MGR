@@ -21,7 +21,8 @@ import (
 // Extend this list when new section tabs are added.
 func isSectionView(v viewID) bool {
 	return v == viewConflicts || v == viewOrphans ||
-		v == viewConfig || v == viewHooks || v == viewSelftest
+		v == viewConfig || v == viewHooks || v == viewSelftest ||
+		v == viewDoctor
 }
 
 // ── Conflicts ────────────────────────────────────────────────────────────────
@@ -233,6 +234,8 @@ func sectionEmptyLabel(v viewID) string {
 		return tr("empty.hooks")
 	case viewSelftest:
 		return tr("empty.selftest")
+	case viewDoctor:
+		return tr("empty.doctor")
 	default:
 		return tr("empty.items")
 	}
@@ -397,6 +400,169 @@ func selftestDetail(ch SelftestCheck, width int) string {
 
 	b.WriteString(detailSection("Result", color, width))
 	b.WriteString(detailField("Status", status, width))
+	return b.String()
+}
+
+// ── Doctor ───────────────────────────────────────────────────────────────────
+
+// doctorSeverity is the resolved health state of a single doctor check, derived
+// by joining the check to the diagnostics it produced (by Code). It orders the
+// row's color + icon: error (worst) → warn → info/finding → ok → skipped.
+type doctorSeverity int
+
+const (
+	doctorSkipped doctorSeverity = iota // active check not run in the passive pass
+	doctorOk                            // ran, zero findings
+	doctorInfo                          // findings present, no error/warn diagnostic
+	doctorWarn                          // a warn diagnostic
+	doctorError                         // an error diagnostic
+)
+
+// doctorCheckDiags returns the diagnostics whose Code matches the check's Code —
+// the join that recovers a check's findings (severity + message + fix) from the
+// flat top-level diagnostics array.
+func doctorCheckDiags(code string, diags []Diagnostic) []Diagnostic {
+	out := make([]Diagnostic, 0, len(diags))
+	for _, d := range diags {
+		if d.Code == code {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// resolveDoctorSeverity classifies one check. The diagnostic severities (error /
+// warn) win over the findings count, which wins over the ran/ok facts: a check
+// can report findings>0 whose matching diagnostics are info-level (or carry no
+// matching diagnostic at all), so findings alone only reach doctorInfo. An active
+// check skipped in the passive run (ran=false) is doctorSkipped, distinct from a
+// genuine clean pass (doctorOk).
+func resolveDoctorSeverity(ch DoctorCheck, diags []Diagnostic) doctorSeverity {
+	hasWarn := false
+	for _, d := range doctorCheckDiags(ch.Code, diags) {
+		switch strings.ToLower(strings.TrimSpace(d.Severity)) {
+		case "error":
+			return doctorError
+		case "warn", "warning":
+			hasWarn = true
+		}
+	}
+	if hasWarn {
+		return doctorWarn
+	}
+	if ch.Findings > 0 {
+		return doctorInfo
+	}
+	if !ch.Ran {
+		return doctorSkipped
+	}
+	return doctorOk
+}
+
+// doctorColor maps a resolved severity to a palette color: error→colorRed,
+// warn→colorOrange (amber), info→accent (teal), ok→colorPlugin (green),
+// skipped→labelGray.
+func doctorColor(sev doctorSeverity) lipgloss.Color {
+	switch sev {
+	case doctorError:
+		return colorRed
+	case doctorWarn:
+		return colorOrange
+	case doctorInfo:
+		return accent
+	case doctorOk:
+		return colorPlugin
+	default:
+		return labelGray
+	}
+}
+
+// doctorIcon maps a resolved severity to its status glyph (with an ASCII fallback
+// for no-Unicode terminals): error ✗, warn ⚠, info •, ok ✓, skipped ○.
+func doctorIcon(sev doctorSeverity) string {
+	switch sev {
+	case doctorError:
+		return glyph("✗", "[x]")
+	case doctorWarn:
+		return glyph("⚠", "[!]")
+	case doctorInfo:
+		return glyph("•", "*")
+	case doctorOk:
+		return glyph("✓", "[ok]")
+	default:
+		return glyph("○", "[ ]")
+	}
+}
+
+// doctorItems converts a DoctorReport into sectionItems for the Doctor list, one
+// row per check in the engine's emitted order. Each row's color + icon reflect the
+// check's resolved severity (joined to its diagnostics by Code); the title is
+// "<icon> #<id> <code>" plus " · <findings>" when the check produced any.
+func doctorItems(report DoctorReport) []sectionItem {
+	items := make([]sectionItem, 0, len(report.Checks))
+	for _, ch := range report.Checks {
+		ch := ch // shadow for closure capture
+		sev := resolveDoctorSeverity(ch, report.Diagnostics)
+		title := fmt.Sprintf("%s #%d %s", doctorIcon(sev), ch.ID, ch.Code)
+		if ch.Findings > 0 {
+			title += fmt.Sprintf(" · %d", ch.Findings)
+		}
+		diags := doctorCheckDiags(ch.Code, report.Diagnostics)
+		items = append(items, sectionItem{
+			title:  title,
+			color:  doctorColor(sev),
+			detail: func(w int) string { return doctorDetail(ch, diags, w) },
+		})
+	}
+	return items
+}
+
+// doctorDetail builds the detail body for a doctor check at the given pane width.
+// It mirrors selftestDetail's shape (title + Result section) then adds a Findings
+// section listing each matching diagnostic's severity + message (+ fix when set).
+// A clean / skipped check says so in place of the findings list.
+func doctorDetail(ch DoctorCheck, diags []Diagnostic, width int) string {
+	sev := resolveDoctorSeverity(ch, diags)
+	fg := doctorColor(sev)
+
+	status := "ok — no findings"
+	switch {
+	case sev == doctorSkipped:
+		status = "skipped (active probe, not run)"
+	case ch.Findings == 1:
+		status = "1 finding"
+	case ch.Findings > 1:
+		status = fmt.Sprintf("%d findings", ch.Findings)
+	}
+
+	var b strings.Builder
+	b.WriteString(detailTitle(ch.Code, fg, "", width))
+	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Result", fg, width))
+	b.WriteString(detailField("Status", status, width))
+	b.WriteString(detailField("Probe level", ch.ProbeLevel, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Findings", fg, width))
+	if len(diags) == 0 {
+		if sev == doctorSkipped {
+			b.WriteString(detailField("—", "active probe skipped in passive run", width))
+		} else {
+			b.WriteString(detailField("—", "passed — no findings", width))
+		}
+		return b.String()
+	}
+	for i, d := range diags {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(detailField("Severity", d.Severity, width))
+		b.WriteString(detailField("Message", d.Message, width))
+		if fix := strings.TrimSpace(d.Fix); fix != "" {
+			b.WriteString(detailField("Fix", fix, width))
+		}
+	}
 	return b.String()
 }
 
