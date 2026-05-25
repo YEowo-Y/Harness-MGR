@@ -121,6 +121,136 @@ test('assertWritable ALLOWS the mgr state dir and DENIES the forbidden/rollback-
   }
 });
 
+// --- assertWritable: 'probe' context tests ---
+test('assertWritable probe context: valid __mgr-probe-<uuid>.md in agents/ -> returns canonical path', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // The probe file itself need not exist; canonical() resolves the parent.
+    const probePath = join(dir, 'agents', '__mgr-probe-a1b2c3d4-e5f6-7890-abcd-ef1234567890.md');
+    const result = assertWritable(probePath, 'probe');
+    assert.ok(typeof result === 'string' && result.length > 0, 'returns canonical path string');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable probe context: non-probe name in agents/ -> throws write-probe-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'agents', 'real-agent.md'), 'probe'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-probe-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable probe context: probe name in nested subdir -> throws write-probe-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // dirname check: must be DIRECTLY in agents/, not nested
+    assert.throws(
+      () => assertWritable(join(dir, 'agents', 'sub', '__mgr-probe-0000.md'), 'probe'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-probe-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable probe context: CLAUDE.md -> throws write-probe-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'CLAUDE.md'), 'probe'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-probe-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable probe context: path outside config dir -> throws write-outside-target', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // outside check runs before the probe branch
+    assert.throws(
+      () => assertWritable(join(tmpdir(), 'outside', '__mgr-probe-0000.md'), 'probe'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-outside-target',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable apply context: probe-named file in agents/ -> still throws write-rollback-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // unchanged behavior: apply context cannot write agents/ regardless of filename
+    assert.throws(
+      () => assertWritable(join(dir, 'agents', '__mgr-probe-0000.md'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable probe context: mgrStateDir path -> ALLOW (stateDir check runs first)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const state = mgrStateDir(dir);
+    // stateDir is always writable regardless of context
+    assert.doesNotThrow(() => assertWritable(join(state, 'x'), 'probe'));
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable probe context: uppercase variant of probe name matches (regex /i)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // /i flag: __MGR-PROBE-0000.MD should match
+    const probePath = join(dir, 'agents', '__MGR-PROBE-0000.MD');
+    assert.doesNotThrow(() => assertWritable(probePath, 'probe'));
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- security L1: a symlink/junction inside the allowed dir that resolves
 // OUTSIDE the allowlist must be DENIED (realpathSync-before-allowlist). ---
 test('assertWritable DENIES a junction that escapes the allowlist', () => {
