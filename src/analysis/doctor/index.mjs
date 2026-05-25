@@ -29,6 +29,11 @@
  *   #12 orphan-files                  discovered orphan (hard or soft) → info
  *   #22 claude-config-schema-version  escalate plugin-schema-version-unknown fact → warn
  *   #23 permissions-overbroad         wildcard in permissions.allow list → warn
+ *   #13 claude-md-backup-bloat        too many CLAUDE.md.backup.* files in configDir → info
+ *   #14 snapshot-retention            snapshot older than 90 days → info
+ *   #20 probe-residue                 leftover __mgr-probe-* temp file from crashed loader probe → warn
+ *   #21 apply-leftover-files          leftover *.mgr-new / *.mgr-old from interrupted atomic write → warn
+ *   #25 config-rules-stale            effective-config-rules.md older than 90 days → info
  *
  * --- Facts gathered by the discovery probe, judged here ---
  * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
@@ -52,6 +57,7 @@
 import { DiagnosticBag } from '../../lib/diagnostic.mjs';
 import { PROBE_CHECKS } from './probe-checks.mjs';
 import { CONFIG_CHECKS } from './config-checks.mjs';
+import { FS_CHECKS } from './fs-checks.mjs';
 import { strOr, numOr } from './util.mjs';
 
 /**
@@ -92,6 +98,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {OrphanRecord[]} [orphans]            discovered orphan facts (analyzeOrphans(...).orphans); judged by #12
  * @property {Diagnostic[]} [pluginDiagnostics]   plugin-discovery facts (scan.plugins.diagnostics); #22 filters for plugin-schema-version-unknown
  * @property {{allow?:string[],ask?:string[],deny?:string[]}} [permissions]  merged effective.permissions (mergeSettings); #23 judges .allow for wildcards
+ * @property {import('../../discovery/probe-fs.mjs').FsFacts} [fsFacts]  filesystem facts (probe-fs); judged by #13/#14/#20/#21/#25
  */
 
 /**
@@ -334,6 +341,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({ id: 10, code: 'plugin-cache-missing', probeLevel: 'passive', run: checkPluginCacheMissing }),
   Object.freeze({ id: 11, code: 'duplicate-component-shadowing', probeLevel: 'passive', run: checkDuplicateComponentShadowing }),
   ...CONFIG_CHECKS,
+  ...FS_CHECKS,
 ]);
 
 /**
