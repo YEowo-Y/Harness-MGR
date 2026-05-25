@@ -12,17 +12,20 @@
  *                            surface. This is the honest behaviour for a
  *                            dry-run tool that only reads.
  *
- *   #24 insecure-permissions (TODO) — icacls-based ACL probe (async, Windows).
- *                            Will be added as a second export here in a future
- *                            work unit.
+ *   #24 insecure-permissions — icacls-based ACL probe (async, Windows only).
+ *                            Reads the ACL of .mgr-state/ via a read-only
+ *                            `icacls <path>` invocation (no side effects).
+ *                            Skipped on non-Windows and when the dir is absent.
  *
  * Never throws. Degrades to diagnostics on any bad input. Zero npm
  * dependencies. Node stdlib only.
  */
 
 import { join } from 'node:path';
-import { openSync, closeSync } from 'node:fs';
+import { openSync, closeSync, statSync } from 'node:fs';
+import os from 'node:os';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
+import { safeSpawn } from '../lib/safe-spawn.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -94,4 +97,157 @@ export function gatherLockProbe(opts) {
   }
 
   return { lock: { path: target, status }, diagnostics: bag.all() };
+}
+
+// ---------------------------------------------------------------------------
+// #24 insecure-permissions — Windows ACL probe via icacls
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {Object} AclFact
+ * @property {string} path  absolute path that was probed
+ * @property {'owner-only'|'broad'|'absent'|'unsupported'|'indeterminate'} status
+ *   - owner-only   ACL parsed; no broad principals found
+ *   - broad        ACL parsed; at least one broad principal (Everyone/Users/Authenticated Users)
+ *   - absent       path does not exist (ENOENT) — icacls was not spawned
+ *   - unsupported  platform is not win32 — icacls not available
+ *   - indeterminate ACL could not be determined (spawn error / unparseable output)
+ * @property {string[]} broadPrincipals  the broad principal tokens found (sorted); [] when status !== 'broad'
+ */
+
+/**
+ * The set of bare names (part after the last backslash, or the whole token)
+ * that make a principal "broad" (grants wide-open access beyond the owner).
+ * Comparison is done via .toLowerCase().
+ */
+const BROAD_NAMES = new Set(['everyone', 'users', 'authenticated users']);
+
+/**
+ * Parse the stdout of `icacls <path>` into an AclFact.
+ *
+ * icacls prints one ACE per line. The FIRST line also contains the probed path
+ * before the first principal token, e.g.:
+ *
+ *   C:\Users\me\.mgr-state NT AUTHORITY\SYSTEM:(OI)(CI)(F)
+ *                           BUILTIN\Administrators:(OI)(CI)(F)
+ *                           DESKTOP-X\me:(F)
+ *   Successfully processed 1 files; Failed processing 0 files
+ *
+ * We extract every principal via a global regex matching `(\S+):\(` — capture
+ * group 1 is the principal token (e.g. `BUILTIN\Users`, `Everyone`). NOTE: a
+ * path that literally contains `:(' could confuse this regex on the first line
+ * — this is an accepted limitation. NOTE: a principal containing a space is
+ * captured as only its LAST token (e.g. `NT AUTHORITY\Authenticated Users` →
+ * `Users`); the broad/not-broad verdict stays correct, but a custom group whose
+ * last word is a BROAD_NAMES entry (e.g. `Remote Desktop Users` → `Users`) is a
+ * known false-positive — accepted for this advisory-only, Windows-only check.
+ *
+ * A principal is broad if its bare name (part after the last `\`, or the whole
+ * token when no `\` is present), lowercased, is in BROAD_NAMES.
+ *
+ * @param {string} stdout
+ * @param {string} path
+ * @returns {AclFact}
+ */
+export function parseIcaclsAcl(stdout, path) {
+  /** @type {string[]} */
+  const principals = [];
+  const re = /(\S+):\(/g;
+  let m;
+  while ((m = re.exec(stdout)) !== null) {
+    principals.push(m[1]);
+  }
+
+  if (principals.length === 0) {
+    return { path, status: 'indeterminate', broadPrincipals: [] };
+  }
+
+  /** @type {string[]} */
+  const broad = [];
+  for (const p of principals) {
+    const slash = p.lastIndexOf('\\');
+    const bare = slash >= 0 ? p.slice(slash + 1) : p;
+    if (BROAD_NAMES.has(bare.toLowerCase())) {
+      broad.push(p);
+    }
+  }
+
+  if (broad.length > 0) {
+    const unique = [...new Set(broad)].sort();
+    return { path, status: 'broad', broadPrincipals: unique };
+  }
+  return { path, status: 'owner-only', broadPrincipals: [] };
+}
+
+/**
+ * Default icacls runner — uses safeSpawn (the only sanctioned spawn path).
+ * Tests inject `runIcacls` so they never spawn real icacls.
+ *
+ * Security note: only ONE positional (the path) is passed, validated by the
+ * schema's positionalPattern (a drive-lettered path). icacls MUTATION flags
+ * (/grant, /deny, /remove, /inheritance, ...) begin with `/`, not `-`, so they
+ * are blocked here by FAILING positionalPattern (a `/`-token is not a path) —
+ * NOT by safeSpawn's flag gate, which only rejects `-`-prefixed tokens. maxArgs:1
+ * additionally forbids injecting a second argument.
+ * @param {string} aclDir
+ * @returns {Promise<string>}  resolves with stdout
+ */
+async function defaultRunIcacls(aclDir) {
+  const exe = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'icacls.exe');
+  const result = await safeSpawn({
+    exe,
+    args: [aclDir],
+    cwd: os.tmpdir(),
+    allowedCwds: [os.tmpdir()],
+    schema: { positionalPattern: /^[A-Za-z]:[\\/].+/, maxArgs: 1 },
+    timeoutMs: 5000,
+  });
+  return result.stdout;
+}
+
+/**
+ * Gather the passive ACL fact for the doctor layer (#24).
+ *
+ * - Non-win32 platform → status 'unsupported' (no spawn).
+ * - Bad/empty aclDir → discover-bad-root error + { acl: null }.
+ * - ENOENT on stat → status 'absent' (no spawn — dir not created yet is benign).
+ * - Other stat error → status 'indeterminate'.
+ * - Otherwise calls runIcacls and parses the output.
+ *
+ * Never rejects.
+ *
+ * @param {{ aclDir?: string, platform?: string, runIcacls?: (dir: string) => Promise<string>, statFn?: (p: string) => unknown }} opts
+ *   statFn is an injectable existence-check seam (default node:fs statSync); tests use it to exercise the non-ENOENT → indeterminate branch.
+ * @returns {Promise<{ acl: AclFact|null, diagnostics: Diagnostic[] }>}
+ */
+export async function gatherAclProbe(opts) {
+  const bag = new DiagnosticBag();
+  const { aclDir, platform = process.platform, runIcacls = defaultRunIcacls, statFn = statSync } = opts ?? {};
+
+  if (platform !== 'win32') {
+    return { acl: { path: aclDir || '', status: 'unsupported', broadPrincipals: [] }, diagnostics: [] };
+  }
+
+  if (typeof aclDir !== 'string' || aclDir.length === 0) {
+    bag.add({ severity: 'error', code: 'discover-bad-root', message: 'aclDir must be a non-empty string', phase: 'access-probe' });
+    return { acl: null, diagnostics: bag.all() };
+  }
+
+  // Check existence before spawning — absent is benign (.mgr-state may not exist yet).
+  try {
+    statFn(aclDir);
+  } catch (err) {
+    const code = err && typeof err === 'object' ? /** @type {any} */ (err).code : null;
+    const status = code === 'ENOENT' ? 'absent' : 'indeterminate';
+    return { acl: { path: aclDir, status, broadPrincipals: [] }, diagnostics: bag.all() };
+  }
+
+  // Spawn icacls and parse output.
+  try {
+    const stdout = await runIcacls(aclDir);
+    const acl = parseIcaclsAcl(stdout, aclDir);
+    return { acl, diagnostics: bag.all() };
+  } catch {
+    return { acl: { path: aclDir, status: 'indeterminate', broadPrincipals: [] }, diagnostics: bag.all() };
+  }
 }
