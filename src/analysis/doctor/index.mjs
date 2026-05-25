@@ -12,12 +12,14 @@
  *   - passive (DEFAULT): only judgments over facts ALREADY gathered by the caller —
  *     no filesystem walks, no spawns, no network. Pure data in, diagnostics out.
  *   - active (`--active-probes`, opt-in): adds checks that spawn (`node --check`,
- *     `claude --version`, loader-probe). Those are registered in P2.U7. The dispatch
- *     here already filters by `probeLevel` so an active check NEVER runs unless the
- *     caller opts in — that is what makes "passive produces zero side effects" true.
+ *     `claude --version`, loader-probe). #4 hook-node-syntax is now registered
+ *     (P2.U7a); #15 and #19 follow in subsequent units. The dispatch here already
+ *     filters by `probeLevel` so an active check NEVER runs unless the caller opts
+ *     in — that is what makes "passive produces zero side effects" true.
  *   INVARIANT (plan): active probes never invoke hook command strings from settings.
  *
- * --- Registered passive checks (P2 so far; see the CHECKS array) ---
+ * --- Registered checks (P2 so far; see the CHECKS array) ---
+ *   #4  hook-node-syntax  (active)     node --check per .mjs hook script → syntax-error is an error
  *   #1  mcp-auth-stale                 MCP server needs-auth cache entry older than 30/90 days
  *   #2  mcp-server-resolvable          stdio MCP command was not found on PATH at probe time
  *   #6  settings-json-valid            escalate settings-* facts (dup key → error)
@@ -63,6 +65,7 @@ import { PROBE_CHECKS } from './probe-checks.mjs';
 import { CONFIG_CHECKS } from './config-checks.mjs';
 import { FS_CHECKS } from './fs-checks.mjs';
 import { ACCESS_CHECKS } from './access-checks.mjs';
+import { ACTIVE_CHECKS } from './active-checks.mjs';
 import { strOr, numOr } from './util.mjs';
 
 /**
@@ -108,6 +111,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {StatuslineFact} [statusline]  statusLine resolution fact (probe-statusline); judged by #18
  * @property {import('../../discovery/probe-access.mjs').LockFact} [lock]  settings.json lock fact (probe-access); judged by #17
  * @property {import('../../discovery/probe-access.mjs').AclFact} [acl]  .mgr-state ACL fact (probe-access, async gather); judged by #24
+ * @property {import('../../discovery/probe-hook-syntax.mjs').HookSyntaxFact[]} [hookSyntax]  node --check facts (probe-hook-syntax, active tier); judged by #4
  */
 
 /**
@@ -352,6 +356,7 @@ export const CHECKS = Object.freeze([
   ...CONFIG_CHECKS,
   ...FS_CHECKS,
   ...ACCESS_CHECKS,
+  ...ACTIVE_CHECKS,
 ]);
 
 /**
@@ -359,7 +364,7 @@ export const CHECKS = Object.freeze([
  *
  * @param {DoctorInput} input  the facts to judge (defensively read; undefined is fine)
  * @param {Object} [opts]
- * @param {boolean} [opts.activeProbes=false]  opt in to active checks (none registered until P2.U7)
+ * @param {boolean} [opts.activeProbes=false]  opt in to active checks (active checks: #4 hook-node-syntax, P2.U7a)
  * @param {ReadonlyArray<DoctorCheck>} [opts.checks]  override the registry (internal/testing seam)
  * @returns {DoctorReport}
  */
