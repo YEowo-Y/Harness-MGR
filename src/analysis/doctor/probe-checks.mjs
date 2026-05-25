@@ -1,9 +1,10 @@
 /**
- * Doctor probe-fact checks — #1 mcp-auth-stale, #2 mcp-server-resolvable.
+ * Doctor probe-fact checks — #1 mcp-auth-stale, #2 mcp-server-resolvable,
+ * #3 hook-file-exists, #5 hook-external-command.
  *
- * These two checks are the PURE judgment layer for facts gathered by the
- * discovery probe (src/discovery/probe-mcp.mjs). The probe does the I/O;
- * these checks receive the resulting fact arrays and decide severity.
+ * These checks are the PURE judgment layer for facts gathered by the discovery
+ * probes (src/discovery/probe-mcp.mjs, src/discovery/probe-hooks.mjs). The probes
+ * do the I/O; these checks receive the resulting fact arrays and decide severity.
  *
  * NOTE: check #1 requires `input.now` (a reference timestamp in ms, provided
  * by the CLI via Date.now()). If `now` is absent or non-finite the check emits
@@ -17,6 +18,7 @@
  * @typedef {import('./index.mjs').DoctorInput} DoctorInput
  * @typedef {import('../../discovery/probe-mcp.mjs').McpAuthFact} McpAuthFact
  * @typedef {import('../../discovery/probe-mcp.mjs').McpResolutionFact} McpResolutionFact
+ * @typedef {import('../../discovery/probe-hooks.mjs').HookFact} HookFact
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
  */
 
@@ -124,11 +126,94 @@ function checkMcpServerResolvable(input) {
 }
 
 /**
- * The two passive probe-fact checks, frozen in registry order.
- * Imported by index.mjs and prepended to CHECKS so the full registry is [1,2,6..11].
+ * #3 hook-file-exists — judge each HookFact where kind === 'file'.
+ *
+ * A fact with status 'missing' means the script path did not exist on disk at
+ * probe time — that hook will fail when the event fires, so it is an ERROR.
+ * Facts with status 'found' or 'indeterminate' are silently skipped; the
+ * 'indeterminate' case (a runtime variable like $CLAUDE_PROJECT_DIR could not
+ * be expanded) MUST NOT be flagged to avoid false positives.
+ *
+ * Output is sorted by message for deterministic ordering.
+ *
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkHookFileExists(input) {
+  const facts = Array.isArray(input.hookFacts) ? input.hookFacts : [];
+
+  /** @type {Diagnostic[]} */
+  const out = [];
+
+  for (const fact of facts) {
+    if (!fact || typeof fact !== 'object') continue;
+    if (fact.kind !== 'file' || fact.status !== 'missing') continue;
+
+    const event = typeof fact.event === 'string' && fact.event.length > 0 ? fact.event : '(unknown)';
+    const target = typeof fact.target === 'string' && fact.target.length > 0 ? fact.target : '(unknown)';
+
+    out.push({
+      severity: 'error',
+      code: 'hook-file-exists',
+      message: `hook for "${event}" references a file that does not exist: ${target}`,
+      phase: 'doctor',
+      fix: 'restore the hook script, or remove the hook from settings',
+    });
+  }
+
+  out.sort((a, b) => (a.message < b.message ? -1 : a.message > b.message ? 1 : 0));
+
+  return out;
+}
+
+/**
+ * #5 hook-external-command — judge each HookFact where kind === 'external'.
+ *
+ * A fact with status 'missing' means the bare command was not found on PATH at
+ * probe time. WARN: the runtime PATH may differ from the probe-time PATH, so
+ * this is advisory (mirrors the approach used by #2 mcp-server-resolvable).
+ * Facts with status 'found' or 'indeterminate' are silently skipped.
+ *
+ * Output is sorted by message for deterministic ordering.
+ *
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkHookExternalCommand(input) {
+  const facts = Array.isArray(input.hookFacts) ? input.hookFacts : [];
+
+  /** @type {Diagnostic[]} */
+  const out = [];
+
+  for (const fact of facts) {
+    if (!fact || typeof fact !== 'object') continue;
+    if (fact.kind !== 'external' || fact.status !== 'missing') continue;
+
+    const event = typeof fact.event === 'string' && fact.event.length > 0 ? fact.event : '(unknown)';
+    const target = typeof fact.target === 'string' && fact.target.length > 0 ? fact.target : '(unknown)';
+
+    out.push({
+      severity: 'warn',
+      code: 'hook-external-command',
+      message: `hook for "${event}" uses command "${target}" which was not found on PATH`,
+      phase: 'doctor',
+      fix: 'install the command, or correct the hook (PATH at check time may differ from the launch environment)',
+    });
+  }
+
+  out.sort((a, b) => (a.message < b.message ? -1 : a.message > b.message ? 1 : 0));
+
+  return out;
+}
+
+/**
+ * The four passive probe-fact checks, frozen in registry order.
+ * Imported by index.mjs and prepended to CHECKS so the full registry is [1,2,3,5,6..11].
  * @type {ReadonlyArray<import('./index.mjs').DoctorCheck>}
  */
 export const PROBE_CHECKS = Object.freeze([
   Object.freeze({ id: 1, code: 'mcp-auth-stale', probeLevel: 'passive', run: checkMcpAuthStale }),
   Object.freeze({ id: 2, code: 'mcp-server-resolvable', probeLevel: 'passive', run: checkMcpServerResolvable }),
+  Object.freeze({ id: 3, code: 'hook-file-exists', probeLevel: 'passive', run: checkHookFileExists }),
+  Object.freeze({ id: 5, code: 'hook-external-command', probeLevel: 'passive', run: checkHookExternalCommand }),
 ]);
