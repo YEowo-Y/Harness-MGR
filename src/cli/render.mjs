@@ -59,6 +59,8 @@ function renderBody(canonical, result) {
     case 'permissions': return permissionsTable(r);
     case 'selftest': return selftestTable(r);
     case 'doctor': return doctorTable(r);
+    case 'audit': return auditTable(r);
+    case 'drift': return driftTable(r);
     default: return kvTable(r);
   }
 }
@@ -153,6 +155,26 @@ function doctorTable(r) {
     { key: 'code', header: 'code' },
     { key: 'ran', header: 'ran' },
     { key: 'findings', header: 'findings', align: 'right' },
+  ], rows);
+}
+
+/** audit → one row per log entry with timestamp and command. @param {Record<string, unknown>} r */
+function auditTable(r) {
+  const entries = Array.isArray(r.entries) ? r.entries : [];
+  const rows = entries.map((e) => ({ timestamp: e && e.timestamp, command: e && e.command }));
+  return formatTable([
+    { key: 'timestamp', header: 'timestamp' },
+    { key: 'command', header: 'command' },
+  ], rows);
+}
+
+/** drift → one row per change (path + change kind). @param {Record<string, unknown>} r */
+function driftTable(r) {
+  const changes = Array.isArray(r.changes) ? r.changes : [];
+  const rows = changes.map((c) => ({ change: c && c.change, path: c && c.path }));
+  return formatTable([
+    { key: 'change', header: 'change' },
+    { key: 'path', header: 'path' },
   ], rows);
 }
 
