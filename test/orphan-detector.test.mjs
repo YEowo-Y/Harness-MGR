@@ -49,6 +49,7 @@ test('exports: KNOWN_TOP_FILES, KNOWN_TOP_FILE_PATTERNS, KNOWN_ECOSYSTEM_TOP_DIR
   assert.ok(Array.isArray(KNOWN_TOP_FILE_PATTERNS));
   assert.ok(KNOWN_TOP_FILE_PATTERNS.length >= 3);
   // OMC ecosystem dirs.
+  assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('.omc'));
   assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('homunculus'));
   assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('metrics'));
   assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('session-data'));
@@ -248,7 +249,7 @@ test('whitelist: CC runtime files and OMC ecosystem entries are NOT flagged as h
     writeFileSync(join(dir, '.omc-config.json'), '{}', 'utf-8');
     writeFileSync(join(dir, '.omc-version.json'), '{}', 'utf-8');
     // OMC ecosystem dirs
-    for (const d of ['homunculus', 'metrics', 'session-data', 'teams']) {
+    for (const d of ['.omc', 'homunculus', 'metrics', 'session-data', 'teams']) {
       mkdirSync(join(dir, d));
     }
 
