@@ -31,11 +31,14 @@ type StatusLine struct {
 
 // Diagnostic is a single entry from the top-level diagnostics array. We capture
 // only the fields the TUI needs (severity drives the health summary); unknown
-// fields are ignored by encoding/json.
+// fields are ignored by encoding/json. Fix is the engine's optional remediation
+// hint (present on doctor diagnostics, "" elsewhere); it is surfaced in the
+// Doctor tab's findings detail.
 type Diagnostic struct {
 	Severity string `json:"severity"`
 	Code     string `json:"code"`
 	Message  string `json:"message"`
+	Fix      string `json:"fix"`
 }
 
 // Result mirrors the `result` object of the inventory envelope.
@@ -398,6 +401,30 @@ type SelftestResult struct {
 	Ok     bool            `json:"ok"`
 }
 
+// ── Doctor structs ─────────────────────────────────────────────────────────────
+
+// DoctorCheck is one check entry from result.checks of the `doctor --format json`
+// envelope. ID + Code identify the check; ProbeLevel is "passive"/"active"; Ran
+// is false for active checks skipped in the default passive run; Findings is the
+// count of diagnostics the check produced. The check's Code joins to a top-level
+// diagnostic's Code to recover its severity (that join drives the row color).
+type DoctorCheck struct {
+	ID         int    `json:"id"`
+	Code       string `json:"code"`
+	ProbeLevel string `json:"probeLevel"`
+	Ran        bool   `json:"ran"`
+	Findings   int    `json:"findings"`
+}
+
+// DoctorReport bundles the doctor run's probe level, its check list, and the
+// top-level diagnostics (reusing the shared Diagnostic struct). Diagnostics carry
+// the severity + message + fix that the Doctor tab joins back to each check by Code.
+type DoctorReport struct {
+	ProbeLevel  string        `json:"probeLevel"`
+	Checks      []DoctorCheck `json:"checks"`
+	Diagnostics []Diagnostic  `json:"diagnostics"`
+}
+
 // ── Narrow envelopes for config / hooks / selftest decoding ──────────────────
 
 type configEnvelope struct {
@@ -417,6 +444,17 @@ type selftestEnvelope struct {
 		Checks []SelftestCheck `json:"checks"`
 		Ok     bool            `json:"ok"`
 	} `json:"result"`
+}
+
+// doctorEnvelope decodes result.probeLevel + result.checks and the TOP-LEVEL
+// diagnostics array (diagnostics sit beside result in the doctor envelope, not
+// inside it — that is where the per-check severities live).
+type doctorEnvelope struct {
+	Result struct {
+		ProbeLevel string        `json:"probeLevel"`
+		Checks     []DoctorCheck `json:"checks"`
+	} `json:"result"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
 }
 
 // ── Pure parse functions ──────────────────────────────────────────────────────
@@ -451,6 +489,21 @@ func parseSelftest(data []byte) (SelftestResult, error) {
 	return SelftestResult{Checks: env.Result.Checks, Ok: env.Result.Ok}, nil
 }
 
+// parseDoctor unmarshals a raw `doctor --format json` envelope into a
+// DoctorReport, lifting the top-level diagnostics in alongside the result's
+// probe level and checks. Pure function — no exec, never panics.
+func parseDoctor(data []byte) (DoctorReport, error) {
+	var env doctorEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return DoctorReport{}, fmt.Errorf("parsing doctor JSON: %w", err)
+	}
+	return DoctorReport{
+		ProbeLevel:  env.Result.ProbeLevel,
+		Checks:      env.Result.Checks,
+		Diagnostics: env.Diagnostics,
+	}, nil
+}
+
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 
 // fetchConfig shells out to `node <cliPath> config show-effective --format json`,
@@ -481,6 +534,22 @@ func fetchSelftest(cliPath string) (SelftestResult, error) {
 		return SelftestResult{}, err
 	}
 	return parseSelftest(data)
+}
+
+// fetchDoctor shells out to `node <cliPath> doctor --format json`, captures
+// stdout, and unmarshals it into a DoctorReport. It never panics.
+//
+// PASSIVE ONLY — it deliberately does NOT pass --active-probes. The active
+// probes spawn child processes and WRITE a transient loader-probe file into the
+// real ~/.claude/agents; that side effect must never fire merely because the
+// user opened the TUI. The passive run is pure read-only judgment over already
+// gathered facts.
+func fetchDoctor(cliPath string) (DoctorReport, error) {
+	data, err := runJSON(cliPath, "doctor", "--format", "json")
+	if err != nil {
+		return DoctorReport{}, err
+	}
+	return parseDoctor(data)
 }
 
 // sortComponents orders components by kind then name (both ascending), in place.
