@@ -97,6 +97,40 @@ test('selftest --all: rigorous gates over the mgr src run clean → exit 0', asy
   }
 });
 
+test('doctor --format json: passive run on the minimal fixture', async () => {
+  const out = await run(['doctor', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0); // minimal yields no error-severity diagnostics
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'doctor');
+  assert.equal(env.result.probeLevel, 'passive');
+  assert.ok(Array.isArray(env.result.checks) && env.result.checks.length > 0, 'checks is a non-empty array');
+  // Passive checks ran; the active checks (#4/#15/#19) did NOT (no --active-probes).
+  for (const c of env.result.checks) {
+    if (c.probeLevel === 'passive') assert.equal(c.ran, true, `passive check ${c.code} should run`);
+    else assert.equal(c.ran, false, `active check ${c.code} must NOT run without --active-probes`);
+  }
+});
+
+test('doctor --active-probes --format json: active checks run + opt-in notice', async () => {
+  const out = await run(['doctor', '--active-probes', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.result.probeLevel, 'active');
+  const active = env.result.checks.filter((c) => c.probeLevel === 'active');
+  assert.ok(active.length > 0, 'there are active checks');
+  for (const c of active) assert.equal(c.ran, true, `active check ${c.code} should run under --active-probes`);
+  assert.ok(
+    env.diagnostics.some((d) => d.code === 'doctor-active-probes' && d.severity === 'info'),
+    'expected the active-probes opt-in info diagnostic',
+  );
+});
+
+test('doctor default (table) format: mentions the command', async () => {
+  const out = await run(['doctor', '--config-dir', MIN]);
+  assert.equal(out.code, 0);
+  assert.ok(out.stdout.includes('doctor'), 'table title names the command');
+});
+
 // ── default (table) + quiet renderings ──────────────────────────────────────────
 
 test('default format is a non-empty human table', async () => {
