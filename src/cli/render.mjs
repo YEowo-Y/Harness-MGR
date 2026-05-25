@@ -56,6 +56,7 @@ function renderBody(canonical, result) {
     case 'orphans': return orphansTable(r);
     case 'config:show-effective': return effectiveTable(r);
     case 'hooks': return hooksTable(r);
+    case 'permissions': return permissionsTable(r);
     case 'selftest': return selftestTable(r);
     default: return kvTable(r);
   }
@@ -114,6 +115,21 @@ function hooksTable(r) {
   return formatTable([
     { key: 'event', header: 'event' },
     { key: 'count', header: 'count', align: 'right' },
+  ], rows);
+}
+
+/** permissions → one row per rule (allow/ask/deny), flagging overbroad allow. @param {Record<string, unknown>} r */
+function permissionsTable(r) {
+  const overbroad = new Set(Array.isArray(r.overbroad) ? r.overbroad : []);
+  const rows = [];
+  for (const cat of ['allow', 'ask', 'deny']) {
+    const list = Array.isArray(r[cat]) ? r[cat] : [];
+    for (const rule of list) rows.push({ category: cat, rule, overbroad: cat === 'allow' && overbroad.has(rule) ? 'yes' : '' });
+  }
+  return formatTable([
+    { key: 'category', header: 'category' },
+    { key: 'rule', header: 'rule' },
+    { key: 'overbroad', header: 'overbroad' },
   ], rows);
 }
 
