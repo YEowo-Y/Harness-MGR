@@ -26,6 +26,9 @@
  *   #9  plugin-marketplace-unknown     installed plugin's marketplace not in the known set (info)
  *   #10 plugin-cache-missing           settings-enabled install with cachePresent === false (warn)
  *   #11 duplicate-component-shadowing  conflict cluster (size > 1) → warn
+ *   #12 orphan-files                  discovered orphan (hard or soft) → info
+ *   #22 claude-config-schema-version  escalate plugin-schema-version-unknown fact → warn
+ *   #23 permissions-overbroad         wildcard in permissions.allow list → warn
  *
  * --- Facts gathered by the discovery probe, judged here ---
  * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
@@ -48,6 +51,7 @@
 
 import { DiagnosticBag } from '../../lib/diagnostic.mjs';
 import { PROBE_CHECKS } from './probe-checks.mjs';
+import { CONFIG_CHECKS } from './config-checks.mjs';
 
 /**
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -57,6 +61,7 @@ import { PROBE_CHECKS } from './probe-checks.mjs';
  * @typedef {import('../../discovery/probe-mcp.mjs').McpAuthFact} McpAuthFact
  * @typedef {import('../../discovery/probe-mcp.mjs').McpResolutionFact} McpResolutionFact
  * @typedef {import('../../discovery/probe-hooks.mjs').HookFact} HookFact
+ * @typedef {import('../../discovery/orphan-detector.mjs').OrphanRecord} OrphanRecord
  */
 
 /**
@@ -83,6 +88,9 @@ import { PROBE_CHECKS } from './probe-checks.mjs';
  * @property {number} [now]                        reference time (ms) for age-based checks; the CLI passes
  *                                                 Date.now(). Absent → age-based checks emit nothing (keeps
  *                                                 the doctor pure).
+ * @property {OrphanRecord[]} [orphans]            discovered orphan facts (analyzeOrphans(...).orphans); judged by #12
+ * @property {Diagnostic[]} [pluginDiagnostics]   plugin-discovery facts (scan.plugins.diagnostics); #22 filters for plugin-schema-version-unknown
+ * @property {{allow?:string[],ask?:string[],deny?:string[]}} [permissions]  merged effective.permissions (mergeSettings); #23 judges .allow for wildcards
  */
 
 /**
@@ -324,6 +332,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({ id: 9, code: 'plugin-marketplace-unknown', probeLevel: 'passive', run: checkPluginMarketplaceUnknown }),
   Object.freeze({ id: 10, code: 'plugin-cache-missing', probeLevel: 'passive', run: checkPluginCacheMissing }),
   Object.freeze({ id: 11, code: 'duplicate-component-shadowing', probeLevel: 'passive', run: checkDuplicateComponentShadowing }),
+  ...CONFIG_CHECKS,
 ]);
 
 /**
