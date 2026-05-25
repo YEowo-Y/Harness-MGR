@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": ["Bash(git status)", "Edit(*)", "mcp__*", "Bash(git status)", "WebFetch(domain:*)"],
+    "ask": ["Bash(rm *)"],
+    "deny": ["Read(*)"]
+  }
+}
