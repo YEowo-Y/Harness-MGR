@@ -301,12 +301,12 @@ test('registry: ids 12, 22, 23 all present in the full CHECKS registry', () => {
   assert.ok(ids.has(23));
 });
 
-test('registry: CHECKS length is 24', () => {
-  assert.equal(CHECKS.length, 24);
+test('registry: CHECKS length is 25', () => {
+  assert.equal(CHECKS.length, 25);
 });
 
-test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,4,15]', () => {
-  assert.deepEqual(CHECKS.map((c) => c.id), [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 4, 15]);
+test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,4,15,19]', () => {
+  assert.deepEqual(CHECKS.map((c) => c.id), [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 4, 15, 19]);
 });
 
 // ── E. PURITY / NEVER-THROW ───────────────────────────────────────────────────
