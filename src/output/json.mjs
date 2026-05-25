@@ -133,6 +133,31 @@ function isPlainObject(v) {
 }
 
 /**
+ * Render a command response as NDJSON: a `type:'result'` line followed by one
+ * `type:'diagnostic'` line per diagnostic. Each line is compact (indent:0),
+ * key-stable (stableStringify), and never-throws (stableStringify degrades a
+ * bad value to the error envelope string). Lines are joined by '\n' with NO
+ * trailing newline — the executable entry guard adds the final one.
+ *
+ * The result is nested under a `result` key (not spread) so a result payload
+ * that itself carries a `type` or `command` key cannot collide with the
+ * envelope fields.
+ *
+ * @param {{ command: string, result: unknown, diagnostics: unknown[] }} opts
+ * @returns {string}
+ */
+export function formatNdjson({ command, result, diagnostics }) {
+  const lines = [
+    stableStringify({ type: 'result', command, result, version: JSON_ENVELOPE_VERSION }, { indent: 0 }),
+  ];
+  const diags = Array.isArray(diagnostics) ? diagnostics : [];
+  for (const d of diags) {
+    lines.push(stableStringify({ ...d, type: 'diagnostic' }, { indent: 0 }));
+  }
+  return lines.join('\n');
+}
+
+/**
  * Reject keys that could poison a result object's prototype when assigned via
  * bracket notation. Mirrors the hardening in settings-merge.mjs / frontmatter.mjs:
  * user-controlled JSON can carry an own `__proto__` key, which must never reach
