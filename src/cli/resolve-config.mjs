@@ -35,12 +35,22 @@ import { join } from 'node:path';
 
 /**
  * @typedef {Object} ResolvedConfig
- * @property {string} configDir   the governed ~/.claude directory
+ * @property {string} configDir     the governed ~/.claude directory
+ * @property {string} mgrStateDir   claude-mgr's own state dir (configDir/.mgr-state)
  * @property {Diagnostic[]} diagnostics
  */
 
 /** Default loader for paths.mjs — the async/throwing dependency we isolate. */
 const defaultLoadPaths = () => import('../paths.mjs');
+
+/**
+ * The .mgr-state dir name, kept as a LOCAL literal so resolve-config never
+ * statically imports paths.mjs (which top-level-awaits and would reject when
+ * ~/.claude/hooks/lib is absent — the M2 fault-tolerance constraint). Mirrors
+ * the orphan-detector precedent (a local literal reconciled by a drift-guard
+ * test against paths.mjs's MGR_STATE_DIRNAME).
+ */
+const MGR_STATE_DIRNAME = '.mgr-state';
 
 /**
  * Resolve the governed config directory.
@@ -51,15 +61,17 @@ const defaultLoadPaths = () => import('../paths.mjs');
 export async function resolveConfigDir({ configDir, loadPaths } = {}) {
   // Explicit override wins — never import paths.mjs, so no async/throw exposure.
   if (typeof configDir === 'string' && configDir.length > 0) {
-    return { configDir, diagnostics: [] };
+    return { configDir, mgrStateDir: join(configDir, MGR_STATE_DIRNAME), diagnostics: [] };
   }
 
   // Live resolution: a missing hooks/lib makes this import reject (the M2 case).
   try {
     const mod = await (loadPaths ?? defaultLoadPaths)();
-    return { configDir: mod.targetClaudeDir(), diagnostics: [] };
+    const cd = mod.targetClaudeDir();
+    return { configDir: cd, mgrStateDir: mod.mgrStateDir(cd), diagnostics: [] };
   } catch {
-    return { configDir: fallbackConfigDir(), diagnostics: [missingHooksLibDiag()] };
+    const cd = fallbackConfigDir();
+    return { configDir: cd, mgrStateDir: join(cd, MGR_STATE_DIRNAME), diagnostics: [missingHooksLibDiag()] };
   }
 }
 
