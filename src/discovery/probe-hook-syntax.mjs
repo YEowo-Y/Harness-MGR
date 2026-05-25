@@ -80,7 +80,10 @@ async function defaultRunNodeCheck(absPath) {
       args: ['--check', absPath],
       cwd: tmpdir(),
       allowedCwds: [tmpdir()],
-      schema: { allowedFlags: ['--check'], positionalPattern: NODE_PATH_RE, maxArgs: 2 },
+      // allowSlashPositionals: on POSIX the script path is `/abs/...`; opt out of
+      // the slash-flag gate so it is validated by NODE_PATH_RE (a positional),
+      // not rejected as a flag. On Windows the path is `C:\...` so this is a no-op.
+      schema: { allowedFlags: ['--check'], positionalPattern: NODE_PATH_RE, allowSlashPositionals: true, maxArgs: 2 },
       timeoutMs: 10000,
     });
     return { status: 'ok', detail: '' };
