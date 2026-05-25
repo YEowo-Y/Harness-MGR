@@ -262,6 +262,55 @@ test('drift --update against fixture degrades gracefully (no throw, write reject
   });
 });
 
+// ── ndjson format ────────────────────────────────────────────────────────────────
+
+test('inventory --format ndjson: every line is valid JSON, line 0 is the result', async () => {
+  const out = await run(['inventory', '--config-dir', MIN, '--format', 'ndjson']);
+  assert.equal(out.code, 0);
+  const lines = out.stdout.split('\n');
+  assert.ok(lines.length >= 1, 'at least one line');
+  for (const line of lines) {
+    assert.doesNotThrow(() => JSON.parse(line), `line must be valid JSON: ${line}`);
+  }
+  const first = JSON.parse(lines[0]);
+  assert.equal(first.type, 'result');
+  assert.equal(first.command, 'inventory');
+  assert.equal(first.version, 1);
+  assert.ok(first.result && typeof first.result.counts === 'object', 'result.counts present');
+});
+
+test('conflicts --format ndjson: has a type:diagnostic line with code + severity', async () => {
+  const out = await run(['conflicts', '--config-dir', MIN, '--format', 'ndjson']);
+  assert.equal(out.code, 0);
+  const lines = out.stdout.split('\n').map((l) => JSON.parse(l));
+  const diagLines = lines.filter((l) => l.type === 'diagnostic');
+  assert.ok(diagLines.length >= 1, 'expected at least one diagnostic line');
+  for (const d of diagLines) {
+    assert.ok(typeof d.code === 'string', 'diagnostic has code');
+    assert.ok(typeof d.severity === 'string', 'diagnostic has severity');
+  }
+});
+
+test('config show-effective --format ndjson on broken fixture: exit 1, error diagnostic streamed', async () => {
+  const out = await run(['config', 'show-effective', '--config-dir', fix('broken'), '--format', 'ndjson']);
+  assert.equal(out.code, 1);
+  const lines = out.stdout.split('\n').map((l) => JSON.parse(l));
+  const errLines = lines.filter((l) => l.type === 'diagnostic' && l.severity === 'error');
+  assert.ok(errLines.length >= 1, 'expected at least one error-severity diagnostic line');
+});
+
+test('inventory --format ndjson on minimal: exactly one line (zero diagnostics)', async () => {
+  // Verify inventory on minimal truly has 0 diagnostics first via json format.
+  const jsonOut = await run(['inventory', '--config-dir', MIN, '--format', 'json']);
+  const env = JSON.parse(jsonOut.stdout);
+  assert.equal(env.diagnostics.length, 0, 'prerequisite: inventory/minimal has 0 diagnostics');
+  // Now verify ndjson is exactly one line.
+  const out = await run(['inventory', '--config-dir', MIN, '--format', 'ndjson']);
+  const lines = out.stdout.split('\n');
+  assert.equal(lines.length, 1, 'zero diagnostics → exactly one ndjson line');
+  assert.equal(JSON.parse(lines[0]).type, 'result');
+});
+
 // ── never-throws ─────────────────────────────────────────────────────────────────
 
 test('non-existent config dir: never throws, returns a well-formed envelope', async () => {
