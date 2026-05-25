@@ -179,8 +179,11 @@ are built to **never execute attacker-controlled config content**:
   `claude --version` probe (#15) spawn only via `safeSpawn`
   (`probe-access.mjs:197`, `probe-cli.mjs:108`). The ACL probe passes exactly one
   positional (the path), and icacls *mutation* flags (`/grant`, `/deny`, …) begin
-  with `/`, so they fail the path `positionalPattern` and `maxArgs:1`
-  (`probe-access.mjs:195-205`, and the note at `probe-access.mjs:186-192`).
+  with `/`, so they are now rejected by the spawn gate's secure-by-default
+  flag handling (a `/`-token is a flag unless a consumer opts into
+  `allowSlashPositionals`, which the ACL probe does not), in addition to the path
+  `positionalPattern` and `maxArgs:1` (`probe-access.mjs:195-209`, and the note at
+  `probe-access.mjs:186-194`).
 - **The non-execution invariant is test-enforced** by
   `test/integration/doctor-no-hook-execution.test.mjs` (plan invariant **L3**,
   plan line ~436/562) and the default-passive invariant test.
@@ -313,10 +316,24 @@ detective-only controls today, not a victory lap.
   design, documented so the user verifies readability before assuming deletion.
 - **CJK table width is cosmetic.** Double-width glyph alignment in the table
   renderer is a known Phase-1 display limitation; it has no security impact.
-- **`safe-spawn`'s flag gate only rejects `-`-prefixed tokens.** A future Windows
-  spawner that passes a `/flag` would slip the flag gate (icacls is safe today
-  only because `/`-tokens fail its `positionalPattern`, `probe-access.mjs:186-192`).
-  Harden the gate before adding more Windows spawners.
+- **`safe-spawn`'s flag gate is secure-by-default for `/`-prefixed tokens
+  (resolved).** Previously only `-`-prefixed tokens were treated as flags, so a
+  Windows-style `/flag` was caught only incidentally (by failing a consumer's
+  `positionalPattern`). The gate now treats a `/`-token as a FLAG by default —
+  allowed only if listed in `schema.allowedFlags` — so an injected `/grant`,
+  `/deny`, etc. is rejected with `spawn-flag-not-allowed`
+  (`safe-spawn.mjs:110-116`). A consumer whose legitimate positionals are POSIX
+  absolute paths (e.g. `node --check /abs.mjs` on Linux/macOS) opts out via
+  `schema.allowSlashPositionals:true`, which routes `/`-tokens back to the
+  `positionalPattern` branch; only the hook-syntax probe sets it
+  (`probe-hook-syntax.mjs:83`). The icacls probe (#24) deliberately stays on the
+  secure default, so `/grant`-style mutation flags are now blocked by the flag
+  gate itself, not merely by its drive-lettered `positionalPattern`
+  (`probe-access.mjs:195-209`). Residual: the `/`-token guarantee is conditional
+  on the opting-out consumer supplying a TIGHT `positionalPattern` —
+  `allowSlashPositionals:true` combined with a permissive pattern (e.g. `/.*/`)
+  would reintroduce the gap, so any opt-out spec must keep its positional pattern
+  strict.
 
 ---
 
