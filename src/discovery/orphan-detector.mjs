@@ -47,6 +47,46 @@ import { KNOWN_TOP_DIRS } from './settings.mjs';
  */
 export const KNOWN_TOP_FILES = Object.freeze([
   'settings.json', 'settings.local.json', 'CLAUDE.md', '.credentials.json', '.mcp.json',
+  // Claude Code runtime files added in newer releases:
+  '.last-cleanup', 'bash-commands.log', 'cost-tracker.log', 'history.jsonl',
+  'mcp-needs-auth-cache.json',
+]);
+
+/**
+ * Top-level FILE patterns for entries that cannot be matched by exact name (e.g.
+ * UUID-suffixed or timestamp-suffixed runtime files). Each RegExp is tested against
+ * the base name only. Currently covers:
+ *   - security_warnings_state_<uuid>.json  — Claude Code security-warning state files
+ *   - CLAUDE.md.backup.<timestamp>          — Claude Code config backups (doctor #13
+ *     `claude-md-backup-bloat` owns the "too many" judgment; recognising them here
+ *     prevents double-flagging as both a backup AND an orphan)
+ *
+ * --- Third-party ecosystem (oh-my-claudecode / OMC) file patterns ---
+ * NOTE: these are NOT Claude-Code-native. They are common OMC runtime artifacts
+ * recognised here so a heavily-OMC harness is not drowned in orphan noise. This
+ * block is deliberately isolated so it can be dropped if claude-mgr is ever
+ * distributed standalone without OMC.
+ *   - .omc-*.json  — OMC config/version/state files (.omc-config.json, .omc-version.json, …)
+ */
+export const KNOWN_TOP_FILE_PATTERNS = Object.freeze([
+  /^security_warnings_state_[0-9a-fA-F-]+\.json$/,
+  /^CLAUDE\.md\.backup\..+/,
+  // oh-my-claudecode (OMC) runtime artifacts:
+  /^\.omc-[\w.-]+\.json$/,
+]);
+
+/**
+ * Top-level DIRECTORY names that are NOT Claude-Code-native but belong to the
+ * oh-my-claudecode (OMC) framework. Recognised here so a heavily-OMC harness is
+ * not drowned in hard-orphan noise. This block is deliberately isolated so it can
+ * be dropped if claude-mgr is ever distributed standalone without OMC.
+ *   homunculus    — OMC agent-state store
+ *   metrics       — OMC usage metrics
+ *   session-data  — OMC session persistence
+ *   teams         — OMC team configuration
+ */
+export const KNOWN_ECOSYSTEM_TOP_DIRS = Object.freeze([
+  'homunculus', 'metrics', 'session-data', 'teams',
 ]);
 
 /**
@@ -109,6 +149,26 @@ function compareSoft(a, b) {
   return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
+/** The combined known-dir set: CC-native (from settings.mjs) + OMC ecosystem. */
+const ALL_KNOWN_TOP_DIRS = new Set([...KNOWN_TOP_DIRS, ...KNOWN_ECOSYSTEM_TOP_DIRS]);
+
+/** Frozen Set for O(1) exact-name look-ups against KNOWN_TOP_FILES. */
+const KNOWN_TOP_FILE_SET = new Set(KNOWN_TOP_FILES);
+
+/**
+ * Returns true if `name` is a recognised top-level file (exact match OR matches
+ * any pattern in KNOWN_TOP_FILE_PATTERNS). Pure, never throws.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isKnownTopFile(name) {
+  if (KNOWN_TOP_FILE_SET.has(name)) return true;
+  for (const re of KNOWN_TOP_FILE_PATTERNS) {
+    if (re.test(name)) return true;
+  }
+  return false;
+}
+
 /**
  * Read and classify all top-level entries of `rootDir`.
  * Returns {hard, componentDirsPresent} or null when the root is unreadable/missing.
@@ -127,8 +187,6 @@ function classifyTopLevel(rootDir, ownTopDirs, bag) {
     return null;
   }
 
-  const knownTopDirSet = new Set(KNOWN_TOP_DIRS);
-  const knownTopFileSet = new Set(KNOWN_TOP_FILES);
   /** @type {OrphanRecord[]} */
   const hard = [];
   /** @type {Set<string>} */
@@ -141,14 +199,14 @@ function classifyTopLevel(rootDir, ownTopDirs, bag) {
     if (ownTopDirs.has(name)) continue;
 
     if (entryType === 'dir') {
-      if (knownTopDirSet.has(name)) {
+      if (ALL_KNOWN_TOP_DIRS.has(name)) {
         if (name === 'skills' || name === 'agents' || name === 'commands') {
           componentDirsPresent.add(name);
         }
       } else {
         hard.push({ category: 'hard', entryType: 'dir', name, path: join(rootDir, name), container: '', reason: 'unknown top-level directory' });
       }
-    } else if (!knownTopFileSet.has(name)) {
+    } else if (!isKnownTopFile(name)) {
       hard.push({ category: 'hard', entryType: 'file', name, path: join(rootDir, name), container: '', reason: 'unknown top-level file' });
     }
   }
