@@ -37,6 +37,7 @@
  *   #21 apply-leftover-files          leftover *.mgr-new / *.mgr-old from interrupted atomic write → warn
  *   #25 config-rules-stale            effective-config-rules.md older than 90 days → info
  *   #17 windows-file-locks            settings.json appears exclusively locked by another process → warn
+ *   #24 insecure-permissions          .mgr-state/ has a broad Windows ACL (read-only icacls — passive) → warn
  *
  * --- Facts gathered by the discovery probe, judged here ---
  * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
@@ -106,6 +107,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {import('../../discovery/probe-fs.mjs').FsFacts} [fsFacts]  filesystem facts (probe-fs); judged by #13/#14/#16/#20/#21/#25
  * @property {StatuslineFact} [statusline]  statusLine resolution fact (probe-statusline); judged by #18
  * @property {import('../../discovery/probe-access.mjs').LockFact} [lock]  settings.json lock fact (probe-access); judged by #17
+ * @property {import('../../discovery/probe-access.mjs').AclFact} [acl]  .mgr-state ACL fact (probe-access, async gather); judged by #24
  */
 
 /**
