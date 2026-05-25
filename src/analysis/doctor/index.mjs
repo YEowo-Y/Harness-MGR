@@ -12,8 +12,8 @@
  *   - passive (DEFAULT): only judgments over facts ALREADY gathered by the caller —
  *     no filesystem walks, no spawns, no network. Pure data in, diagnostics out.
  *   - active (`--active-probes`, opt-in): adds checks that spawn (`node --check`,
- *     `claude --version`, loader-probe). #4 hook-node-syntax (P2.U7a) and #15
- *     claude-cli-resolvable (P2.U7b) are registered; #19 follows in P2.U7c. The
+ *     `claude --version`, loader-probe). #4 hook-node-syntax (P2.U7a), #15
+ *     claude-cli-resolvable (P2.U7b), and #19 loader-probe (P2.U7c-2) are registered. The
  *     dispatch here already filters by `probeLevel` so an active check NEVER runs
  *     unless the caller opts in — that is what makes "passive produces zero side
  *     effects" true.
@@ -22,6 +22,7 @@
  * --- Registered checks (P2 so far; see the CHECKS array) ---
  *   #4  hook-node-syntax       (active)  node --check per .mjs hook script → syntax-error is an error
  *   #15 claude-cli-resolvable  (active)  claude CLI resolves on PATH; native exe also probed via --version
+ *   #19 loader-probe           (active)  write+observe+cleanup a probe agent; carries loader precedence confidence
  *   #1  mcp-auth-stale                 MCP server needs-auth cache entry older than 30/90 days
  *   #2  mcp-server-resolvable          stdio MCP command was not found on PATH at probe time
  *   #6  settings-json-valid            escalate settings-* facts (dup key → error)
@@ -115,6 +116,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {import('../../discovery/probe-access.mjs').AclFact} [acl]  .mgr-state ACL fact (probe-access, async gather); judged by #24
  * @property {import('../../discovery/probe-hook-syntax.mjs').HookSyntaxFact[]} [hookSyntax]  node --check facts (probe-hook-syntax, active tier); judged by #4
  * @property {import('../../discovery/probe-cli.mjs').CliFact} [cli]  claude CLI resolution/liveness fact (probe-cli, active tier); judged by #15
+ * @property {import('../../discovery/probe-loader.mjs').LoaderProbeFact} [loader]  loader-probe fact (probe-loader, active tier); judged by #19
  */
 
 /**
@@ -367,7 +369,7 @@ export const CHECKS = Object.freeze([
  *
  * @param {DoctorInput} input  the facts to judge (defensively read; undefined is fine)
  * @param {Object} [opts]
- * @param {boolean} [opts.activeProbes=false]  opt in to active checks (active checks: #4 hook-node-syntax, #15 claude-cli-resolvable — P2.U7a/b)
+ * @param {boolean} [opts.activeProbes=false]  opt in to active checks (active checks: #4 hook-node-syntax, #15 claude-cli-resolvable, #19 loader-probe — P2.U7a/b/c)
  * @param {ReadonlyArray<DoctorCheck>} [opts.checks]  override the registry (internal/testing seam)
  * @returns {DoctorReport}
  */
