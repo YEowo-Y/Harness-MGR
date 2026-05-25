@@ -28,6 +28,8 @@ import { analyzeOrphans } from '../analysis/orphans.mjs';
 import { mergeSettings } from '../analysis/settings-merge.mjs';
 import { auditPermissions } from '../analysis/permissions.mjs';
 import { loaderConfidence } from '../analysis/load-order.mjs';
+import { runDoctor } from '../analysis/doctor/index.mjs';
+import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
 import { lintTree } from '../selftest/lint.mjs';
 import { checkInvariants } from '../selftest/invariants.mjs';
@@ -45,6 +47,7 @@ import { checkBoundary } from '../selftest/boundary.mjs';
  *
  * @typedef {Object} CommandContext
  * @property {string} configDir   the governed ~/.claude (resolved upstream)
+ * @property {string} [mgrStateDir]  claude-mgr's own state dir (resolved upstream; used by doctor's fs/acl probes)
  * @property {Object} args        parsed flags (handler reads only what it needs)
  *
  * @typedef {Object} CommandOutput
@@ -384,6 +387,33 @@ function errorDiags(diags) {
   return diags.filter((d) => d.severity === 'error');
 }
 
+// ── doctor ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Health-check command (ASYNC). Gathers the DoctorInput facts (scan + merged
+ * settings + conflict/orphan analysis + the passive probes), then runs the pure
+ * `runDoctor` judgment layer over them. With `--active-probes` it ALSO gathers
+ * the active probe facts (node --check, claude --version, the loader probe) and
+ * runs the active checks; without it those checks are reported as `ran:false`
+ * and produce no side effects.
+ *
+ * The result is `{ probeLevel, checks }` (the per-check run/findings summary);
+ * diagnostics are the gather operational diagnostics PLUS every doctor finding.
+ * Never throws — gatherDoctorInput and runDoctor are both never-throws.
+ * @type {CommandHandler}
+ */
+export async function doctorCommand(ctx) {
+  const activeProbes = !!(ctx.args && ctx.args['active-probes']);
+  const { input, diagnostics: gatherDiags } = await gatherDoctorInput({
+    configDir: ctx.configDir, mgrStateDir: ctx.mgrStateDir, activeProbes, now: Date.now(),
+  });
+  const report = runDoctor(input, { activeProbes });
+  return {
+    result: { probeLevel: report.probeLevel, checks: report.checks },
+    diagnostics: [...gatherDiags, ...report.diagnostics],
+  };
+}
+
 // ── registry ────────────────────────────────────────────────────────────────────
 
 /**
@@ -399,4 +429,5 @@ export const COMMANDS = Object.freeze({
   'hooks': hooksCommand,
   'permissions': permissionsCommand,
   'selftest': selftestCommand,
+  'doctor': doctorCommand,
 });
