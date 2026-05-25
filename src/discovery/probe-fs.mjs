@@ -31,6 +31,7 @@ import { DiagnosticBag } from '../lib/diagnostic.mjs';
  * @property {string[]} probeResidue                                #20: __mgr-probe-* leftovers
  * @property {string[]} applyLeftovers                              #21: *.mgr-new / *.mgr-old leftovers
  * @property {{ path: string, mtimeMs: number } | null} configRulesDoc  #25: mtime of rulesDocPath
+ * @property {{ path: string, bytes: number } | null} diskUsage   #16: recursive byte size of mgrStateDir
  */
 
 /**
@@ -60,6 +61,28 @@ function safeStatMtime(path) {
 }
 
 /**
+ * Recursively sum the byte size of a directory tree, never following symlinks.
+ * Depth-guarded at 64 to prevent infinite loops on adversarial inputs.
+ * Any I/O error on a single entry is silently skipped (degrade-gracefully).
+ * @param {string} dir
+ * @param {number} [depth]
+ * @returns {number}
+ */
+function safeDirSize(dir, depth = 0) {
+  if (depth >= 64) return 0;
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return 0; }
+  let total = 0;
+  for (const ent of entries) {
+    if (ent.isSymbolicLink()) continue;            // never follow symlinks
+    const p = join(dir, ent.name);
+    if (ent.isDirectory()) total += safeDirSize(p, depth + 1);
+    else if (ent.isFile()) { try { const s = statSync(p).size; if (Number.isFinite(s)) total += s; } catch { /* skip */ } }
+  }
+  return total;
+}
+
+/**
  * The empty FsFacts value returned when configDir is bad.
  * @returns {FsFacts}
  */
@@ -70,6 +93,7 @@ function emptyFacts() {
     probeResidue: [],
     applyLeftovers: [],
     configRulesDoc: null,
+    diskUsage: null,
   };
 }
 
@@ -142,8 +166,10 @@ export function gatherFsProbes(opts) {
     }
   }
 
+  const diskUsage = { path: mgrStateDir, bytes: safeDirSize(mgrStateDir) };
+
   return {
-    fsFacts: { claudeMdBackups, snapshots, probeResidue, applyLeftovers, configRulesDoc },
+    fsFacts: { claudeMdBackups, snapshots, probeResidue, applyLeftovers, configRulesDoc, diskUsage },
     diagnostics: bag.all(),
   };
 }
