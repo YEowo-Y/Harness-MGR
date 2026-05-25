@@ -11,7 +11,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { detectOrphans, KNOWN_TOP_FILES, DEFAULT_OWN_TOP_DIRS } from '../src/discovery/orphan-detector.mjs';
+import { detectOrphans, KNOWN_TOP_FILES, KNOWN_TOP_FILE_PATTERNS, KNOWN_ECOSYSTEM_TOP_DIRS, DEFAULT_OWN_TOP_DIRS } from '../src/discovery/orphan-detector.mjs';
 import { MGR_STATE_DIRNAME } from '../src/paths.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,12 +31,28 @@ function withTempDir(fn) {
 
 // ── EXPORTED CONTRACT ─────────────────────────────────────────────────────────
 
-test('exports: KNOWN_TOP_FILES and DEFAULT_OWN_TOP_DIRS are frozen with expected entries', () => {
+test('exports: KNOWN_TOP_FILES, KNOWN_TOP_FILE_PATTERNS, KNOWN_ECOSYSTEM_TOP_DIRS, DEFAULT_OWN_TOP_DIRS are frozen with expected entries', () => {
   assert.ok(Object.isFrozen(KNOWN_TOP_FILES), 'KNOWN_TOP_FILES must be frozen');
+  assert.ok(Object.isFrozen(KNOWN_TOP_FILE_PATTERNS), 'KNOWN_TOP_FILE_PATTERNS must be frozen');
+  assert.ok(Object.isFrozen(KNOWN_ECOSYSTEM_TOP_DIRS), 'KNOWN_ECOSYSTEM_TOP_DIRS must be frozen');
   assert.ok(Object.isFrozen(DEFAULT_OWN_TOP_DIRS), 'DEFAULT_OWN_TOP_DIRS must be frozen');
   // settings.json + CLAUDE.md are the load-bearing entries the top-level pass relies on.
   assert.ok(KNOWN_TOP_FILES.includes('settings.json'));
   assert.ok(KNOWN_TOP_FILES.includes('CLAUDE.md'));
+  // New CC runtime files must be present.
+  assert.ok(KNOWN_TOP_FILES.includes('history.jsonl'));
+  assert.ok(KNOWN_TOP_FILES.includes('mcp-needs-auth-cache.json'));
+  assert.ok(KNOWN_TOP_FILES.includes('.last-cleanup'));
+  assert.ok(KNOWN_TOP_FILES.includes('bash-commands.log'));
+  assert.ok(KNOWN_TOP_FILES.includes('cost-tracker.log'));
+  // Pattern array must have at least the three expected patterns.
+  assert.ok(Array.isArray(KNOWN_TOP_FILE_PATTERNS));
+  assert.ok(KNOWN_TOP_FILE_PATTERNS.length >= 3);
+  // OMC ecosystem dirs.
+  assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('homunculus'));
+  assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('metrics'));
+  assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('session-data'));
+  assert.ok(KNOWN_ECOSYSTEM_TOP_DIRS.includes('teams'));
   // The tool's own dirs default to the state dir + the dogfood install dir.
   assert.deepEqual(DEFAULT_OWN_TOP_DIRS, ['.mgr-state', '.mgr']);
 });
@@ -214,4 +230,75 @@ test('boundary: determinism — two calls produce identical results', () => {
   const r1 = detectOrphans(fix('orphan'));
   const r2 = detectOrphans(fix('orphan'));
   assert.deepEqual(r1, r2);
+});
+
+// ── D. WHITELIST EXPANSION — CC runtime + OMC ecosystem entries ───────────────
+
+test('whitelist: CC runtime files and OMC ecosystem entries are NOT flagged as hard orphans', () => {
+  withTempDir((dir) => {
+    // CC runtime exact-name files
+    for (const f of ['history.jsonl', '.last-cleanup', 'bash-commands.log',
+      'cost-tracker.log', 'mcp-needs-auth-cache.json']) {
+      writeFileSync(join(dir, f), '', 'utf-8');
+    }
+    // CC runtime pattern files (UUID-suffixed + timestamp-suffixed)
+    writeFileSync(join(dir, 'security_warnings_state_a1b2c3d4-e5f6-7890-abcd-ef1234567890.json'), '{}', 'utf-8');
+    writeFileSync(join(dir, 'CLAUDE.md.backup.1748736000000'), '# backup', 'utf-8');
+    // OMC ecosystem file pattern
+    writeFileSync(join(dir, '.omc-config.json'), '{}', 'utf-8');
+    writeFileSync(join(dir, '.omc-version.json'), '{}', 'utf-8');
+    // OMC ecosystem dirs
+    for (const d of ['homunculus', 'metrics', 'session-data', 'teams']) {
+      mkdirSync(join(dir, d));
+    }
+
+    const { hard, diagnostics } = detectOrphans(dir);
+    assert.equal(hard.length, 0, `expected 0 hard orphans, got: ${hard.map((r) => r.name).join(', ')}`);
+    assert.equal(diagnostics.filter((d) => d.severity === 'error').length, 0);
+  });
+});
+
+test('whitelist: genuinely unknown entries are still flagged hard (no over-whitelisting)', () => {
+  withTempDir((dir) => {
+    // Known entries that must pass silently
+    writeFileSync(join(dir, 'history.jsonl'), '', 'utf-8');
+    writeFileSync(join(dir, '.omc-config.json'), '{}', 'utf-8');
+    mkdirSync(join(dir, 'metrics'));
+    // Unknown entries that MUST still be flagged
+    writeFileSync(join(dir, 'random-junk.xyz'), 'orphan', 'utf-8');
+    mkdirSync(join(dir, 'bogusdir'));
+
+    const { hard } = detectOrphans(dir);
+    const names = hard.map((r) => r.name);
+    assert.ok(names.includes('random-junk.xyz'), 'random-junk.xyz must be a hard orphan');
+    assert.ok(names.includes('bogusdir'), 'bogusdir must be a hard orphan');
+    assert.equal(hard.length, 2, `expected exactly 2 hard orphans, got: ${names.join(', ')}`);
+  });
+});
+
+test('whitelist: KNOWN_TOP_FILE_PATTERNS — security_warnings_state pattern matches correctly', () => {
+  const pat = KNOWN_TOP_FILE_PATTERNS.find((r) => r.source.includes('security_warnings_state'));
+  assert.ok(pat, 'security_warnings_state pattern must exist');
+  assert.ok(pat.test('security_warnings_state_a1b2c3d4-e5f6-7890-abcd-ef1234567890.json'));
+  assert.ok(!pat.test('security_warnings_state_.json'), 'empty UUID part must not match');
+  assert.ok(!pat.test('xsecurity_warnings_state_abc.json'), 'leading char must not match');
+});
+
+test('whitelist: KNOWN_TOP_FILE_PATTERNS — CLAUDE.md.backup pattern matches correctly', () => {
+  const pat = KNOWN_TOP_FILE_PATTERNS.find((r) => r.source.includes('backup'));
+  assert.ok(pat, 'CLAUDE.md.backup pattern must exist');
+  assert.ok(pat.test('CLAUDE.md.backup.1748736000000'));
+  assert.ok(pat.test('CLAUDE.md.backup.anything'));
+  assert.ok(!pat.test('CLAUDE.md.bak'), 'different suffix must not match');
+  assert.ok(!pat.test('claude.md.backup.123'), 'lowercase must not match');
+});
+
+test('whitelist: KNOWN_TOP_FILE_PATTERNS — .omc-*.json pattern matches correctly', () => {
+  const pat = KNOWN_TOP_FILE_PATTERNS.find((r) => r.source.includes('omc'));
+  assert.ok(pat, '.omc-*.json pattern must exist');
+  assert.ok(pat.test('.omc-config.json'));
+  assert.ok(pat.test('.omc-version.json'));
+  assert.ok(pat.test('.omc-my.state.json'));
+  assert.ok(!pat.test('omc-config.json'), 'must start with dot');
+  assert.ok(!pat.test('.omc-.json'), 'empty body after dash must not match');
 });
