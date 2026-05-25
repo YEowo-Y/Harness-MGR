@@ -21,10 +21,7 @@
  * @typedef {import('../../discovery/orphan-detector.mjs').OrphanRecord} OrphanRecord
  */
 
-/** @param {unknown} v @param {string} fallback @returns {string} */
-function strOr(v, fallback) {
-  return typeof v === 'string' && v.length > 0 ? v : fallback;
-}
+import { strOr } from './util.mjs';
 
 /**
  * #12 orphan-files — surface each discovered orphan as an INFO finding. Orphans
