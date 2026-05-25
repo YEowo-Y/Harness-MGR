@@ -141,6 +141,14 @@ function buildAllowlistCases(targetClaudeDir, mgrStateDir) {
     { label: 'targetClaudeDir/plugins/marketplaces/m apply -> THROW write-forbidden',
       target: join(targetClaudeDir, 'plugins', 'marketplaces', 'm'), context: 'apply',
       expectAllow: false, expectedCode: 'write-forbidden' },
+    { label: 'targetClaudeDir/agents/__mgr-probe-x.md probe -> ALLOW',
+      target: join(targetClaudeDir, 'agents', '__mgr-probe-0000.md'), context: 'probe', expectAllow: true },
+    { label: 'targetClaudeDir/agents/real-agent.md probe -> THROW write-probe-only',
+      target: join(targetClaudeDir, 'agents', 'real-agent.md'), context: 'probe',
+      expectAllow: false, expectedCode: 'write-probe-only' },
+    { label: 'targetClaudeDir/agents/__mgr-probe-x.md apply -> THROW write-rollback-only',
+      target: join(targetClaudeDir, 'agents', '__mgr-probe-0000.md'), context: 'apply',
+      expectAllow: false, expectedCode: 'write-rollback-only' },
   ];
 }
 
