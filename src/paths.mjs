@@ -28,7 +28,7 @@
  * Zero npm dependencies.
  */
 
-import { dirname, join, resolve, normalize, sep } from 'node:path';
+import { basename, dirname, join, resolve, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
 
@@ -37,6 +37,10 @@ import { realpathSync } from 'node:fs';
 // clarification #3 — paths imports reexport, so the shim must load first.)
 import { getClaudeConfigDir } from './lib/reexport.mjs';
 export { getClaudeConfigDir };
+
+/** A loader-probe artifact filename: __mgr-probe-<uuid>.md. The ONLY name the
+ *  'probe' write context permits in agents/. */
+const PROBE_NAME_RE = /^__mgr-probe-[0-9a-f-]+\.md$/i;
 
 /**
  * Canonical dir name for claude-mgr's own state. SINGLE SOURCE OF TRUTH:
@@ -54,7 +58,10 @@ export const MGR_STATE_DIRNAME = '.mgr-state';
  */
 
 /**
- * @typedef {'apply'|'rollback'} WriteContext
+ * @typedef {'apply'|'rollback'|'probe'} WriteContext
+ *   - 'apply'    — normal apply operation (default)
+ *   - 'rollback' — snapshot restore: may write to governed content surfaces
+ *   - 'probe'    — transient loader-probe artifact: ONLY agents/__mgr-probe-<uuid>.md
  */
 
 /**
@@ -176,19 +183,21 @@ function isUnder(child, parent) {
  *   - Rollback-only writable: CLAUDE.md + agents/skills/commands/hooks under the
  *     target dir — writable ONLY when context === 'rollback'.
  *   - Normally writable: mgrStateDir/** (snapshots, journals, logs) in any context.
+ *   - Probe-only: context === 'probe' permits ONLY agents/__mgr-probe-<uuid>.md
+ *     (the transient loader-probe artifact, P2.U7c) — nothing else.
  *
  * Per P1-10, U3 is apply-centric; the rollback context is recognized here per
  * the documented signature so P3 can wire it without reshaping the API.
  *
  * @param {string} target            absolute path intended for writing
- * @param {WriteContext} [context]   'apply' (default) or 'rollback'
+ * @param {WriteContext} [context]   'apply' (default), 'rollback', or 'probe'
  * @returns {string} the canonical target path
  */
 export function assertWritable(target, context = 'apply') {
   if (typeof target !== 'string' || target.length === 0) {
     throw new WriteForbiddenError('write target must be a non-empty string', 'write-target-invalid');
   }
-  const ctx = context === 'rollback' ? 'rollback' : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe') ? context : 'apply';
   const claudeDir = targetClaudeDir();
   const stateDir = mgrStateDir(claudeDir);
 
@@ -215,6 +224,22 @@ export function assertWritable(target, context = 'apply') {
     if (isUnder(target, f)) {
       throw new WriteForbiddenError(`path is forbidden to write: ${target}`, 'write-forbidden');
     }
+  }
+
+  // 'probe' context: allow ONLY a transient loader-probe artifact placed
+  // DIRECTLY in agents/ with a __mgr-probe-<uuid>.md name. Everything else
+  // (any other name, any nested dir, any other governed surface) is refused.
+  // canonical() still denies a symlinked agents/ that escapes the config dir.
+  if (ctx === 'probe') {
+    const canonicalTarget = canonical(target);
+    const agentsDir = canonical(join(claudeDir, 'agents'));
+    if (dirname(canonicalTarget) === agentsDir && PROBE_NAME_RE.test(basename(canonicalTarget))) {
+      return canonicalTarget;
+    }
+    throw new WriteForbiddenError(
+      `probe context permits only agents/__mgr-probe-*.md: ${target}`,
+      'write-probe-only',
+    );
   }
 
   // Rollback-only-writable surfaces: governed content that normal apply must
