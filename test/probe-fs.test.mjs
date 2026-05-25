@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, writeFileSync, mkdirSync, rmSync, utimesSync,
+  mkdtempSync, writeFileSync, mkdirSync, rmSync, utimesSync, symlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -277,4 +277,82 @@ test('exactly one discover-bad-root diagnostic emitted for bad configDir', () =>
   const { diagnostics } = gatherFsProbes({ configDir: '' });
   const errs = diagnostics.filter((d) => d.code === 'discover-bad-root');
   assert.equal(errs.length, 1, 'must emit exactly 1 discover-bad-root');
+});
+
+// ── 8. diskUsage facts (#16) ──────────────────────────────────────────────────
+
+test('diskUsage: mgrStateDir with known-size content → bytes >= written size, path === mgrStateDir', () => {
+  const tmp = mktmp();
+  try {
+    const mgrState = join(tmp, '.mgr-state');
+    mkdirSync(mgrState, { recursive: true });
+    // write a file of exactly 1000 bytes
+    writeFileSync(join(mgrState, 'bigfile.bin'), Buffer.alloc(1000, 0x41));
+    // nested subdir with another file
+    const sub = join(mgrState, 'sub');
+    mkdirSync(sub);
+    writeFileSync(join(sub, 'nested.bin'), Buffer.alloc(500, 0x42));
+
+    const { fsFacts } = gatherFsProbes({ configDir: tmp });
+    assert.ok(fsFacts.diskUsage !== null, 'diskUsage must not be null when mgrStateDir exists');
+    assert.ok(fsFacts.diskUsage.bytes >= 1000, `bytes ${fsFacts.diskUsage.bytes} must be >= 1000`);
+    assert.equal(fsFacts.diskUsage.path, mgrState);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('diskUsage: mgrStateDir absent → bytes === 0, path still set, no throw', () => {
+  const tmp = mktmp();
+  try {
+    // configDir exists but .mgr-state does not
+    let result;
+    assert.doesNotThrow(() => { result = gatherFsProbes({ configDir: tmp }); });
+    const { fsFacts } = result;
+    assert.ok(fsFacts.diskUsage !== null, 'diskUsage must be set even when mgrStateDir is absent');
+    assert.equal(fsFacts.diskUsage.bytes, 0, 'bytes must be 0 when mgrStateDir is absent');
+    assert.equal(typeof fsFacts.diskUsage.path, 'string', 'path must be a string');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('diskUsage: bad configDir (gatherFsProbes({})) → diskUsage === null', () => {
+  const { fsFacts } = gatherFsProbes({});
+  assert.equal(fsFacts.diskUsage, null, 'diskUsage must be null for bad configDir');
+});
+
+test('diskUsage: symlink inside mgrStateDir pointing out is NOT followed (symlink skipped)', () => {
+  const tmp = mktmp();
+  const bigTarget = mktmp();
+  try {
+    const mgrState = join(tmp, '.mgr-state');
+    mkdirSync(mgrState, { recursive: true });
+    // write a small known file inside mgrState
+    writeFileSync(join(mgrState, 'small.bin'), Buffer.alloc(100, 0x41));
+    // write a large file outside mgrState
+    writeFileSync(join(bigTarget, 'large.bin'), Buffer.alloc(50000, 0x42));
+
+    let symlinkCreated = false;
+    try {
+      symlinkSync(bigTarget, join(mgrState, 'link-to-big'));
+      symlinkCreated = true;
+    } catch {
+      // symlinks may require elevated permissions on Windows — skip if not available
+    }
+
+    const { fsFacts } = gatherFsProbes({ configDir: tmp });
+    assert.ok(fsFacts.diskUsage !== null);
+    if (symlinkCreated) {
+      // bytes must NOT include the 50000 bytes from the symlink target
+      assert.ok(fsFacts.diskUsage.bytes < 50000,
+        `bytes ${fsFacts.diskUsage.bytes} must not include symlink target (expected < 50000)`);
+    }
+    // regardless of symlink support: bytes must include the small file
+    assert.ok(fsFacts.diskUsage.bytes >= 100,
+      `bytes ${fsFacts.diskUsage.bytes} must include the small file (>= 100)`);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+    rmSync(bigTarget, { recursive: true, force: true });
+  }
 });
