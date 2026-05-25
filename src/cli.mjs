@@ -41,7 +41,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
 const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet']);
