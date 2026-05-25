@@ -47,12 +47,13 @@ test('default mode is passive: an active check never runs (zero side effects)', 
   assert.equal(byCode(r.diagnostics, 'doctor-active-probes').length, 0);
 });
 
-test('the real registry is entirely passive and runs by default (U4 invariant)', () => {
+test('the real registry has passive checks that all run by default; active checks are skipped (P2.U7a)', () => {
   const r = runDoctor({});
   assert.equal(r.probeLevel, 'passive');
   assert.equal(r.checks.length, CHECKS.length);
-  assert.ok(r.checks.every((c) => c.probeLevel === 'passive'), 'no active checks registered until P2.U7');
-  assert.ok(r.checks.every((c) => c.ran), 'all passive checks run in default mode');
+  // Passive checks all run; active checks (e.g. #4 hook-node-syntax, added P2.U7a) do not.
+  assert.ok(r.checks.filter((c) => c.probeLevel === 'passive').every((c) => c.ran), 'all passive checks run in default mode');
+  assert.ok(r.checks.filter((c) => c.probeLevel === 'active').every((c) => !c.ran), 'active checks do not run in passive mode');
   assert.equal(byCode(r.diagnostics, 'doctor-active-probes').length, 0);
 });
 
