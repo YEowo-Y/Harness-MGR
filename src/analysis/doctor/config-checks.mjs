@@ -22,6 +22,7 @@
  */
 
 import { strOr } from './util.mjs';
+import { findOverbroadAllow } from '../../analysis/permissions.mjs';
 
 /**
  * #12 orphan-files — surface each discovered orphan as an INFO finding. Orphans
@@ -96,22 +97,14 @@ function checkClaudeConfigSchemaVersion(input) {
  */
 function checkPermissionsOverbroad(input) {
   const perms = input.permissions && typeof input.permissions === 'object' ? input.permissions : {};
-  const allow = Array.isArray(perms.allow) ? perms.allow : [];
   /** @type {Diagnostic[]} */
-  const out = [];
-  const seen = new Set();
-  for (const entry of allow) {
-    if (typeof entry !== 'string' || !entry.includes('*')) continue;
-    if (seen.has(entry)) continue;
-    seen.add(entry);
-    out.push({
-      severity: 'warn',
-      code: 'permissions-overbroad',
-      message: `permissions.allow contains a wildcard rule: "${entry}"`,
-      phase: 'doctor',
-      fix: `replace "${entry}" with specific rules, or move it to permissions.ask so it prompts instead of auto-allowing`,
-    });
-  }
+  const out = findOverbroadAllow(perms.allow).map((entry) => ({
+    severity: 'warn',
+    code: 'permissions-overbroad',
+    message: `permissions.allow contains a wildcard rule: "${entry}"`,
+    phase: 'doctor',
+    fix: `replace "${entry}" with specific rules, or move it to permissions.ask so it prompts instead of auto-allowing`,
+  }));
   out.sort((a, b) => (a.message < b.message ? -1 : a.message > b.message ? 1 : 0));
   return out;
 }
