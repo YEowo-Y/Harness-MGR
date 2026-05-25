@@ -1,0 +1,294 @@
+/**
+ * Pure parser/classifier for Claude Code hook command strings (P2.U5b-2).
+ *
+ * Claude Code hook commands are shell strings like:
+ *   `node "$HOME/.claude/hooks/foo.mjs"`
+ *   `any-buddy apply --silent`
+ *
+ * The doctor needs to know WHICH thing to verify for each command:
+ *   - 'file'     → a script path that must exist on disk
+ *   - 'external' → a bare executable name that must be on PATH
+ *
+ * This module handles the PURE parsing/classification only — string in,
+ * classification out. No filesystem or PATH access; those are handled by
+ * the discovery probe (src/discovery/probe-hooks.mjs). This separation keeps
+ * the doctor analysis layer side-effect-free, deterministic, and time-injectable.
+ *
+ * Key design decisions:
+ *   - tokenizeCommand: quote-aware split; no backslash-escape needed (hook
+ *     commands in the wild use $VAR or "$VAR" but not \\-escapes).
+ *   - expandVars: HOME fallback uses env.HOME ?? env.USERPROFILE so the module
+ *     works on Windows where HOME is often absent but USERPROFILE is set.
+ *   - classifyHookCommand: eval flags (-e, -m, etc.) make the arg non-checkable;
+ *     return null rather than risk a false "file missing" diagnostic.
+ *   - npx is deliberately NOT in INTERPRETERS — its first arg is a package name
+ *     that should be treated as an external command, not a file.
+ *
+ * Zero npm dependencies; node:path (isAbsolute) only. Never throws.
+ */
+
+import { isAbsolute } from 'node:path';
+
+// ── tokenizeCommand ──────────────────────────────────────────────────────────
+
+/**
+ * Decide whether character `ch` at position `i` in `str` is inside a quoted
+ * region, and advance the quote state. Returns the updated quote character or ''.
+ *
+ * This helper is intentionally NOT exported — it is an internal state-machine
+ * step used only by tokenizeCommand.
+ *
+ * @param {string} ch current character
+ * @param {string} quote current active quote ('' | '"' | "'")
+ * @returns {string} new quote state
+ */
+function nextQuote(ch, quote) {
+  if (quote === '') {
+    if (ch === '"' || ch === "'") return ch;
+  } else if (ch === quote) {
+    return '';
+  }
+  return quote;
+}
+
+/**
+ * Quote-aware split of a shell-style command line into an array of tokens.
+ *
+ * Rules:
+ *   - Unquoted whitespace separates tokens.
+ *   - `"..."` and `'...'` keep their contents as one token (quotes stripped).
+ *   - A quote may appear mid-token: `--opt="a b"` → `'--opt=a b'`.
+ *   - No backslash-escape handling — Claude Code hook commands do not use them.
+ *   - Non-string or empty input → `[]`.
+ *
+ * Examples:
+ *   tokenizeCommand('node "$HOME/x.mjs"')       → ['node', '$HOME/x.mjs']
+ *   tokenizeCommand('any-buddy apply --silent')  → ['any-buddy', 'apply', '--silent']
+ *   tokenizeCommand("'a b' c")                  → ['a b', 'c']
+ *
+ * @param {string} str raw hook command line
+ * @returns {string[]}
+ */
+export function tokenizeCommand(str) {
+  if (typeof str !== 'string' || str.length === 0) return [];
+
+  /** @type {string[]} */
+  const tokens = [];
+  let token = '';
+  let quote = '';
+
+  for (const ch of str) {
+    const newQuote = nextQuote(ch, quote);
+    if (newQuote !== quote) {
+      // Quote boundary: opening or closing a quoted region — consume the quote
+      // character itself (strip it) without adding it to the token.
+      quote = newQuote;
+      continue;
+    }
+    if (quote === '' && (ch === ' ' || ch === '\t')) {
+      if (token.length > 0) { tokens.push(token); token = ''; }
+      continue;
+    }
+    token += ch;
+  }
+  if (token.length > 0) tokens.push(token);
+  return tokens;
+}
+
+// ── expandVars ───────────────────────────────────────────────────────────────
+
+/**
+ * Single combined matcher for `${VAR}` | `$VAR` | `%VAR%`. Capture group 1/2/3
+ * holds the var name for the brace / bare / percent form respectively. Matching
+ * all three in ONE pass means a substituted value is never re-scanned, so an env
+ * value that itself contains `$X` stays literal instead of cascading.
+ */
+const VAR_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%/g;
+
+/**
+ * Resolve the home directory from an env object, applying the Windows fallback.
+ * Returns the HOME value, or USERPROFILE if HOME is absent, or null if neither.
+ *
+ * @param {Record<string, string|undefined>} env
+ * @returns {string|null}
+ */
+function homeDir(env) {
+  if (typeof env.HOME === 'string') return env.HOME;
+  if (typeof env.USERPROFILE === 'string') return env.USERPROFILE;
+  return null;
+}
+
+/**
+ * Look up a variable name in env, applying the HOME/USERPROFILE fallback when
+ * the name is `HOME`. Returns the string value or null when unresolvable.
+ *
+ * @param {string} name variable name
+ * @param {Record<string, string|undefined>} env
+ * @returns {string|null}
+ */
+function resolveVar(name, env) {
+  if (name === 'HOME') return homeDir(env);
+  const v = env[name];
+  return typeof v === 'string' ? v : null;
+}
+
+/**
+ * Replace all recognised `$VAR`, `${VAR}`, and `%VAR%` occurrences in `str`
+ * using values from `env`. A leading `~` (followed by `/`, `\`, or end-of-string)
+ * is also expanded to the home directory.
+ *
+ * When a referenced variable has no string value in `env`, that occurrence is
+ * LEFT UNTOUCHED and `fullyExpanded` is set to false. A `$` or `%` that is NOT
+ * a valid variable reference is left as-is and does NOT affect `fullyExpanded`.
+ *
+ * @param {string} str input string (may contain variable references)
+ * @param {Record<string, string|undefined>} [env] defaults to `process.env`
+ * @returns {{ value: string, fullyExpanded: boolean }}
+ */
+export function expandVars(str, env) {
+  if (typeof str !== 'string') return { value: '', fullyExpanded: false };
+
+  const e = (env && typeof env === 'object') ? env : process.env;
+  let fullyExpanded = true;
+  let value = str;
+
+  // 1. Leading `~` → home (only at index 0, before `/`, `\`, or end).
+  if (value.length > 0 && value[0] === '~') {
+    const next = value[1];
+    if (next === '/' || next === '\\' || next === undefined) {
+      const h = homeDir(e);
+      if (h !== null) {
+        value = h + value.slice(1);
+      } else {
+        fullyExpanded = false;
+      }
+    }
+  }
+
+  // 2. Single pass over ${VAR} / $VAR / %VAR% — matching all three forms at once
+  //    means substituted text is never re-scanned (an env value containing "$X"
+  //    stays literal rather than cascading into a second substitution).
+  value = value.replace(VAR_RE, (m, braceName, dollarName, percentName) => {
+    const resolved = resolveVar(braceName ?? dollarName ?? percentName, e);
+    if (resolved === null) { fullyExpanded = false; return m; }
+    return resolved;
+  });
+
+  return { value, fullyExpanded };
+}
+
+// ── classifyHookCommand ──────────────────────────────────────────────────────
+
+/**
+ * The set of interpreter executable names (lowercased, .exe-stripped) that
+ * take a SCRIPT FILE as their first non-flag argument. npx is intentionally
+ * absent — its first arg is a package name, not a checkable file.
+ */
+const INTERPRETERS = new Set([
+  'node', 'python', 'python3', 'py',
+  'pwsh', 'powershell',
+  'bash', 'sh',
+  'deno', 'bun',
+  'ruby', 'perl',
+  'tsx', 'ts-node',
+]);
+
+/**
+ * Flags that indicate the NEXT argument is inline code or a module name, NOT
+ * a file path. When any of these appear, return null to avoid false diagnostics.
+ */
+const EVAL_FLAGS = new Set(['-e', '--eval', '-c', '--command', '-p', '--print', '-m', '--module']);
+
+/**
+ * Decide whether an expanded executable token is "path-like": an absolute path,
+ * or a relative/bare path containing a directory separator, or a `./` / `../`
+ * relative reference (starts with `.`).
+ *
+ * @param {string} exe expanded executable string
+ * @returns {boolean}
+ */
+function isPathLike(exe) {
+  return isAbsolute(exe) || exe.includes('/') || exe.includes('\\') || exe.startsWith('.');
+}
+
+/**
+ * Normalise an executable token to the canonical interpreter key used in
+ * INTERPRETERS: lowercase the basename, strip a trailing `.exe` if present.
+ *
+ * @param {string} exe expanded executable token (bare name — no separators)
+ * @returns {string}
+ */
+function interpreterName(exe) {
+  let name = exe.toLowerCase();
+  if (name.endsWith('.exe')) name = name.slice(0, -4);
+  return name;
+}
+
+/**
+ * Walk `args` to find the first non-flag token after the interpreter name,
+ * applying the eval-flag early-exit rule. Returns the raw token string, or
+ * null when none is found or an eval flag is encountered.
+ *
+ * Tokens starting with `-` are skipped (flags, e.g. `-File`, `--no-color`).
+ * The FIRST non-flag token is treated as the script path.
+ *
+ * NOTE (known limitation): a value-taking flag like `--require esm` is skipped
+ * as a flag, so its VALUE (`esm`) could be misread as the script. Rare in hook
+ * commands; add a VALUE_FLAGS set (skip flag + next token) if it ever surfaces.
+ *
+ * @param {string[]} args remaining tokens after the interpreter (tokens[1..])
+ * @returns {string|null}
+ */
+function findScriptArg(args) {
+  for (const arg of args) {
+    if (EVAL_FLAGS.has(arg.toLowerCase())) return null; // eval/inline-code flag
+    if (arg.startsWith('-')) continue;                  // skip other flags
+    return arg;                                          // first non-flag token
+  }
+  return null;
+}
+
+/**
+ * Classify a single Claude Code hook command string.
+ *
+ * Algorithm:
+ *   1. Tokenize the command line.
+ *   2. Expand the first token (exe) with variable substitution.
+ *   3. If exe is path-like → kind:'file' (direct script/executable).
+ *   4. Else if exe is a known interpreter → find the script arg and expand it
+ *      → kind:'file'. An eval flag or missing script arg → null.
+ *   5. Otherwise → kind:'external' (bare command to find on PATH).
+ *
+ * Returns null for empty/non-string commands, or when classification is
+ * impossible without risking a false "missing file" diagnostic.
+ *
+ * @param {string} command raw hook command string
+ * @param {Record<string, string|undefined>} [env] defaults to `process.env`
+ * @returns {{ kind: 'file'|'external', target: string, fullyExpanded: boolean }|null}
+ */
+export function classifyHookCommand(command, env) {
+  const tokens = tokenizeCommand(command);
+  if (tokens.length === 0) return null;
+
+  const e = (env && typeof env === 'object') ? env : process.env;
+
+  const { value: exe, fullyExpanded: exeExp } = expandVars(tokens[0], e);
+
+  // Path-like exe: direct invocation of an absolute or relative script.
+  if (isPathLike(exe)) {
+    return { kind: 'file', target: exe, fullyExpanded: exeExp };
+  }
+
+  // Bare name: test against known interpreters.
+  const name = interpreterName(exe);
+
+  if (INTERPRETERS.has(name)) {
+    const scriptToken = findScriptArg(tokens.slice(1));
+    if (scriptToken === null) return null; // eval flag or no script arg
+    const { value: scriptPath, fullyExpanded: scriptExp } = expandVars(scriptToken, e);
+    return { kind: 'file', target: scriptPath, fullyExpanded: scriptExp };
+  }
+
+  // Not an interpreter → external command (e.g. npx, any-buddy).
+  return { kind: 'external', target: exe, fullyExpanded: exeExp };
+}
