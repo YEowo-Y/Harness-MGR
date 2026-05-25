@@ -58,6 +58,7 @@ function renderBody(canonical, result) {
     case 'hooks': return hooksTable(r);
     case 'permissions': return permissionsTable(r);
     case 'selftest': return selftestTable(r);
+    case 'doctor': return doctorTable(r);
     default: return kvTable(r);
   }
 }
@@ -140,6 +141,18 @@ function selftestTable(r) {
   return formatTable([
     { key: 'name', header: 'check' },
     { key: 'ok', header: 'ok' },
+  ], rows);
+}
+
+/** doctor → one row per registered check with its run status and finding count. @param {Record<string, unknown>} r */
+function doctorTable(r) {
+  const checks = Array.isArray(r.checks) ? r.checks : [];
+  const rows = checks.map((c) => ({ id: c && c.id, code: c && c.code, ran: c && c.ran, findings: c && c.findings }));
+  return formatTable([
+    { key: 'id', header: 'id', align: 'right' },
+    { key: 'code', header: 'code' },
+    { key: 'ran', header: 'ran' },
+    { key: 'findings', header: 'findings', align: 'right' },
   ], rows);
 }
 
