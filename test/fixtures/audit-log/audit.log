@@ -1,0 +1,7 @@
+{"timestamp":"2026-05-24T10:00:00.000Z","command":"snapshot","planVersion":"5","snapshotId":"2026-05-24T10-00-00","exitCode":0,"opCount":3}
+{"timestamp":"2026-05-20T08:30:00.000Z","command":"rollback","planVersion":"5","snapshotId":"2026-05-19T22-00-00","exitCode":0,"opCount":7}
+{"timestamp":1779408000000,"command":"gc","planVersion":"5","snapshotId":null,"exitCode":0,"opCount":5}
+{"timestamp":"2026-05-10T12:00:00.000Z","command":"snapshot","planVersion":"5","snapshotId":"2026-05-10T12-00-00","exitCode":0,"opCount":2}
+{"timestamp":"2026-05-01T09:00:00.000Z","command":"snapshot","planVersion":"5","snapshotId":"2026-05-01T09-00-00","exitCode":1,"opCount":0}
+{ this is not valid json
+{"command":"no-timestamp-entry","planVersion":"5","exitCode":0,"opCount":1}
