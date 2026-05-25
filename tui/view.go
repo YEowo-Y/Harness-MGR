@@ -782,9 +782,10 @@ func boolText(b bool) string {
 	return "no"
 }
 
-// detailField renders one aligned "label  value" row. The label is padded to
+// detailField renders one aligned "label  value" block. The label is padded to
 // detailLabelCol columns so values always start at the same column. The value
-// is truncated to the remaining available width.
+// is word-wrapped to the remaining available width (multi-line); continuation
+// lines are aligned under the value column via JoinHorizontal(Top, …).
 func detailField(label, value string, width int) string {
 	lbl := detailLabelStyle.Width(detailLabelCol).Render(label)
 	v := strings.TrimSpace(value)
@@ -795,7 +796,8 @@ func detailField(label, value string, width int) string {
 	if avail < 1 {
 		avail = 1
 	}
-	return lbl + " " + detailValueStyle.Render(truncate(v, avail)) + "\n"
+	val := detailValueStyle.Width(avail).Render(v)
+	return lipgloss.JoinHorizontal(lipgloss.Top, lbl, " ", val) + "\n"
 }
 
 // detailSection renders a sub-section header within a detail pane: a short
