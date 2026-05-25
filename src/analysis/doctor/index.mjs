@@ -52,6 +52,7 @@
 import { DiagnosticBag } from '../../lib/diagnostic.mjs';
 import { PROBE_CHECKS } from './probe-checks.mjs';
 import { CONFIG_CHECKS } from './config-checks.mjs';
+import { strOr, numOr } from './util.mjs';
 
 /**
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -402,16 +403,6 @@ function runOneCheck(check, input, bag) {
  */
 function levelOf(check) {
   return check && check.probeLevel === 'active' ? 'active' : 'passive';
-}
-
-/** @param {unknown} v @param {string} fallback @returns {string} */
-function strOr(v, fallback) {
-  return typeof v === 'string' && v.length > 0 ? v : fallback;
-}
-
-/** @param {unknown} v @param {number} fallback @returns {number} */
-function numOr(v, fallback) {
-  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
 }
 
 /**
