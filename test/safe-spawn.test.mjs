@@ -11,7 +11,15 @@ function baseSpec(overrides = {}) {
     args: ['-C', ALLOWED_CWD, '--version'],
     cwd: ALLOWED_CWD,
     allowedCwds: [ALLOWED_CWD],
-    schema: { allowedFlags: ['-C', '--version'], positionalPattern: /^([A-Za-z]:\\|\/)/, maxArgs: 8 },
+    // allowSlashPositionals: on POSIX, ALLOWED_CWD is '/tmp', a legitimate
+    // `/`-leading positional. Without the opt-out the new slash-flag gate would
+    // (correctly) treat it as a flag; this spec models a POSIX-path consumer.
+    schema: {
+      allowedFlags: ['-C', '--version'],
+      positionalPattern: /^([A-Za-z]:\\|\/)/,
+      allowSlashPositionals: true,
+      maxArgs: 8,
+    },
     ...overrides,
   };
 }
@@ -105,12 +113,79 @@ test('validateSpawnSpec DENIES a positional when no positionalPattern is set (H2
     () =>
       validateSpawnSpec(
         baseSpec({
-          args: ['-C', '/some/target'],
+          // non-`/` positional: under the secure-by-default slash-flag gate a
+          // `/`-token would be treated as a flag, so use a plain positional to
+          // isolate the "no positionalPattern → positional denied" path.
+          args: ['-C', 'some-target'],
           schema: { allowedFlags: ['-C'], maxArgs: 8 }, // allowedFlags but NO positionalPattern
         }),
       ),
     (err) => err.code === 'spawn-positional-not-allowed',
   );
+});
+
+// --- slash-flag gate: `/`-tokens are flags by default (secure-by-default) ---
+test('validateSpawnSpec treats a /grant token as a flag by default and rejects it', () => {
+  // No allowSlashPositionals → /grant is a flag, not allowlisted → rejected.
+  assert.throws(
+    () =>
+      validateSpawnSpec(
+        baseSpec({
+          args: ['/grant', 'C:\\dir'],
+          schema: { allowedFlags: ['-C'], positionalPattern: /^[A-Za-z]:\\/, maxArgs: 8 },
+        }),
+      ),
+    (err) => err instanceof SafeSpawnError && err.code === 'spawn-flag-not-allowed',
+  );
+});
+
+test('validateSpawnSpec accepts a /grant token when it is in allowedFlags', () => {
+  const spec = baseSpec({
+    args: ['/grant'],
+    schema: { allowedFlags: ['/grant'], maxArgs: 8 },
+  });
+  assert.equal(validateSpawnSpec(spec), spec);
+});
+
+test('validateSpawnSpec with allowSlashPositionals accepts a /-positional matching the pattern', () => {
+  const spec = baseSpec({
+    args: ['--check', '/usr/local/bin/node'],
+    schema: {
+      allowedFlags: ['--check'],
+      positionalPattern: /^\/usr\/.+/,
+      allowSlashPositionals: true,
+      maxArgs: 8,
+    },
+  });
+  assert.equal(validateSpawnSpec(spec), spec);
+});
+
+test('validateSpawnSpec with allowSlashPositionals still rejects a /-positional failing the pattern', () => {
+  // Opted into slash positionals, but the token must still match positionalPattern.
+  assert.throws(
+    () =>
+      validateSpawnSpec(
+        baseSpec({
+          args: ['/etc/passwd'],
+          schema: { positionalPattern: /^\/usr\/.+/, allowSlashPositionals: true, maxArgs: 8 },
+        }),
+      ),
+    (err) => err instanceof SafeSpawnError && err.code === 'spawn-positional-rejected',
+  );
+});
+
+test('validateSpawnSpec leaves -flag and non-/ positional behavior unchanged (regression)', () => {
+  // A `-`-flag is still gated by allowedFlags regardless of allowSlashPositionals.
+  assert.throws(
+    () => validateSpawnSpec(baseSpec({ args: ['--mirror'] })),
+    (err) => err.code === 'spawn-flag-not-allowed',
+  );
+  // A non-`/` positional is still gated by positionalPattern only.
+  const ok = baseSpec({
+    args: ['ok-target'],
+    schema: { positionalPattern: /^ok-/, maxArgs: 8 },
+  });
+  assert.equal(validateSpawnSpec(ok), ok);
 });
 
 test('safeSpawn SUCCESS path: execFile resolves {stdout} for an allowed command', async () => {
