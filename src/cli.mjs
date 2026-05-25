@@ -41,7 +41,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
 const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet']);
@@ -63,7 +63,7 @@ export async function run(argv) {
     }
 
     const cfg = await resolveConfigDir({ configDir: args.configDir });
-    const out = await COMMANDS[canonical]({ configDir: cfg.configDir, args });
+    const out = await COMMANDS[canonical]({ configDir: cfg.configDir, mgrStateDir: cfg.mgrStateDir, args });
     const diagnostics = [...cfg.diagnostics, ...out.diagnostics];
 
     return { code: exitCode(diagnostics), stdout: render(canonical, out.result, diagnostics, args.format) };
