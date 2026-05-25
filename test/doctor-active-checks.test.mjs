@@ -137,18 +137,122 @@ test('never-throws: hookSyntax contains null/number entries in active mode → 0
 });
 
 // ---------------------------------------------------------------------------
-// F. Registry assertion — #4 appended LAST
+// G. #15 claude-cli-resolvable
 // ---------------------------------------------------------------------------
 
-test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,4]', () => {
+/** Build a minimal CliFact. */
+const mkCliFact = (over) => ({
+  command: 'claude',
+  status: 'ok',
+  resolvedPath: '/usr/local/bin/claude',
+  version: '2.1.0',
+  ...over,
+});
+
+test('#15: status unresolved → exactly one claude-cli-resolvable WARN', () => {
+  const r = runDoctor(
+    { cli: mkCliFact({ status: 'unresolved', resolvedPath: null, version: null }) },
+    { activeProbes: true },
+  );
+  const found = byCode(r.diagnostics, 'claude-cli-resolvable');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, 'warn');
+  assert.equal(found[0].phase, 'doctor');
+  assert.equal(typeof found[0].fix, 'string');
+  assert.ok(found[0].fix.length > 0);
+  assert.match(found[0].message, /not found on PATH/);
+});
+
+test('#15: status unresponsive with resolvedPath → one WARN whose message includes the path', () => {
+  const path = '/usr/local/bin/claude';
+  const r = runDoctor(
+    { cli: mkCliFact({ status: 'unresponsive', resolvedPath: path, version: null }) },
+    { activeProbes: true },
+  );
+  const found = byCode(r.diagnostics, 'claude-cli-resolvable');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, 'warn');
+  assert.match(found[0].message, new RegExp(path.replace(/\//g, '\\/')));
+  assert.equal(found[0].path, path);
+});
+
+test('#15: status ok → 0 findings', () => {
+  const r = runDoctor({ cli: mkCliFact({ status: 'ok' }) }, { activeProbes: true });
+  assert.equal(byCode(r.diagnostics, 'claude-cli-resolvable').length, 0);
+});
+
+test('#15: status resolved (Windows shim present) → 0 findings (no false positive)', () => {
+  const r = runDoctor(
+    { cli: mkCliFact({ status: 'resolved', resolvedPath: 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude', version: null }) },
+    { activeProbes: true },
+  );
+  assert.equal(byCode(r.diagnostics, 'claude-cli-resolvable').length, 0);
+});
+
+test('#15: status indeterminate → 0 findings (no false positive)', () => {
+  const r = runDoctor(
+    { cli: mkCliFact({ status: 'indeterminate', resolvedPath: null, version: null }) },
+    { activeProbes: true },
+  );
+  assert.equal(byCode(r.diagnostics, 'claude-cli-resolvable').length, 0);
+});
+
+test('GATE: passive mode with unresolved cli → #15 does NOT run; 0 claude-cli-resolvable findings', () => {
+  const r = runDoctor({ cli: mkCliFact({ status: 'unresolved', resolvedPath: null, version: null }) });
+  assert.equal(r.probeLevel, 'passive');
+  assert.equal(byCode(r.diagnostics, 'claude-cli-resolvable').length, 0);
+  const s15 = r.checks.find((c) => c.id === 15);
+  assert.ok(s15, 'check #15 must appear in registry even in passive mode');
+  assert.equal(s15.ran, false, 'check #15 must not have run in passive mode');
+  assert.equal(s15.findings, 0);
+});
+
+test('never-throws: cli missing → 0 findings, no throw', () => {
+  let r;
+  assert.doesNotThrow(() => { r = runDoctor({}, { activeProbes: true }); });
+  assert.equal(byCode(r.diagnostics, 'claude-cli-resolvable').length, 0);
+});
+
+test('never-throws: cli is a string → 0 findings, no throw', () => {
+  let r;
+  assert.doesNotThrow(() => {
+    r = runDoctor({ cli: /** @type {any} */ ('bad') }, { activeProbes: true });
+  });
+  assert.equal(byCode(r.diagnostics, 'claude-cli-resolvable').length, 0);
+});
+
+test('never-throws: cli is empty object → 0 findings, no throw', () => {
+  let r;
+  assert.doesNotThrow(() => {
+    r = runDoctor({ cli: /** @type {any} */ ({}) }, { activeProbes: true });
+  });
+  assert.equal(byCode(r.diagnostics, 'claude-cli-resolvable').length, 0);
+});
+
+test('active mode → check #15 summary has ran===true when cli is present', () => {
+  const r = runDoctor(
+    { cli: mkCliFact({ status: 'unresolved', resolvedPath: null, version: null }) },
+    { activeProbes: true },
+  );
+  const s15 = r.checks.find((c) => c.id === 15);
+  assert.ok(s15, 'check #15 must be in registry');
+  assert.equal(s15.ran, true);
+  assert.equal(s15.findings, 1);
+});
+
+// ---------------------------------------------------------------------------
+// F. Registry assertion — #4 and #15 appended LAST
+// ---------------------------------------------------------------------------
+
+test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,4,15]', () => {
   const r = runDoctor({}, { activeProbes: true });
   assert.deepEqual(
     r.checks.map((c) => c.id),
-    [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 4],
+    [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 4, 15],
   );
 });
 
-test('registry: CHECKS length is now 23 (22 passive + 1 active)', () => {
+test('registry: CHECKS length is now 24 (22 passive + 2 active)', () => {
   const r = runDoctor({}, { activeProbes: true });
-  assert.equal(r.checks.length, 23);
+  assert.equal(r.checks.length, 24);
 });
