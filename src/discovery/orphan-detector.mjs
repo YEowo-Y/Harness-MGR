@@ -80,13 +80,14 @@ export const KNOWN_TOP_FILE_PATTERNS = Object.freeze([
  * oh-my-claudecode (OMC) framework. Recognised here so a heavily-OMC harness is
  * not drowned in hard-orphan noise. This block is deliberately isolated so it can
  * be dropped if claude-mgr is ever distributed standalone without OMC.
+ *   .omc          — OMC root state directory (contains state/ subdir)
  *   homunculus    — OMC agent-state store
  *   metrics       — OMC usage metrics
  *   session-data  — OMC session persistence
  *   teams         — OMC team configuration
  */
 export const KNOWN_ECOSYSTEM_TOP_DIRS = Object.freeze([
-  'homunculus', 'metrics', 'session-data', 'teams',
+  '.omc', 'homunculus', 'metrics', 'session-data', 'teams',
 ]);
 
 /**
