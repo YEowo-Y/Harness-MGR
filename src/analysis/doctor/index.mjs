@@ -31,6 +31,8 @@
  *   #23 permissions-overbroad         wildcard in permissions.allow list → warn
  *   #13 claude-md-backup-bloat        too many CLAUDE.md.backup.* files in configDir → info
  *   #14 snapshot-retention            snapshot older than 90 days → info
+ *   #16 disk-budget                   .mgr-state/ recursive size over 5 GB → warn
+ *   #18 statusline-resolvable         statusLine command target not found on disk/PATH → warn
  *   #20 probe-residue                 leftover __mgr-probe-* temp file from crashed loader probe → warn
  *   #21 apply-leftover-files          leftover *.mgr-new / *.mgr-old from interrupted atomic write → warn
  *   #25 config-rules-stale            effective-config-rules.md older than 90 days → info
@@ -68,6 +70,7 @@ import { strOr, numOr } from './util.mjs';
  * @typedef {import('../../discovery/probe-mcp.mjs').McpAuthFact} McpAuthFact
  * @typedef {import('../../discovery/probe-mcp.mjs').McpResolutionFact} McpResolutionFact
  * @typedef {import('../../discovery/probe-hooks.mjs').HookFact} HookFact
+ * @typedef {import('../../discovery/probe-statusline.mjs').StatuslineFact} StatuslineFact
  * @typedef {import('../../discovery/orphan-detector.mjs').OrphanRecord} OrphanRecord
  */
 
@@ -98,7 +101,8 @@ import { strOr, numOr } from './util.mjs';
  * @property {OrphanRecord[]} [orphans]            discovered orphan facts (analyzeOrphans(...).orphans); judged by #12
  * @property {Diagnostic[]} [pluginDiagnostics]   plugin-discovery facts (scan.plugins.diagnostics); #22 filters for plugin-schema-version-unknown
  * @property {{allow?:string[],ask?:string[],deny?:string[]}} [permissions]  merged effective.permissions (mergeSettings); #23 judges .allow for wildcards
- * @property {import('../../discovery/probe-fs.mjs').FsFacts} [fsFacts]  filesystem facts (probe-fs); judged by #13/#14/#20/#21/#25
+ * @property {import('../../discovery/probe-fs.mjs').FsFacts} [fsFacts]  filesystem facts (probe-fs); judged by #13/#14/#16/#20/#21/#25
+ * @property {StatuslineFact} [statusline]  statusLine resolution fact (probe-statusline); judged by #18
  */
 
 /**
