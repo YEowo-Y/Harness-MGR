@@ -19,6 +19,7 @@
  * @typedef {import('../../discovery/probe-mcp.mjs').McpAuthFact} McpAuthFact
  * @typedef {import('../../discovery/probe-mcp.mjs').McpResolutionFact} McpResolutionFact
  * @typedef {import('../../discovery/probe-hooks.mjs').HookFact} HookFact
+ * @typedef {import('../../discovery/probe-statusline.mjs').StatuslineFact} StatuslineFact
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
  */
 
@@ -207,8 +208,36 @@ function checkHookExternalCommand(input) {
 }
 
 /**
- * The four passive probe-fact checks, frozen in registry order.
- * Imported by index.mjs and prepended to CHECKS so the full registry is [1,2,3,5,6..11].
+ * #18 statusline-resolvable — judge the StatuslineFact gathered by probe-statusline.
+ *
+ * A fact with status 'missing' means the statusLine command target was not found on
+ * disk (file) or PATH (external) at probe time. WARN: PATH/expansion at check time
+ * may differ from the launch environment, so this is advisory. Facts with status
+ * 'found' or 'indeterminate' are silently skipped. No fact (null) is benign — most
+ * users don't configure a statusLine.
+ *
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkStatuslineResolvable(input) {
+  const fact = input.statusline;
+  if (!fact || typeof fact !== 'object') return [];
+  if (fact.status !== 'missing') return [];
+
+  const target = typeof fact.target === 'string' && fact.target.length > 0 ? fact.target : '(unknown)';
+
+  return [{
+    severity: 'warn',
+    code: 'statusline-resolvable',
+    message: `statusLine command target was not found: ${target}`,
+    phase: 'doctor',
+    fix: 'correct or remove the statusLine command in settings (PATH/expansion at check time may differ from the launch environment)',
+  }];
+}
+
+/**
+ * The five passive probe-fact checks, frozen in registry order.
+ * Imported by index.mjs and prepended to CHECKS so the full registry is [1,2,3,5,18,6..11].
  * @type {ReadonlyArray<import('./index.mjs').DoctorCheck>}
  */
 export const PROBE_CHECKS = Object.freeze([
@@ -216,4 +245,5 @@ export const PROBE_CHECKS = Object.freeze([
   Object.freeze({ id: 2, code: 'mcp-server-resolvable', probeLevel: 'passive', run: checkMcpServerResolvable }),
   Object.freeze({ id: 3, code: 'hook-file-exists', probeLevel: 'passive', run: checkHookFileExists }),
   Object.freeze({ id: 5, code: 'hook-external-command', probeLevel: 'passive', run: checkHookExternalCommand }),
+  Object.freeze({ id: 18, code: 'statusline-resolvable', probeLevel: 'passive', run: checkStatuslineResolvable }),
 ]);
