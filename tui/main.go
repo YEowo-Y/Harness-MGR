@@ -60,6 +60,12 @@ type selftestMsg struct {
 	err  error
 }
 
+// doctorMsg carries the result of the async `doctor` fetch (passive run).
+type doctorMsg struct {
+	data DoctorReport
+	err  error
+}
+
 // sectionState holds the fetch + list state for a flat-list section tab
 // (Conflicts, Orphans). loading is true while the fetch is in flight; err is set
 // on failure; list holds the rendered items; summaryKey + summaryArgs are the
@@ -104,6 +110,7 @@ const (
 	viewConfig
 	viewHooks
 	viewSelftest
+	viewDoctor
 )
 
 // tabLabels are the tab-bar captions, indexed by viewID. tabCount derives from
@@ -115,6 +122,7 @@ var tabLabels = []string{
 	"Config",
 	"Hooks",
 	"Selftest",
+	"Doctor",
 }
 
 // tabCount is the number of tabs, derived from tabLabels. It is a var (not a
@@ -187,6 +195,7 @@ func initialModel(cliPath string) model {
 			viewConfig:    {loading: true, list: newSectionModel(nil)},
 			viewHooks:     {loading: true, list: newSectionModel(nil)},
 			viewSelftest:  {loading: true, list: newSectionModel(nil)},
+			viewDoctor:    {loading: true, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -254,6 +263,15 @@ func fetchSelftestCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchDoctorCmd returns a tea.Cmd that runs `doctor --format json` (PASSIVE —
+// no --active-probes) and reports the outcome back as a doctorMsg.
+func fetchDoctorCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchDoctor(cliPath)
+		return doctorMsg{data: data, err: err}
+	}
+}
+
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
 // ticking as long as this is true.
 func (m model) anyLoading() bool {
@@ -296,6 +314,7 @@ func (m model) Init() tea.Cmd {
 		fetchConfigCmd(m.cliPath),
 		fetchHooksCmd(m.cliPath),
 		fetchSelftestCmd(m.cliPath),
+		fetchDoctorCmd(m.cliPath),
 		m.spinner.Tick,
 		blinkTick(blinkOpenInterval),
 	)
@@ -408,6 +427,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshDetail()
 		}
 		return m, nil
+	case doctorMsg:
+		st := m.sections[viewDoctor]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewDoctor] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(doctorItems(msg.data))
+			n := len(msg.data.Checks)
+			findings := 0
+			for _, ch := range msg.data.Checks {
+				findings += ch.Findings
+			}
+			st.summaryKey, st.summaryArgs = "summary.doctor", []any{n, findings}
+		}
+		if m.currentView == viewDoctor {
+			m.refreshDetail()
+		}
+		return m, nil
 	case spinner.TickMsg:
 		// Keep ticking only while any fetch is still in flight.
 		if m.anyLoading() {
@@ -444,7 +484,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //	(3) while the ? help overlay is up, ? / Esc / q close it — all other keys are
 //	    swallowed;
 //	(4) quit keys (q / ctrl+c / esc);
-//	(5) section switching — number keys 1-6 jump directly, "[" / "]" cycle;
+//	(5) section switching — number keys 1-7 jump directly, "[" / "]" cycle;
 //	(6) Tab / Shift+Tab toggle focus between the tree and detail panes;
 //	(7) ? opens the help overlay;
 //	(8) Enter / Space — on a tree folder toggle expand/collapse; on a tree item
@@ -712,8 +752,9 @@ func (m *model) moveTreeCursor(msg tea.KeyMsg) {
 	}
 }
 
-// digitToView maps "1".."6" to the matching viewID. Returns ok=false for any
-// other key so the caller leaves the current view unchanged.
+// digitToView maps "1".."7" to the matching viewID (the upper bound tracks
+// tabCount, so it grows automatically with the tab list). Returns ok=false for
+// any other key so the caller leaves the current view unchanged.
 func digitToView(s string) (viewID, bool) {
 	if len(s) != 1 {
 		return 0, false
@@ -812,6 +853,7 @@ func runSnapshot(cliPath string) int {
 			viewConfig:    {list: newSectionModel(nil)},
 			viewHooks:     {list: newSectionModel(nil)},
 			viewSelftest:  {list: newSectionModel(nil)},
+			viewDoctor:    {list: newSectionModel(nil)},
 		},
 		currentView: viewInventory,
 		width:       defaultWidth,
