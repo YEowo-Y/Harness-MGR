@@ -241,18 +241,114 @@ test('active mode → check #15 summary has ran===true when cli is present', () 
 });
 
 // ---------------------------------------------------------------------------
-// F. Registry assertion — #4 and #15 appended LAST
+// F. Registry assertion — #4, #15, and #19 appended LAST
 // ---------------------------------------------------------------------------
 
-test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,4,15]', () => {
+test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,4,15,19]', () => {
   const r = runDoctor({}, { activeProbes: true });
   assert.deepEqual(
     r.checks.map((c) => c.id),
-    [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 4, 15],
+    [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 4, 15, 19],
   );
 });
 
-test('registry: CHECKS length is now 24 (22 passive + 2 active)', () => {
+test('registry: CHECKS length is now 25 (22 passive + 3 active)', () => {
   const r = runDoctor({}, { activeProbes: true });
-  assert.equal(r.checks.length, 24);
+  assert.equal(r.checks.length, 25);
+});
+
+// ---------------------------------------------------------------------------
+// G. #19 loader-probe
+// ---------------------------------------------------------------------------
+
+/** Build a minimal LoaderProbeFact. */
+const mkLoaderFact = (over) => ({
+  probeName: '__mgr-probe-0000',
+  wrote: true,
+  observed: true,
+  cleanedUp: true,
+  ccVersion: '2.1.5',
+  ...over,
+});
+
+test('#19: cleanedUp:false → one loader-probe WARN mentioning the probe file name', () => {
+  const r = runDoctor(
+    { loader: mkLoaderFact({ cleanedUp: false }) },
+    { activeProbes: true },
+  );
+  const found = r.diagnostics.filter((d) => d.code === 'loader-probe');
+  assert.ok(found.length >= 1, 'expected at least one loader-probe diagnostic');
+  const warn = found.find((d) => d.severity === 'warn' && d.message.includes('residue'));
+  assert.ok(warn, 'expected a residue warn');
+  assert.match(warn.message, /__mgr-probe-0000/);
+  assert.equal(typeof warn.fix, 'string');
+  assert.ok(warn.fix.length > 0);
+});
+
+test('#19: wrote:true + observed:false → one loader-probe WARN about discovery misconfiguration', () => {
+  const r = runDoctor(
+    { loader: mkLoaderFact({ observed: false }) },
+    { activeProbes: true },
+  );
+  const found = r.diagnostics.filter((d) => d.code === 'loader-probe' && d.severity === 'warn');
+  const disc = found.find((d) => d.message.includes('discovery did not detect'));
+  assert.ok(disc, 'expected a discovery warn');
+  assert.equal(disc.phase, 'doctor');
+  assert.equal(typeof disc.fix, 'string');
+});
+
+test('#19: wrote:true + observed:true + cleanedUp:true + ccVersion 2.1.5 → 0 findings (verified → silent)', () => {
+  const r = runDoctor(
+    { loader: mkLoaderFact({ ccVersion: '2.1.5' }) },
+    { activeProbes: true },
+  );
+  const found = r.diagnostics.filter((d) => d.code === 'loader-probe');
+  assert.equal(found.length, 0, 'verified ccVersion must produce no loader-probe findings');
+});
+
+test('#19: wrote:true + observed:true + cleanedUp:true + ccVersion:null → one loader-probe INFO (best-effort)', () => {
+  const r = runDoctor(
+    { loader: mkLoaderFact({ ccVersion: null }) },
+    { activeProbes: true },
+  );
+  const found = r.diagnostics.filter((d) => d.code === 'loader-probe');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, 'info');
+  assert.match(found[0].message, /best-effort/);
+  assert.match(found[0].message, /unknown/);
+});
+
+test('GATE: passive mode with loader fact → #19 does NOT run; 0 loader-probe findings', () => {
+  const r = runDoctor({ loader: mkLoaderFact({ cleanedUp: false }) });
+  assert.equal(r.probeLevel, 'passive');
+  assert.equal(r.diagnostics.filter((d) => d.code === 'loader-probe').length, 0);
+  const s19 = r.checks.find((c) => c.id === 19);
+  assert.ok(s19, 'check #19 must appear in registry even in passive mode');
+  assert.equal(s19.ran, false, 'check #19 must not have run in passive mode');
+  assert.equal(s19.findings, 0);
+});
+
+test('never-throws: loader undefined in active mode → 0 findings, no throw', () => {
+  let r;
+  assert.doesNotThrow(() => { r = runDoctor({}, { activeProbes: true }); });
+  assert.equal(r.diagnostics.filter((d) => d.code === 'loader-probe').length, 0);
+});
+
+test('never-throws: loader is a string in active mode → 0 findings, no throw', () => {
+  let r;
+  assert.doesNotThrow(() => {
+    r = runDoctor({ loader: /** @type {any} */ ('bad') }, { activeProbes: true });
+  });
+  assert.equal(r.diagnostics.filter((d) => d.code === 'loader-probe').length, 0);
+});
+
+test('active mode → check #19 summary has ran===true', () => {
+  const r = runDoctor(
+    { loader: mkLoaderFact({ cleanedUp: false }) },
+    { activeProbes: true },
+  );
+  const s19 = r.checks.find((c) => c.id === 19);
+  assert.ok(s19, 'check #19 must be in registry');
+  assert.equal(s19.ran, true);
+  assert.ok(s19.findings >= 1);
 });
