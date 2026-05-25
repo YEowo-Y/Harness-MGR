@@ -31,6 +31,7 @@ import { loaderConfidence } from '../analysis/load-order.mjs';
 import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
+import { auditCommand, driftCommand } from './ops-commands.mjs';
 import { lintTree } from '../selftest/lint.mjs';
 import { checkInvariants } from '../selftest/invariants.mjs';
 import { checkBoundary } from '../selftest/boundary.mjs';
@@ -430,4 +431,9 @@ export const COMMANDS = Object.freeze({
   'permissions': permissionsCommand,
   'selftest': selftestCommand,
   'doctor': doctorCommand,
+  'audit': auditCommand,
+  'drift': driftCommand,
 });
+
+// Re-export the ops commands so tests can import them directly from this module.
+export { auditCommand, driftCommand };
