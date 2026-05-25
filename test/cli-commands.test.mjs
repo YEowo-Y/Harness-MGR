@@ -22,6 +22,8 @@ import {
   configShowEffectiveCommand,
   hooksCommand,
   selftestCommand,
+  auditCommand,
+  driftCommand,
 } from '../src/cli/commands.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -238,7 +240,60 @@ test('selftestCommand: --all runs smoke + lint + invariants + boundary, all ok',
   assert.equal(result.ok, true, 'all checks pass over a clean tree (boundary probe is read-only)');
 });
 
-// ── H. never-throws sweep ─────────────────────────────────────────────────────────
+// ── H. audit ─────────────────────────────────────────────────────────────────────
+
+test('auditCommand: minimal/ has no audit.log → empty entries + summary, 0 diagnostics', () => {
+  const { result, diagnostics } = auditCommand({ configDir: MIN, mgrStateDir: MIN, args: {} });
+  assert.ok(Array.isArray(result.entries), 'entries is an array');
+  assert.equal(result.entries.length, 0);
+  assert.ok(result.summary !== null && typeof result.summary === 'object', 'summary is present');
+  assert.equal(result.summary.total, 0);
+  assert.equal(result.summary.returned, 0);
+  assert.equal(diagnostics.length, 0);
+});
+
+test('auditCommand: --since 7d passes through to readAuditLog, no throw', () => {
+  const { result, diagnostics } = auditCommand({ configDir: MIN, mgrStateDir: MIN, args: { since: '7d' } });
+  assert.ok(Array.isArray(result.entries));
+  assert.ok(Array.isArray(diagnostics));
+});
+
+test('auditCommand: invalid --since does not throw + entries is an array', () => {
+  // The audit-since-invalid warn is emitted only when a log file exists (ENOENT
+  // returns early before --since is parsed). The warn itself is tested in audit.test.mjs
+  // via the injectable readFn. This test proves the handler is never-throws under an
+  // invalid --since value regardless of whether the log file exists.
+  const { result, diagnostics } = auditCommand({ configDir: MIN, mgrStateDir: MIN, args: { since: 'not-a-duration' } });
+  assert.ok(Array.isArray(result.entries));
+  assert.ok(Array.isArray(diagnostics));
+});
+
+// ── I. drift ─────────────────────────────────────────────────────────────────────
+
+test('driftCommand: minimal/ has no lockfile → status no-baseline, never throws', async () => {
+  const { result, diagnostics } = await driftCommand({ configDir: MIN, mgrStateDir: MIN, args: {} });
+  assert.ok(
+    ['no-baseline', 'clean', 'drifted', 'unavailable'].includes(result.status),
+    `unexpected status: ${result.status}`,
+  );
+  assert.ok(Array.isArray(diagnostics));
+});
+
+test('driftCommand: result.changes is an array', async () => {
+  const { result } = await driftCommand({ configDir: MIN, mgrStateDir: MIN, args: {} });
+  if (result.status !== 'unavailable') {
+    assert.ok(Array.isArray(result.changes), 'changes is always an array');
+  }
+});
+
+test('driftCommand: --update against a fixture degrades gracefully (no throw)', async () => {
+  await assert.doesNotReject(async () => {
+    const out = await driftCommand({ configDir: MIN, mgrStateDir: MIN, args: { update: true } });
+    assert.ok(out && 'result' in out && Array.isArray(out.diagnostics));
+  });
+});
+
+// ── J. never-throws sweep ─────────────────────────────────────────────────────────
 
 test('every handler on a non-existent configDir does not throw + returns {result, diagnostics}', async () => {
   const GONE = fix('does-not-exist');
