@@ -13,6 +13,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { resolveConfigDir } from '../src/cli/resolve-config.mjs';
+import { MGR_STATE_DIRNAME } from '../src/paths.mjs';
 import {
   COMMANDS,
   inventoryCommand,
@@ -38,10 +39,20 @@ test('resolveConfigDir: explicit override is used verbatim, 0 diagnostics', asyn
   assert.equal(r.diagnostics.length, 0);
 });
 
-test('resolveConfigDir: injected loadPaths returns targetClaudeDir, 0 diagnostics', async () => {
-  const r = await resolveConfigDir({ loadPaths: async () => ({ targetClaudeDir: () => '/live' }) });
+test('resolveConfigDir: injected loadPaths returns targetClaudeDir + mgrStateDir, 0 diagnostics', async () => {
+  const r = await resolveConfigDir({ loadPaths: async () => ({ targetClaudeDir: () => '/live', mgrStateDir: (cd) => `${cd}/.mgr-state` }) });
   assert.equal(r.configDir, '/live');
+  assert.equal(r.mgrStateDir, '/live/.mgr-state');
   assert.equal(r.diagnostics.length, 0);
+});
+
+test('resolveConfigDir: mgrStateDir literal matches MGR_STATE_DIRNAME (drift guard)', async () => {
+  // resolve-config.mjs keeps a LOCAL `.mgr-state` literal so it never statically
+  // imports paths.mjs (the M2 top-level-await reject hazard). This test is where
+  // that literal is reconciled against the single source of truth in paths.mjs —
+  // mirroring the orphan-detector DEFAULT_OWN_TOP_DIRS drift guard.
+  const r = await resolveConfigDir({ configDir: '/x' });
+  assert.equal(r.mgrStateDir, join('/x', MGR_STATE_DIRNAME));
 });
 
 test('resolveConfigDir: loadPaths that throws → 1 missing-hooks-lib warn + env fallback', async () => {
