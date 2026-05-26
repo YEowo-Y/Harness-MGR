@@ -135,6 +135,13 @@ var translations = map[string][2]string{
 	"write.drift.done":  {"drift baseline updated", "偏移基线已更新"},
 	"write.drift.hint":  {"update", "更新"},
 	"help.write":        {"run write action", "执行写入操作"},
+	"help.writeMode":    {"toggle write mode", "开关写入模式"},
+
+	"status.writesOn":    {"writes on", "写入开"},
+	"status.writesOff":   {"writes off", "写入关"},
+	"write.modeOn":       {"write mode enabled", "写入模式已开启"},
+	"write.modeOff":      {"write mode disabled", "写入模式已关闭"},
+	"write.disabledHint": {"writes disabled — press W to enable", "写入已关闭 — 按 W 开启"},
 
 	"summary.drifted":         {"%d added · %d modified · %d removed", "%d 新增 · %d 修改 · %d 删除"},
 	"summary.driftClean":      {"clean · matches baseline", "无偏移 · 与基线一致"},
