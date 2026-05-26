@@ -251,6 +251,66 @@ test('assertWritable probe context: uppercase variant of probe name matches (reg
   }
 });
 
+// --- assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1) ---
+test('assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rbtable-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // Rollback ALLOW: rollback context permits all governed content surfaces.
+    assert.doesNotThrow(() => assertWritable(join(dir, 'agents', 'executor.md'), 'rollback'));
+    assert.doesNotThrow(() => assertWritable(join(dir, 'agents', 'sub', 'deep.md'), 'rollback'));
+    assert.doesNotThrow(() => assertWritable(join(dir, 'commands', 'greet.md'), 'rollback'));
+    assert.doesNotThrow(() => assertWritable(join(dir, 'hooks', 'pre.mjs'), 'rollback'));
+    // stateDir is writable in EVERY context (the stateDir check precedes context branching).
+    assert.doesNotThrow(() => assertWritable(join(mgrStateDir(dir), 'x'), 'rollback'));
+
+    // Apply DENY: rollback-only surfaces throw write-rollback-only under 'apply'.
+    assert.throws(
+      () => assertWritable(join(dir, 'commands', 'greet.md'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+    );
+    assert.throws(
+      () => assertWritable(join(dir, 'hooks', 'pre.mjs'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+    );
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo.md'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+    );
+
+    // Forbidden subtrees stay forbidden EVEN in rollback context.
+    assert.throws(
+      () => assertWritable(join(dir, 'plugins', 'marketplaces', 'm', 'x.md'), 'rollback'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-forbidden',
+    );
+    assert.throws(
+      () => assertWritable(join(dir, 'projects', 'p', 'notes.md'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-forbidden',
+    );
+    assert.throws(
+      () => assertWritable(join(dir, 'projects', 'p', 'notes.md'), 'rollback'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-forbidden',
+    );
+
+    // Outside config dir in rollback context -> write-outside-target.
+    assert.throws(
+      () => assertWritable(join(tmpdir(), 'cmgr-outside-rb', 'a.txt'), 'rollback'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-outside-target',
+    );
+
+    // Unknown path under config dir in rollback context -> write-not-allowed.
+    assert.throws(
+      () => assertWritable(join(dir, 'telemetry', 'blob.bin'), 'rollback'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-not-allowed',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- security L1: a symlink/junction inside the allowed dir that resolves
 // OUTSIDE the allowlist must be DENIED (realpathSync-before-allowlist). ---
 test('assertWritable DENIES a junction that escapes the allowlist', () => {
