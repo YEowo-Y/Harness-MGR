@@ -72,6 +72,18 @@ type permissionsMsg struct {
 	err  error
 }
 
+// driftMsg carries the result of the async `drift` fetch (read-only, no --update).
+type driftMsg struct {
+	data DriftResult
+	err  error
+}
+
+// auditMsg carries the result of the async `audit` fetch (read-only log view).
+type auditMsg struct {
+	data AuditResult
+	err  error
+}
+
 // sectionState holds the fetch + list state for a flat-list section tab
 // (Conflicts, Orphans). loading is true while the fetch is in flight; err is set
 // on failure; list holds the rendered items; summaryKey + summaryArgs are the
@@ -118,6 +130,8 @@ const (
 	viewSelftest
 	viewDoctor
 	viewPermissions
+	viewDrift
+	viewAudit
 )
 
 // tabLabels are the tab-bar captions, indexed by viewID. tabCount derives from
@@ -131,6 +145,8 @@ var tabLabels = []string{
 	"Selftest",
 	"Doctor",
 	"Permissions",
+	"Drift",
+	"Audit",
 }
 
 // tabCount is the number of tabs, derived from tabLabels. It is a var (not a
@@ -198,13 +214,15 @@ func initialModel(cliPath string) model {
 		spinner:       newSpinner(),
 		focus:         focusTree,
 		sections: map[viewID]*sectionState{
-			viewConflicts:    {loading: true, list: newSectionModel(nil)},
-			viewOrphans:      {loading: true, list: newSectionModel(nil)},
-			viewConfig:       {loading: true, list: newSectionModel(nil)},
-			viewHooks:        {loading: true, list: newSectionModel(nil)},
-			viewSelftest:     {loading: true, list: newSectionModel(nil)},
-			viewDoctor:       {loading: true, list: newSectionModel(nil)},
-			viewPermissions:  {loading: true, list: newSectionModel(nil)},
+			viewConflicts:   {loading: true, list: newSectionModel(nil)},
+			viewOrphans:     {loading: true, list: newSectionModel(nil)},
+			viewConfig:      {loading: true, list: newSectionModel(nil)},
+			viewHooks:       {loading: true, list: newSectionModel(nil)},
+			viewSelftest:    {loading: true, list: newSectionModel(nil)},
+			viewDoctor:      {loading: true, list: newSectionModel(nil)},
+			viewPermissions: {loading: true, list: newSectionModel(nil)},
+			viewDrift:       {loading: true, list: newSectionModel(nil)},
+			viewAudit:       {loading: true, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -291,6 +309,24 @@ func fetchPermissionsCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchDriftCmd returns a tea.Cmd that runs `drift --format json` (READ-ONLY —
+// no --update, so no lockfile is written) and reports the outcome as a driftMsg.
+func fetchDriftCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchDrift(cliPath)
+		return driftMsg{data: data, err: err}
+	}
+}
+
+// fetchAuditCmd returns a tea.Cmd that runs `audit --format json` (READ-ONLY log
+// view) and reports the outcome back as an auditMsg.
+func fetchAuditCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchAudit(cliPath)
+		return auditMsg{data: data, err: err}
+	}
+}
+
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
 // ticking as long as this is true.
 func (m model) anyLoading() bool {
@@ -335,6 +371,8 @@ func (m model) Init() tea.Cmd {
 		fetchSelftestCmd(m.cliPath),
 		fetchDoctorCmd(m.cliPath),
 		fetchPermissionsCmd(m.cliPath),
+		fetchDriftCmd(m.cliPath),
+		fetchAuditCmd(m.cliPath),
 		m.spinner.Tick,
 		blinkTick(blinkOpenInterval),
 	)
@@ -487,6 +525,51 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshDetail()
 		}
 		return m, nil
+	case driftMsg:
+		st := m.sections[viewDrift]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewDrift] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(driftItems(msg.data))
+			switch msg.data.Status {
+			case "drifted":
+				s := msg.data.Summary
+				st.summaryKey, st.summaryArgs = "summary.drifted", []any{s.Added, s.Modified, s.Removed}
+			case "clean":
+				st.summaryKey, st.summaryArgs = "summary.driftClean", nil
+			default: // "no-baseline" or any unrecognized status
+				st.summaryKey, st.summaryArgs = "summary.driftNoBaseline", nil
+			}
+		}
+		if m.currentView == viewDrift {
+			m.refreshDetail()
+		}
+		return m, nil
+	case auditMsg:
+		st := m.sections[viewAudit]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewAudit] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(auditItems(msg.data))
+			s := msg.data.Summary
+			if s.SkippedMalformed > 0 {
+				st.summaryKey, st.summaryArgs = "summary.auditSkipped", []any{s.Returned, s.SkippedMalformed}
+			} else {
+				st.summaryKey, st.summaryArgs = "summary.audit", []any{s.Returned}
+			}
+		}
+		if m.currentView == viewAudit {
+			m.refreshDetail()
+		}
+		return m, nil
 	case spinner.TickMsg:
 		// Keep ticking only while any fetch is still in flight.
 		if m.anyLoading() {
@@ -523,7 +606,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //	(3) while the ? help overlay is up, ? / Esc / q close it — all other keys are
 //	    swallowed;
 //	(4) quit keys (q / ctrl+c / esc);
-//	(5) section switching — number keys 1-8 jump directly, "[" / "]" cycle;
+//	(5) section switching — number keys 1-9/0 jump directly, "[" / "]" cycle;
 //	(6) Tab / Shift+Tab toggle focus between the tree and detail panes;
 //	(7) ? opens the help overlay;
 //	(8) Enter / Space — on a tree folder toggle expand/collapse; on a tree item
@@ -791,15 +874,29 @@ func (m *model) moveTreeCursor(msg tea.KeyMsg) {
 	}
 }
 
-// digitToView maps "1".."8" to the matching viewID (the upper bound tracks
-// tabCount, so it grows automatically with the tab list). Returns ok=false for
-// any other key so the caller leaves the current view unchanged.
+// digitToView maps a number-key string to the matching viewID. "1".."9" address
+// the first nine tabs; "0" addresses the tenth (the "1-9 then 0" convention), so
+// every tab stays keyboard-reachable as the list grows. The upper bound tracks
+// tabCount, so a key with no tab (e.g. "0" when there are fewer than ten tabs)
+// returns ok=false and the caller leaves the current view unchanged.
 func digitToView(s string) (viewID, bool) {
 	if len(s) != 1 {
 		return 0, false
 	}
-	d := viewID(s[0] - '1')
-	if d < 0 || d >= tabCount {
+	c := s[0]
+	var d viewID
+	switch {
+	case c == '0':
+		d = 9 // "0" addresses the 10th tab
+	case c >= '1' && c <= '9':
+		d = viewID(c - '1')
+	default:
+		return 0, false
+	}
+	// d is always ≥ 0 here (the cases above assign 0..9), so only the upper bound
+	// needs checking — a digit with no matching tab (e.g. "0" when there are
+	// fewer than ten tabs) returns ok=false and the view is left unchanged.
+	if d >= tabCount {
 		return 0, false
 	}
 	return d, true
@@ -894,6 +991,8 @@ func runSnapshot(cliPath string) int {
 			viewSelftest:    {list: newSectionModel(nil)},
 			viewDoctor:      {list: newSectionModel(nil)},
 			viewPermissions: {list: newSectionModel(nil)},
+			viewDrift:       {list: newSectionModel(nil)},
+			viewAudit:       {list: newSectionModel(nil)},
 		},
 		currentView: viewInventory,
 		width:       defaultWidth,
