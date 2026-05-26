@@ -33,6 +33,10 @@ type writeAction struct {
 	hintKey  string
 	args     []string
 	refetch  func(cliPath string) tea.Cmd
+	// run, when non-nil, is the on-confirm command used INSTEAD of the default
+	// runWriteCmd(args) path — for a confirmed action whose result is handled by a
+	// specific msg (e.g. active probes → doctorMsg) rather than a writeResultMsg.
+	run func(cliPath string) tea.Cmd
 }
 
 // writeActionFor returns the write action available on view v, or ok=false when the
@@ -51,6 +55,20 @@ func writeActionFor(v viewID) (writeAction, bool) {
 		}, true
 	default:
 		return writeAction{}, false
+	}
+}
+
+// activeProbeAction is the confirm-gated "run the doctor's active probes" action.
+// It is NOT in writeActionFor (it is not a per-tab "w" write); it is triggered by
+// the Doctor tab's "a" key. run = fetchDoctorActiveCmd, so the confirmed result
+// arrives as a doctorMsg and updates the Doctor tab in place.
+func activeProbeAction() writeAction {
+	return writeAction{
+		id:       "doctor-active-probes",
+		titleKey: "write.activeProbe.title",
+		bodyKey:  "write.activeProbe.body",
+		hintKey:  "write.activeProbe.hint",
+		run:      fetchDoctorActiveCmd,
 	}
 }
 
