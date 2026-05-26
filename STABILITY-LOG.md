@@ -66,3 +66,32 @@ detected). None block the gate.
 **Lesson:** A read-mostly tool's "clean" gate is *exit 0 with zero ERROR-severity diagnostics* —
 warnings/infos that faithfully report real config facts (overbroad perms, orphan files) are the
 tool WORKING, not failing. Tag `phase-2-stable`; the 30-day stability gate begins.
+
+## 2026-05-26 — active-probe dogfood clean + orphan-noise follow-up (#1) resolved
+
+**Found during:** wiring the Doctor's active probes into the TUI front-end (Go), which shells out
+to the Node CLI `doctor --active-probes --format json`; plus a re-check of carried orphan-noise
+follow-up (1).
+
+**Observed — active probes (real `~/.claude`, `doctor --active-probes --format json`):** exit 0;
+envelope `{command,diagnostics,result,version}`, `result.probeLevel:active`, 25 checks. All 3
+active checks ran — #4 `hook-node-syntax` 0 findings, #15 `claude-cli-resolvable` 0 findings,
+#19 `loader-probe` 1 *info* (the honest "precedence best-effort (likely); claude version
+unknown"). Post-run residue check: **0 `__mgr-probe-*` files** in `~/.claude/agents` — the #19
+transient governed-dir write was written, observed via discovery, and cleaned up. No false +/−, no crash.
+
+**Observed — orphan follow-up (1) now RESOLVED:** the carried follow-up "expand orphan-detector
+`KNOWN_TOP_FILES`" landed in commits `2366da0` + `decd873` — `KNOWN_TOP_FILES` +
+`KNOWN_TOP_FILE_PATTERNS` (`security_warnings_state_*` / `CLAUDE.md.backup.*` / `.omc-*.json`) +
+`KNOWN_ECOSYSTEM_TOP_DIRS` (`.omc` / `homunculus` / `metrics` / `session-data` / `teams`).
+Real-harness re-check: `orphans` = **hard 0 / soft 0 / total 0**; doctor **#12 `orphan-files` = 0**
+(was 16–18 at the U6a/U12 gate). The 31 orphan-detector/orphans unit tests stay green; #13
+`claude-md-backup-bloat` still independently owns the backup "too many" judgment (no double-count).
+
+**Root cause / resolution:** none needed — both clean. The orphan list was intentionally
+conservative at U11 (orphans are facts; the doctor judges); it is now widened to real ground truth.
+CLAUDE.md carried follow-up (1) marked ✅ resolved.
+
+**Lesson:** the build-cursor follow-up list can lag the code — the orphan expansion was already
+committed before this check, so verifying against the live harness + `git log` beats trusting the
+cursor snapshot. Reinforces the read-the-code-first rule on a shared multi-session tree.
