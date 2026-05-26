@@ -24,7 +24,7 @@ import (
 // out. Detail panes theme on the same bright color.
 
 var (
-	colorSkill       = lipgloss.Color("#2DD4BF") // teal
+	colorSkill       = lipgloss.Color("#5EEAD4") // light teal — distinct from the brand accent
 	colorAgent       = lipgloss.Color("#A78BFA") // violet
 	colorCommand     = lipgloss.Color("#F59E0B") // amber
 	colorPlugin      = lipgloss.Color("#34D399") // green
