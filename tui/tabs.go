@@ -22,7 +22,8 @@ import (
 func isSectionView(v viewID) bool {
 	return v == viewConflicts || v == viewOrphans ||
 		v == viewConfig || v == viewHooks || v == viewSelftest ||
-		v == viewDoctor || v == viewPermissions
+		v == viewDoctor || v == viewPermissions ||
+		v == viewDrift || v == viewAudit
 }
 
 // ── Conflicts ────────────────────────────────────────────────────────────────
@@ -238,6 +239,10 @@ func sectionEmptyLabel(v viewID) string {
 		return tr("empty.doctor")
 	case viewPermissions:
 		return tr("empty.permissions")
+	case viewDrift:
+		return tr("empty.drift")
+	case viewAudit:
+		return tr("empty.audit")
 	default:
 		return tr("empty.items")
 	}
@@ -646,8 +651,8 @@ func permissionsItems(r PermissionsResult) []sectionItem {
 		rule := rule
 		title := fmt.Sprintf("%s ask · %s", permissionsIcon(permCategoryAsk), rule)
 		items = append(items, sectionItem{
-			title:  title,
-			color:  permissionsColor(permCategoryAsk),
+			title: title,
+			color: permissionsColor(permCategoryAsk),
 			detail: func(w int) string {
 				return permissionsDetail(rule, permCategoryAsk, r.Diagnostics, w)
 			},
@@ -657,8 +662,8 @@ func permissionsItems(r PermissionsResult) []sectionItem {
 		rule := rule
 		title := fmt.Sprintf("%s deny · %s", permissionsIcon(permCategoryDeny), rule)
 		items = append(items, sectionItem{
-			title:  title,
-			color:  permissionsColor(permCategoryDeny),
+			title: title,
+			color: permissionsColor(permCategoryDeny),
 			detail: func(w int) string {
 				return permissionsDetail(rule, permCategoryDeny, r.Diagnostics, w)
 			},
@@ -722,6 +727,178 @@ func permissionsDetail(rule string, cat permissionsCategory, diags []Diagnostic,
 				b.WriteString(detailField("Fix", fix, width))
 			}
 		}
+	}
+	return b.String()
+}
+
+// ── Drift ──────────────────────────────────────────────────────────────────
+
+// driftChangeColor maps a drift change kind to a palette color: added→green,
+// removed→red, modified→orange. Unknown kinds fall back to labelGray.
+func driftChangeColor(change string) lipgloss.Color {
+	switch strings.ToLower(strings.TrimSpace(change)) {
+	case "added":
+		return colorPlugin // green
+	case "removed":
+		return colorRed
+	case "modified":
+		return colorOrange
+	default:
+		return labelGray
+	}
+}
+
+// driftIcon maps a drift change kind to its diff glyph (ASCII fallback):
+// added +, removed − (U+2212), modified ~.
+func driftIcon(change string) string {
+	switch strings.ToLower(strings.TrimSpace(change)) {
+	case "added":
+		return glyph("+", "+")
+	case "removed":
+		return glyph("−", "-")
+	case "modified":
+		return glyph("~", "~")
+	default:
+		return glyph("•", "*")
+	}
+}
+
+// driftItems converts a DriftResult into sectionItems for the Drift list, one row
+// per changed file in the engine's path-sorted order. The row color + icon reflect
+// the change kind; the title is "<icon> <path>". An empty change list (clean /
+// no-baseline) yields no rows — the summary bar carries that status instead.
+func driftItems(r DriftResult) []sectionItem {
+	items := make([]sectionItem, 0, len(r.Changes))
+	for _, c := range r.Changes {
+		c := c // shadow for closure capture
+		items = append(items, sectionItem{
+			title:  fmt.Sprintf("%s %s", driftIcon(c.Change), c.Path),
+			color:  driftChangeColor(c.Change),
+			detail: func(w int) string { return driftDetail(c, w) },
+		})
+	}
+	return items
+}
+
+// driftDetail builds the detail body for one DriftChange at the given pane width.
+func driftDetail(c DriftChange, width int) string {
+	fg := driftChangeColor(c.Change)
+
+	var b strings.Builder
+	b.WriteString(detailTitle(c.Path, fg, "", width))
+	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Change", fg, width))
+	b.WriteString(detailField("Kind", c.Change, width))
+
+	b.WriteString("\n")
+	b.WriteString(detailSection("Location", fg, width))
+	b.WriteString(detailField("Path", c.Path, width))
+	return b.String()
+}
+
+// ── Audit ──────────────────────────────────────────────────────────────────
+
+// auditEntryString reads a string-valued field from an opaque audit entry,
+// returning "" when the key is absent. A non-string value falls back to its
+// compact raw-JSON text so the field is never silently dropped.
+func auditEntryString(e AuditEntry, key string) string {
+	raw, ok := e[key]
+	if !ok {
+		return ""
+	}
+	// Only a JSON string literal unmarshals to a meaningful Go string. Guard on
+	// the leading quote: json.Unmarshal of `null` into a string also succeeds —
+	// with "" — which would masquerade as an absent key and silently drop the
+	// field. Any non-string value falls through to its raw text instead.
+	if len(raw) > 0 && raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			return s
+		}
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+// auditTitleFields are the keys tried (in order) for the second half of an audit
+// row title, after the timestamp. The audit entry schema is not frozen, so the
+// first present one wins; if none are present the title is just the timestamp.
+var auditTitleFields = []string{"action", "event", "op", "operation", "command", "kind"}
+
+// auditItems converts an AuditResult into sectionItems for the Audit list, one
+// row per entry in the engine's newest-first order. Because the entry schema is
+// open, the title is the timestamp plus the first present "action-like" field;
+// the detail renders every field generically (sorted keys, compact JSON values).
+func auditItems(r AuditResult) []sectionItem {
+	items := make([]sectionItem, 0, len(r.Entries))
+	for i, e := range r.Entries {
+		e := e // shadow for closure capture
+		ts := auditEntryString(e, "timestamp")
+		label := ts
+		for _, k := range auditTitleFields {
+			if v := auditEntryString(e, k); v != "" {
+				if label != "" {
+					label += " · " + v
+				} else {
+					label = v
+				}
+				break
+			}
+		}
+		if label == "" {
+			label = fmt.Sprintf("entry %d", i+1)
+		}
+		items = append(items, sectionItem{
+			title:  glyph("•", "*") + " " + label,
+			color:  accent,
+			detail: func(w int) string { return auditDetail(e, w) },
+		})
+	}
+	return items
+}
+
+// auditDetail builds the detail body for one opaque audit entry: every field
+// rendered as a row, keys sorted for deterministic output, values shown as a
+// plain string when string-valued else compacted to a single JSON line (mirrors
+// configDetail's per-layer rendering).
+func auditDetail(e AuditEntry, width int) string {
+	title := auditEntryString(e, "timestamp")
+	if title == "" {
+		title = "audit entry"
+	}
+
+	var b strings.Builder
+	b.WriteString(detailTitle(title, accent, "", width))
+	b.WriteString("\n\n")
+
+	keys := make([]string, 0, len(e))
+	for k := range e {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	b.WriteString(detailSection("Fields", accent, width))
+	if len(keys) == 0 {
+		b.WriteString(detailField("—", "empty entry", width))
+		return b.String()
+	}
+	for _, k := range keys {
+		raw := e[k]
+		v := strings.TrimSpace(string(raw))
+		var buf bytes.Buffer
+		if err := json.Compact(&buf, raw); err == nil && buf.Len() > 0 {
+			v = buf.String()
+		}
+		// Unquote a JSON string for readability; guard on the leading quote so a
+		// `null` value (which also unmarshals into "") is not turned into an empty
+		// field — it stays the compact "null" produced by json.Compact above.
+		if len(raw) > 0 && raw[0] == '"' {
+			var s string
+			if err := json.Unmarshal(raw, &s); err == nil {
+				v = s
+			}
+		}
+		b.WriteString(detailField(k, v, width))
 	}
 	return b.String()
 }
