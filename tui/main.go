@@ -66,6 +66,12 @@ type doctorMsg struct {
 	err  error
 }
 
+// permissionsMsg carries the result of the async `permissions --audit` fetch.
+type permissionsMsg struct {
+	data PermissionsResult
+	err  error
+}
+
 // sectionState holds the fetch + list state for a flat-list section tab
 // (Conflicts, Orphans). loading is true while the fetch is in flight; err is set
 // on failure; list holds the rendered items; summaryKey + summaryArgs are the
@@ -111,6 +117,7 @@ const (
 	viewHooks
 	viewSelftest
 	viewDoctor
+	viewPermissions
 )
 
 // tabLabels are the tab-bar captions, indexed by viewID. tabCount derives from
@@ -123,6 +130,7 @@ var tabLabels = []string{
 	"Hooks",
 	"Selftest",
 	"Doctor",
+	"Permissions",
 }
 
 // tabCount is the number of tabs, derived from tabLabels. It is a var (not a
@@ -190,12 +198,13 @@ func initialModel(cliPath string) model {
 		spinner:       newSpinner(),
 		focus:         focusTree,
 		sections: map[viewID]*sectionState{
-			viewConflicts: {loading: true, list: newSectionModel(nil)},
-			viewOrphans:   {loading: true, list: newSectionModel(nil)},
-			viewConfig:    {loading: true, list: newSectionModel(nil)},
-			viewHooks:     {loading: true, list: newSectionModel(nil)},
-			viewSelftest:  {loading: true, list: newSectionModel(nil)},
-			viewDoctor:    {loading: true, list: newSectionModel(nil)},
+			viewConflicts:    {loading: true, list: newSectionModel(nil)},
+			viewOrphans:      {loading: true, list: newSectionModel(nil)},
+			viewConfig:       {loading: true, list: newSectionModel(nil)},
+			viewHooks:        {loading: true, list: newSectionModel(nil)},
+			viewSelftest:     {loading: true, list: newSectionModel(nil)},
+			viewDoctor:       {loading: true, list: newSectionModel(nil)},
+			viewPermissions:  {loading: true, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -272,6 +281,16 @@ func fetchDoctorCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchPermissionsCmd returns a tea.Cmd that runs
+// `permissions --audit --format json` and reports the outcome back as a
+// permissionsMsg. This is fully READ-ONLY — no writes occur.
+func fetchPermissionsCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchPermissions(cliPath)
+		return permissionsMsg{data: data, err: err}
+	}
+}
+
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
 // ticking as long as this is true.
 func (m model) anyLoading() bool {
@@ -315,6 +334,7 @@ func (m model) Init() tea.Cmd {
 		fetchHooksCmd(m.cliPath),
 		fetchSelftestCmd(m.cliPath),
 		fetchDoctorCmd(m.cliPath),
+		fetchPermissionsCmd(m.cliPath),
 		m.spinner.Tick,
 		blinkTick(blinkOpenInterval),
 	)
@@ -448,6 +468,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshDetail()
 		}
 		return m, nil
+	case permissionsMsg:
+		st := m.sections[viewPermissions]
+		if st == nil {
+			st = &sectionState{}
+			m.sections[viewPermissions] = st
+		}
+		st.loading = false
+		st.err = msg.err
+		if msg.err == nil {
+			st.list = newSectionModel(permissionsItems(msg.data))
+			st.summaryKey, st.summaryArgs = "summary.permissions", []any{
+				len(msg.data.Allow), len(msg.data.Ask),
+				len(msg.data.Deny), len(msg.data.Overbroad),
+			}
+		}
+		if m.currentView == viewPermissions {
+			m.refreshDetail()
+		}
+		return m, nil
 	case spinner.TickMsg:
 		// Keep ticking only while any fetch is still in flight.
 		if m.anyLoading() {
@@ -484,7 +523,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //	(3) while the ? help overlay is up, ? / Esc / q close it — all other keys are
 //	    swallowed;
 //	(4) quit keys (q / ctrl+c / esc);
-//	(5) section switching — number keys 1-7 jump directly, "[" / "]" cycle;
+//	(5) section switching — number keys 1-8 jump directly, "[" / "]" cycle;
 //	(6) Tab / Shift+Tab toggle focus between the tree and detail panes;
 //	(7) ? opens the help overlay;
 //	(8) Enter / Space — on a tree folder toggle expand/collapse; on a tree item
@@ -752,7 +791,7 @@ func (m *model) moveTreeCursor(msg tea.KeyMsg) {
 	}
 }
 
-// digitToView maps "1".."7" to the matching viewID (the upper bound tracks
+// digitToView maps "1".."8" to the matching viewID (the upper bound tracks
 // tabCount, so it grows automatically with the tab list). Returns ok=false for
 // any other key so the caller leaves the current view unchanged.
 func digitToView(s string) (viewID, bool) {
@@ -848,12 +887,13 @@ func runSnapshot(cliPath string) int {
 		inv:     inv,
 		cliPath: cliPath,
 		sections: map[viewID]*sectionState{
-			viewConflicts: {list: newSectionModel(nil)},
-			viewOrphans:   {list: newSectionModel(nil)},
-			viewConfig:    {list: newSectionModel(nil)},
-			viewHooks:     {list: newSectionModel(nil)},
-			viewSelftest:  {list: newSectionModel(nil)},
-			viewDoctor:    {list: newSectionModel(nil)},
+			viewConflicts:   {list: newSectionModel(nil)},
+			viewOrphans:     {list: newSectionModel(nil)},
+			viewConfig:      {list: newSectionModel(nil)},
+			viewHooks:       {list: newSectionModel(nil)},
+			viewSelftest:    {list: newSectionModel(nil)},
+			viewDoctor:      {list: newSectionModel(nil)},
+			viewPermissions: {list: newSectionModel(nil)},
 		},
 		currentView: viewInventory,
 		width:       defaultWidth,
