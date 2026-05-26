@@ -16,7 +16,7 @@ func typeIcon(kind string) string {
 	case "plugin":
 		return "✦"
 	case "marketplace":
-		return "■"
+		return "▪"
 	case "mcp":
 		return "◇"
 	default:
@@ -40,7 +40,7 @@ var iconCandidates = []iconCandidate{
 	{"Agents", "🤖", "●"},
 	{"Commands", "⚡", "▸"},
 	{"Plugins", "🔌", "✦"},
-	{"Marketplaces", "🏪", "■"},
+	{"Marketplaces", "🏪", "▪"},
 	{"MCP", "🔗", "◇"},
 }
 
