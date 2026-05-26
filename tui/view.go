@@ -635,6 +635,9 @@ func statusBarView(m model) string {
 		if wa, ok := writeActionFor(m.currentView); ok {
 			hint += sep + keyStyle.Render("w") + dim.Render(" "+tr(wa.hintKey))
 		}
+		if m.currentView == viewDoctor {
+			hint += sep + keyStyle.Render("a") + dim.Render(" "+tr("write.activeProbe.hint"))
+		}
 	}
 	hint += sep +
 		keyStyle.Render("?") + dim.Render(" "+tr("status.help")) +
@@ -1005,6 +1008,7 @@ func helpView(width, height int) string {
 		{"/", tr("help.filter")},
 		{"r", tr("help.refresh")},
 		{"w", tr("help.write")},
+		{"a", tr("help.activeProbe")},
 		{"W", tr("help.writeMode")},
 		{"?", tr("help.help")},
 		{"q / Esc", tr("status.quit")},
