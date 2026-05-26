@@ -471,7 +471,10 @@ func padContent(tabBar, content, statusBar string, height int) string {
 func tabBarView(active viewID, termWidth int) string {
 	cells := make([]string, 0, len(tabLabels))
 	for i := range tabLabels {
-		text := fmt.Sprintf("%d %s", i+1, tabLabel(viewID(i)))
+		// The number-key that jumps to this tab: 1..9 for the first nine, 0 for
+		// the tenth — matching digitToView's "1-9 then 0" convention so the tab
+		// label and its keyboard shortcut agree.
+		text := fmt.Sprintf("%d %s", (i+1)%10, tabLabel(viewID(i)))
 		if viewID(i) == active {
 			cells = append(cells, activeTabStyle.Render(text))
 		} else {
@@ -497,7 +500,7 @@ func tabBarView(active viewID, termWidth int) string {
 
 // statusBarView renders the bottom hint bar spanning the full terminal width.
 // Hints reflect the tree key model: Enter expands/collapses a folder (or selects
-// an item), j/k move the cursor, Tab toggles pane focus, 1-8 / [ ] switch
+// an item), j/k move the cursor, Tab toggles pane focus, 1-9/0 / [ ] switch
 // sections, q quits.
 func statusBarView(termWidth int) string {
 	dim := lipgloss.NewStyle().Foreground(statusDim)
@@ -508,7 +511,7 @@ func statusBarView(termWidth int) string {
 		sep +
 		keyStyle.Render("Tab") + dim.Render(" "+tr("status.focus")) +
 		sep +
-		keyStyle.Render("1-8") + dim.Render(" "+tr("status.section")) +
+		keyStyle.Render("1-0") + dim.Render(" "+tr("status.section")) +
 		sep +
 		keyStyle.Render("/") + dim.Render(" "+tr("status.filter")) +
 		sep +
@@ -882,7 +885,7 @@ func helpView(width, height int) string {
 		{"j / k", tr("help.move")},
 		{"Enter", tr("help.activate")},
 		{"Tab", tr("help.focus")},
-		{"1-8", tr("help.jump")},
+		{"1-0", tr("help.jump")},
 		{"[ / ]", tr("help.tabs")},
 		{"/", tr("help.filter")},
 		{"?", tr("help.help")},
