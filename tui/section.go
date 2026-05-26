@@ -177,20 +177,21 @@ func (m *sectionModel) renderRow(items []sectionItem, i, width int) string {
 	selected := i == m.cursor
 
 	if selected {
-		barStyle := lipgloss.NewStyle().Bold(true)
+		barStyle := lipgloss.NewStyle().Bold(true).Background(selectionBg)
 		if item.color != "" {
 			barStyle = barStyle.Foreground(item.color)
 		}
-		bar := barStyle.Render(glyph("▌", ">")) + " "
+		bar := barStyle.Render(glyph("▌", ">") + " ") // spacer inside Render so it carries the band bg
 		avail := width - lipgloss.Width(bar)
 		if avail < 0 {
 			avail = 0
 		}
-		txtStyle := lipgloss.NewStyle().Bold(true)
+		txtStyle := lipgloss.NewStyle().Bold(true).Background(selectionBg)
 		if item.color != "" {
 			txtStyle = txtStyle.Foreground(item.color)
 		}
-		return bar + highlightMatch(truncate(item.title, avail), m.filter, txtStyle)
+		content := bar + highlightMatch(truncate(item.title, avail), m.filter, txtStyle)
+		return lipgloss.NewStyle().Background(selectionBg).Width(width).Render(content)
 	}
 
 	// Non-cursor: 2-space indent to align with the non-bar width of the cursor row.
