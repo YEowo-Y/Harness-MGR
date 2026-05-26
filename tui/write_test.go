@@ -66,6 +66,7 @@ func TestWKeyOpensConfirmOnDrift(t *testing.T) {
 	if m.currentView != viewDrift {
 		t.Fatalf("currentView = %v, want viewDrift", m.currentView)
 	}
+	m.writesEnabled = true // opt-in gate must be on for w to open the modal
 	// Press "w".
 	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	m = mm.(model)
@@ -82,6 +83,7 @@ func TestWKeyNoopOnInventory(t *testing.T) {
 	if m.currentView != viewInventory {
 		t.Fatalf("expected viewInventory after loadedModel, got %v", m.currentView)
 	}
+	m.writesEnabled = true // enable writes so absence of action is due to no-action, not the gate
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	m = mm.(model)
 	if m.pending != nil {
@@ -97,7 +99,8 @@ func TestWKeyNoopWhileWriteRunning(t *testing.T) {
 	// Land on the Drift tab, where "w" would otherwise open the modal.
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")})
 	m = mm.(model)
-	m.writeRunning = true // a write is in flight
+	m.writesEnabled = true // enable writes so the re-entrancy guard is what blocks, not the gate
+	m.writeRunning = true  // a write is in flight
 	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	m = mm.(model)
 	if m.pending != nil {
@@ -229,16 +232,18 @@ func TestConfirmViewRendersTitleBodyPrompt(t *testing.T) {
 
 func TestStatusBarShowsWriteHintOnDrift(t *testing.T) {
 	m := loadedModel(120, 30)
-	// Switch to Drift tab.
+	// Switch to Drift tab with writes enabled — hint only shows when mode is on.
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")})
 	m = mm.(model)
+	m.writesEnabled = true
 	out := statusBarView(m)
 	if !strings.Contains(out, tr("write.drift.hint")) {
 		t.Fatalf("status bar on Drift missing write hint %q:\n%s", tr("write.drift.hint"), out)
 	}
 
-	// Inventory tab should NOT show the write hint.
+	// Inventory tab should NOT show the write hint (no write action, regardless of mode).
 	m2 := loadedModel(120, 30)
+	m2.writesEnabled = true
 	out2 := statusBarView(m2)
 	if strings.Contains(out2, tr("write.drift.hint")) {
 		t.Fatalf("status bar on Inventory should not contain write hint %q:\n%s", tr("write.drift.hint"), out2)
@@ -252,5 +257,63 @@ func TestAnyLoadingIncludesWriteRunning(t *testing.T) {
 	m.writeRunning = true
 	if !m.anyLoading() {
 		t.Fatal("anyLoading() should be true when writeRunning is true")
+	}
+}
+
+// ── opt-in write mode gate + W toggle ────────────────────────────────────────
+
+func TestWKeyDisabledWhenWritesOff(t *testing.T) {
+	m := loadedModel(120, 30)
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")}) // viewDrift
+	m = mm.(model)
+	// writesEnabled defaults to false in loadedModel.
+	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m = mm.(model)
+	if m.pending != nil {
+		t.Fatal("w must not open the modal while write mode is off")
+	}
+	if !strings.Contains(m.writeStatus, tr("write.disabledHint")) {
+		t.Fatalf("expected the disabled hint, got writeStatus=%q", m.writeStatus)
+	}
+}
+
+func TestWToggleEnablesDisablesAndPersists(t *testing.T) {
+	m := loadedModel(120, 30)
+	if m.writesEnabled {
+		t.Fatal("writesEnabled should default to false")
+	}
+	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("W")})
+	m = mm.(model)
+	if !m.writesEnabled {
+		t.Fatal("W should enable write mode")
+	}
+	if m.writeStatus != tr("write.modeOn") {
+		t.Fatalf("writeStatus=%q, want %q", m.writeStatus, tr("write.modeOn"))
+	}
+	if cmd == nil {
+		t.Fatal("W should return a (persist) cmd")
+	}
+	mm, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("W")})
+	m = mm.(model)
+	if m.writesEnabled {
+		t.Fatal("second W should disable write mode")
+	}
+	if m.writeStatus != tr("write.modeOff") {
+		t.Fatalf("writeStatus=%q, want %q", m.writeStatus, tr("write.modeOff"))
+	}
+	if cmd == nil {
+		t.Fatal("second W (disable) should also return a (persist) cmd")
+	}
+}
+
+func TestWKeyOpensModalWhenWritesOn(t *testing.T) {
+	m := loadedModel(120, 30)
+	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")}) // viewDrift
+	m = mm.(model)
+	m.writesEnabled = true
+	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m = mm.(model)
+	if m.pending == nil || m.pending.id != "drift-update" {
+		t.Fatal("w should open the drift-update modal when write mode is on")
 	}
 }
