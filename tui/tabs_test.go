@@ -433,6 +433,30 @@ func TestIsSectionViewSelftest(t *testing.T) {
 	}
 }
 
+func TestIsSectionViewDoctor(t *testing.T) {
+	if !isSectionView(viewDoctor) {
+		t.Fatal("isSectionView(viewDoctor) should be true")
+	}
+}
+
+func TestIsSectionViewPermissions(t *testing.T) {
+	if !isSectionView(viewPermissions) {
+		t.Fatal("isSectionView(viewPermissions) should be true")
+	}
+}
+
+func TestIsSectionViewDrift(t *testing.T) {
+	if !isSectionView(viewDrift) {
+		t.Fatal("isSectionView(viewDrift) should be true")
+	}
+}
+
+func TestIsSectionViewAudit(t *testing.T) {
+	if !isSectionView(viewAudit) {
+		t.Fatal("isSectionView(viewAudit) should be true")
+	}
+}
+
 // ── Grouped detail bodies (detailSection headers) ─────────────────────────────
 
 // TestConflictDetailGrouped verifies conflictDetail emits the three group
