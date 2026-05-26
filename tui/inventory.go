@@ -108,7 +108,15 @@ func (m *model) layoutPanes() {
 //   - section tabs (Conflicts/Orphans): section list selected item → item.detail.
 //
 // Safe to call any time; no-ops gracefully on nil/empty state.
-func (m *model) refreshDetail() {
+func (m *model) refreshDetail() { m.refreshDetailImpl(true) }
+
+// refreshDetailMeta renders the in-memory metadata only (NO file read) — used on
+// the hot cursor-move path so fast scrolling does zero disk I/O.
+func (m *model) refreshDetailMeta() { m.refreshDetailImpl(false) }
+
+// refreshDetailImpl is the shared body. withPreview controls whether the
+// (synchronous, disk-reading) file preview is appended for component nodes.
+func (m *model) refreshDetailImpl(withPreview bool) {
 	innerW := m.detail.Width
 	if innerW < 1 {
 		innerW = defaultWidth
@@ -134,7 +142,7 @@ func (m *model) refreshDetail() {
 	// viewInventory (and any other non-section tab): use the tree.
 	node, ok := m.tree.selectedNode()
 	content := detailContent(node, ok, innerW)
-	if ok && node.comp != nil {
+	if ok && node.comp != nil && withPreview {
 		content += previewSection(node.comp.Path, innerW)
 	}
 	m.detail.SetContent(content)
