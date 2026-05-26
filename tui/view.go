@@ -216,7 +216,7 @@ func dashboardView(m model) string {
 	content := contentView(m, cardW)
 	// The / filter bar replaces the status bar while a filter is being typed or
 	// is applied; both are a single chrome line so the height math is unchanged.
-	statusBar := statusBarView(m.width)
+	statusBar := statusBarView(m)
 	if m.filterMode || m.filterQuery != "" {
 		statusBar = filterBarView(m)
 	}
@@ -499,10 +499,32 @@ func tabBarView(active viewID, termWidth int) string {
 // ── Status bar ─────────────────────────────────────────────────────────────────
 
 // statusBarView renders the bottom hint bar spanning the full terminal width.
-// Hints reflect the tree key model: Enter expands/collapses a folder (or selects
-// an item), j/k move the cursor, Tab toggles pane focus, 1-9/0 / [ ] switch
-// sections, q quits.
-func statusBarView(termWidth int) string {
+// Normally it shows the navigation hints; a tab that offers a write action also
+// advertises "w <verb>". When a write has just completed, a transient result line
+// (green ✓ / red ✗) takes over the bar until the next keypress.
+func statusBarView(m model) string {
+	style := lipgloss.NewStyle().
+		Background(chromeBg).
+		Foreground(statusDim).
+		Padding(0, 1)
+	if m.width > 0 {
+		style = style.Width(m.width)
+	}
+
+	// Transient write feedback takes over the bar (cleared on the next key).
+	if m.writeStatus != "" {
+		mark, col := glyph("✓", "OK"), colorPlugin
+		if !m.writeOK {
+			mark, col = glyph("✗", "x"), colorRed
+		}
+		line := lipgloss.NewStyle().Foreground(col).Bold(true).Render(mark + " " + m.writeStatus)
+		return style.Render(line)
+	}
+	// While a write runs, show a brief working line.
+	if m.writeRunning {
+		return style.Render(lipgloss.NewStyle().Foreground(accent).Render(tr("write.running")))
+	}
+
 	dim := lipgloss.NewStyle().Foreground(statusDim)
 	sep := lipgloss.NewStyle().Foreground(tabDim).Render(" · ")
 	hint := keyStyle.Render("Enter") + dim.Render(" "+tr("status.expand")) +
@@ -513,19 +535,16 @@ func statusBarView(termWidth int) string {
 		sep +
 		keyStyle.Render("1-0") + dim.Render(" "+tr("status.section")) +
 		sep +
-		keyStyle.Render("/") + dim.Render(" "+tr("status.filter")) +
-		sep +
+		keyStyle.Render("/") + dim.Render(" "+tr("status.filter"))
+	// A tab with a write action advertises it between the filter and help hints.
+	if wa, ok := writeActionFor(m.currentView); ok {
+		hint += sep + keyStyle.Render("w") + dim.Render(" "+tr(wa.hintKey))
+	}
+	hint += sep +
 		keyStyle.Render("?") + dim.Render(" "+tr("status.help")) +
 		sep +
 		keyStyle.Render("q") + dim.Render(" "+tr("status.quit"))
 
-	style := lipgloss.NewStyle().
-		Background(chromeBg).
-		Foreground(statusDim).
-		Padding(0, 1)
-	if termWidth > 0 {
-		style = style.Width(termWidth)
-	}
 	return style.Render(hint)
 }
 
@@ -888,6 +907,7 @@ func helpView(width, height int) string {
 		{"1-0", tr("help.jump")},
 		{"[ / ]", tr("help.tabs")},
 		{"/", tr("help.filter")},
+		{"w", tr("help.write")},
 		{"?", tr("help.help")},
 		{"q / Esc", tr("status.quit")},
 	}
