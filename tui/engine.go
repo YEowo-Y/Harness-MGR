@@ -552,6 +552,59 @@ func fetchDoctor(cliPath string) (DoctorReport, error) {
 	return parseDoctor(data)
 }
 
+// ── Permissions structs ───────────────────────────────────────────────────────
+
+// PermissionsResult bundles the allow/ask/deny rule lists and the overbroad
+// subset from `permissions --audit --format json`. Overbroad is the subset of
+// Allow entries that contain a wildcard (*); it may be empty.
+type PermissionsResult struct {
+	Allow    []string     `json:"allow"`
+	Ask      []string     `json:"ask"`
+	Deny     []string     `json:"deny"`
+	Overbroad []string    `json:"overbroad"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// permissionsEnvelope decodes result.allow/ask/deny/overbroad and the top-level
+// diagnostics from the `permissions --audit --format json` envelope.
+type permissionsEnvelope struct {
+	Result struct {
+		Allow    []string `json:"allow"`
+		Ask      []string `json:"ask"`
+		Deny     []string `json:"deny"`
+		Overbroad []string `json:"overbroad"`
+	} `json:"result"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// parsePermissions unmarshals a raw `permissions --audit --format json` envelope
+// into a PermissionsResult. Pure function — no exec, never panics.
+func parsePermissions(data []byte) (PermissionsResult, error) {
+	var env permissionsEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return PermissionsResult{}, fmt.Errorf("parsing permissions JSON: %w", err)
+	}
+	return PermissionsResult{
+		Allow:       env.Result.Allow,
+		Ask:         env.Result.Ask,
+		Deny:        env.Result.Deny,
+		Overbroad:   env.Result.Overbroad,
+		Diagnostics: env.Diagnostics,
+	}, nil
+}
+
+// fetchPermissions shells out to `node <cliPath> permissions --audit --format json`,
+// captures stdout, and unmarshals it into a PermissionsResult. It never panics:
+// exec failures, timeouts, and malformed JSON are returned as errors. This is
+// fully READ-ONLY — `permissions --audit` never writes to the config dir.
+func fetchPermissions(cliPath string) (PermissionsResult, error) {
+	data, err := runJSON(cliPath, "permissions", "--audit", "--format", "json")
+	if err != nil {
+		return PermissionsResult{}, err
+	}
+	return parsePermissions(data)
+}
+
 // sortComponents orders components by kind then name (both ascending), in place.
 // Ordering is case-insensitive on the surface text so "Foo" and "foo" cluster
 // naturally; ties fall back to the case-sensitive value for determinism.
