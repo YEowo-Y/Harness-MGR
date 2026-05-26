@@ -159,11 +159,12 @@ func TestDoctorItemsErrorRed(t *testing.T) {
 	}
 }
 
-func TestDoctorItemsInfoAccent(t *testing.T) {
+func TestDoctorItemsInfoColor(t *testing.T) {
 	items := doctorItems(sampleDoctorReport())
-	// #12 orphan-files: findings>0 with only an info diagnostic → accent (teal).
-	if items[3].color != accent {
-		t.Fatalf("info check color = %v, want accent", items[3].color)
+	// #12 orphan-files: findings>0 with only an info diagnostic → colorMcp (cyan),
+	// the doctor "info" severity color, decoupled from the brand accent teal.
+	if items[3].color != colorMcp {
+		t.Fatalf("info check color = %v, want colorMcp", items[3].color)
 	}
 }
 
