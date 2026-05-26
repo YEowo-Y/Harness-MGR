@@ -21,7 +21,7 @@ var (
 	configGray = lipgloss.Color("#6B7280") // config dir / subtitle — one step dimmer
 	leaderDim  = lipgloss.Color("#374151") // near-invisible dividers / dim border
 
-	colorRed = lipgloss.Color("#F87171") // error text / error card border
+	colorRed = lipgloss.Color("#EF4444") // error text / error card border — saturated
 
 	// Chrome — tab bar + status bar surfaces.
 	chromeBg  = lipgloss.Color("#111827") // dark bar background
