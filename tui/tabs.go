@@ -22,7 +22,7 @@ import (
 func isSectionView(v viewID) bool {
 	return v == viewConflicts || v == viewOrphans ||
 		v == viewConfig || v == viewHooks || v == viewSelftest ||
-		v == viewDoctor
+		v == viewDoctor || v == viewPermissions
 }
 
 // ── Conflicts ────────────────────────────────────────────────────────────────
@@ -236,6 +236,8 @@ func sectionEmptyLabel(v viewID) string {
 		return tr("empty.selftest")
 	case viewDoctor:
 		return tr("empty.doctor")
+	case viewPermissions:
+		return tr("empty.permissions")
 	default:
 		return tr("empty.items")
 	}
@@ -561,6 +563,164 @@ func doctorDetail(ch DoctorCheck, diags []Diagnostic, width int) string {
 		b.WriteString(detailField("Message", d.Message, width))
 		if fix := strings.TrimSpace(d.Fix); fix != "" {
 			b.WriteString(detailField("Fix", fix, width))
+		}
+	}
+	return b.String()
+}
+
+// ── Permissions ───────────────────────────────────────────────────────────────
+
+// permissionsCategory classifies a rule string into one of three display
+// categories used by the Permissions tab: "allow-overbroad" (allow + wildcard),
+// "allow", "ask", or "deny". The category drives the row color and icon.
+type permissionsCategory int
+
+const (
+	permCategoryAllow          permissionsCategory = iota
+	permCategoryAllowOverbroad                     // allow + wildcard (*)
+	permCategoryAsk
+	permCategoryDeny
+)
+
+// permissionsColor maps a category to a palette color: overbroad-allow→colorRed,
+// normal-allow→colorPlugin (green), ask→colorOrange (amber), deny→labelGray.
+func permissionsColor(cat permissionsCategory) lipgloss.Color {
+	switch cat {
+	case permCategoryAllowOverbroad:
+		return colorRed
+	case permCategoryAllow:
+		return colorPlugin // green
+	case permCategoryAsk:
+		return colorOrange
+	default:
+		return labelGray
+	}
+}
+
+// permissionsIcon maps a category to its status glyph (with ASCII fallback).
+// overbroad-allow ⚠, normal-allow ✓, ask •, deny ○.
+func permissionsIcon(cat permissionsCategory) string {
+	switch cat {
+	case permCategoryAllowOverbroad:
+		return glyph("⚠", "[!]")
+	case permCategoryAllow:
+		return glyph("✓", "[ok]")
+	case permCategoryAsk:
+		return glyph("•", "*")
+	default:
+		return glyph("○", "[ ]")
+	}
+}
+
+// permissionsItems converts a PermissionsResult into sectionItems for the
+// Permissions list. Rows are grouped: overbroad-allow first (red/⚠), then
+// normal-allow (green/✓), then ask (amber/•), then deny (gray/○). Within each
+// group rules appear in the order returned by the CLI (already sorted). The
+// title is "<icon> <category> · <rule>".
+func permissionsItems(r PermissionsResult) []sectionItem {
+	// Build an overbroad lookup set for fast membership test.
+	overbroadSet := make(map[string]bool, len(r.Overbroad))
+	for _, rule := range r.Overbroad {
+		overbroadSet[rule] = true
+	}
+
+	items := make([]sectionItem, 0, len(r.Allow)+len(r.Ask)+len(r.Deny))
+
+	// Overbroad allow first, then normal allow.
+	for _, rule := range r.Allow {
+		rule := rule
+		var cat permissionsCategory
+		if overbroadSet[rule] {
+			cat = permCategoryAllowOverbroad
+		} else {
+			cat = permCategoryAllow
+		}
+		title := fmt.Sprintf("%s allow · %s", permissionsIcon(cat), rule)
+		items = append(items, sectionItem{
+			title:  title,
+			color:  permissionsColor(cat),
+			detail: func(w int) string { return permissionsDetail(rule, cat, r.Diagnostics, w) },
+		})
+	}
+	for _, rule := range r.Ask {
+		rule := rule
+		title := fmt.Sprintf("%s ask · %s", permissionsIcon(permCategoryAsk), rule)
+		items = append(items, sectionItem{
+			title:  title,
+			color:  permissionsColor(permCategoryAsk),
+			detail: func(w int) string {
+				return permissionsDetail(rule, permCategoryAsk, r.Diagnostics, w)
+			},
+		})
+	}
+	for _, rule := range r.Deny {
+		rule := rule
+		title := fmt.Sprintf("%s deny · %s", permissionsIcon(permCategoryDeny), rule)
+		items = append(items, sectionItem{
+			title:  title,
+			color:  permissionsColor(permCategoryDeny),
+			detail: func(w int) string {
+				return permissionsDetail(rule, permCategoryDeny, r.Diagnostics, w)
+			},
+		})
+	}
+	return items
+}
+
+// permissionsDetail builds the detail body for one permission rule at the given
+// pane width. The "Permission" section shows the category and whether the rule
+// is overbroad. A "Why" section lists any top-level diagnostics whose Message
+// contains the rule string (the engine's `permissions-overbroad` diagnostics
+// embed the offending rule in their message).
+func permissionsDetail(rule string, cat permissionsCategory, diags []Diagnostic, width int) string {
+	fg := permissionsColor(cat)
+
+	categoryLabel := "allow"
+	switch cat {
+	case permCategoryAllowOverbroad:
+		categoryLabel = "allow"
+	case permCategoryAsk:
+		categoryLabel = "ask"
+	case permCategoryDeny:
+		categoryLabel = "deny"
+	}
+
+	overbroad := "no"
+	if cat == permCategoryAllowOverbroad {
+		overbroad = "yes — contains wildcard (*)"
+	}
+
+	var b strings.Builder
+	b.WriteString(detailTitle(rule, fg, "", width))
+	b.WriteString("\n\n")
+
+	b.WriteString(detailSection("Permission", fg, width))
+	b.WriteString(detailField("Category", categoryLabel, width))
+	b.WriteString(detailField("Overbroad", overbroad, width))
+
+	// Collect diagnostics whose message mentions this rule. The rule is wrapped in
+	// double-quotes in the diagnostic message (e.g. `...rule: "Edit(*)"`) so we
+	// match the quoted form to prevent a prefix false-match: `Edit(*)` must NOT
+	// match the `NotebookEdit(*)` diagnostic because `k"` != `"`.
+	needle := `"` + rule + `"`
+	var matching []Diagnostic
+	for _, d := range diags {
+		if strings.Contains(d.Message, needle) {
+			matching = append(matching, d)
+		}
+	}
+	if len(matching) > 0 {
+		b.WriteString("\n")
+		b.WriteString(detailSection("Why", fg, width))
+		for i, d := range matching {
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(detailField("Severity", d.Severity, width))
+			b.WriteString(detailField("Message", d.Message, width))
+			if fix := strings.TrimSpace(d.Fix); fix != "" {
+				b.WriteString(detailField("Fix", fix, width))
+			}
 		}
 	}
 	return b.String()
