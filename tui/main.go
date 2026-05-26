@@ -84,6 +84,25 @@ type auditMsg struct {
 	err  error
 }
 
+// previewTickMsg is the debounced signal to load the file-body preview for the
+// currently selected Inventory tree node. gen must match model.previewGen at
+// delivery time; stale ticks (from a still-scrolling cursor) are discarded.
+type previewTickMsg struct{ gen uint64 }
+
+// previewDelay is how long after the cursor settles before the file-body
+// preview is loaded. Chosen to feel instant on a settled cursor while letting
+// fast j/k scrolling do zero disk I/O.
+const previewDelay = 100 * time.Millisecond
+
+// schedulePreview bumps the debounce generation and returns a Tick that, after
+// previewDelay, asks to load the file-body preview — but only if no newer move
+// has bumped the generation since (see the previewTickMsg handler).
+func (m *model) schedulePreview() tea.Cmd {
+	m.previewGen++
+	gen := m.previewGen
+	return tea.Tick(previewDelay, func(time.Time) tea.Msg { return previewTickMsg{gen: gen} })
+}
+
 // sectionState holds the fetch + list state for a flat-list section tab
 // (Conflicts, Orphans). loading is true while the fetch is in flight; err is set
 // on failure; list holds the rendered items; summaryKey + summaryArgs are the
@@ -214,6 +233,12 @@ type model struct {
 	writeStatus   string
 	writeOK       bool
 	writesEnabled bool // opt-in: write actions (the "w" key) are live only when true
+
+	// previewGen is the debounce generation counter for the file-body preview on
+	// the Inventory tab. Each cursor move increments it; the matching previewTickMsg
+	// fires the full refresh only when its gen equals the current value (stale ticks
+	// from still-scrolling cursors are silently discarded).
+	previewGen uint64
 }
 
 // uiConfig snapshots the model's persisted TUI preferences for saveConfigCmd.
@@ -514,6 +539,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tree = newTreeModel(msg.data)
 		m.refreshDetail()
 		// Splash persists — the user must press a key to enter.
+		return m, nil
+	case previewTickMsg:
+		// Debounced preview load: only the latest scheduled tick (gen match) fires;
+		// earlier ticks from a still-scrolling cursor are stale and ignored.
+		if msg.gen == m.previewGen {
+			m.refreshDetail() // settled — do the full metadata+preview refresh once
+		}
 		return m, nil
 	case conflictsMsg:
 		st := m.sections[viewConflicts]
@@ -1035,7 +1067,12 @@ func (m model) routeToPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		prev := m.tree.cursor
 		m.moveTreeCursor(msg)
 		if m.tree.cursor != prev {
-			m.refreshDetail()
+			m.refreshDetailMeta() // instant: metadata only, no file read
+			// schedulePreview (pointer receiver) bumps m.previewGen on this local
+			// copy; returning m propagates that bump into the model Bubble Tea keeps,
+			// so the captured gen stays current only until the next cursor move.
+			cmd := m.schedulePreview() // file body loads ~100ms after settling
+			return m, cmd
 		}
 		return m, nil
 	}
