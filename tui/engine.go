@@ -552,6 +552,20 @@ func fetchDoctor(cliPath string) (DoctorReport, error) {
 	return parseDoctor(data)
 }
 
+// fetchDoctorActive shells out to `node <cliPath> doctor --active-probes --format
+// json` — the OPT-IN active run that executes the side-effecting probes (#4 node
+// --check, #15 claude --version, #19 the transient loader-probe write/cleanup).
+// It NEVER runs at startup or on a passive refresh; only an explicit, confirmed
+// user action reaches it. Distinct from fetchDoctor, which stays passive. Never
+// panics: exec/timeout/JSON errors are returned.
+func fetchDoctorActive(cliPath string) (DoctorReport, error) {
+	data, err := runJSON(cliPath, "doctor", "--active-probes", "--format", "json")
+	if err != nil {
+		return DoctorReport{}, err
+	}
+	return parseDoctor(data)
+}
+
 // ── Permissions structs ───────────────────────────────────────────────────────
 
 // PermissionsResult bundles the allow/ask/deny rule lists and the overbroad
