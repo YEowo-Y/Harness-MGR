@@ -343,6 +343,67 @@ func fetchAuditCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// sectionFetchCmd returns the read-only fetch command that (re)loads section view
+// v's data, or nil for a non-section view. Same commands Init dispatches.
+func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
+	switch v {
+	case viewConflicts:
+		return fetchConflictsCmd(cliPath)
+	case viewOrphans:
+		return fetchOrphansCmd(cliPath)
+	case viewConfig:
+		return fetchConfigCmd(cliPath)
+	case viewHooks:
+		return fetchHooksCmd(cliPath)
+	case viewSelftest:
+		return fetchSelftestCmd(cliPath)
+	case viewDoctor:
+		return fetchDoctorCmd(cliPath) // PASSIVE — no --active-probes
+	case viewPermissions:
+		return fetchPermissionsCmd(cliPath)
+	case viewDrift:
+		return fetchDriftCmd(cliPath)
+	case viewAudit:
+		return fetchAuditCmd(cliPath)
+	}
+	return nil
+}
+
+// refreshCurrent re-fetches the active tab's data, setting its loading flag so the
+// spinner shows while the fetch is in flight. It is a no-op (returns nil) when that
+// tab is already loading, or has no fetch. All fetches are the same read-only
+// commands Init dispatches — the Doctor refresh stays passive.
+//
+// Pointer receiver: the scalar flag mutations (m.loading/m.detailLoading) reach the
+// runtime via the model that the value-receiver handleKey returns; the section flag
+// mutates the shared *sectionState. This mirrors clearFilter/applyFilter.
+func (m *model) refreshCurrent() tea.Cmd {
+	if m.currentView == viewInventory {
+		if m.loading || m.detailLoading {
+			return nil
+		}
+		m.loading = true
+		m.detailLoading = true
+		return tea.Batch(fetchCmd(m.cliPath), fetchDetailCmd(m.cliPath))
+	}
+	if isSectionView(m.currentView) {
+		st := m.sections[m.currentView]
+		if st == nil || st.loading {
+			return nil
+		}
+		// Resolve the fetch BEFORE flipping the loading flag: should a section view
+		// ever be missing from sectionFetchCmd (drift vs isSectionView), this stays a
+		// clean no-op instead of stranding the tab in a never-ending spinner.
+		cmd := sectionFetchCmd(m.currentView, m.cliPath)
+		if cmd == nil {
+			return nil
+		}
+		st.loading = true
+		return cmd
+	}
+	return nil
+}
+
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
 // ticking as long as this is true.
 func (m model) anyLoading() bool {
@@ -738,6 +799,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.showHelp = true
 		return m, nil
+	case "r":
+		return m, m.refreshCurrent()
 	case "w":
 		if !m.writesEnabled {
 			// Writes are opt-in and currently off — tell the user how to enable.
