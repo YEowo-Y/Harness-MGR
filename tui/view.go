@@ -212,7 +212,7 @@ func mascotBlockWidth() int {
 func dashboardView(m model) string {
 	cardW := cardWidth(m.width)
 
-	tabBar := tabBarView(m.currentView, m.width)
+	tabBar := tabBarView(m)
 	content := contentView(m, cardW)
 	// The / filter bar replaces the status bar while a filter is being typed or
 	// is applied; both are a single chrome line so the height math is unchanged.
@@ -465,21 +465,107 @@ func padContent(tabBar, content, statusBar string, height int) string {
 
 // ── Tab bar ────────────────────────────────────────────────────────────────────
 
+// sectionReady returns a fetched, non-errored section for v, or ok=false while
+// it is still loading, errored, or absent (so a badge never reflects stale/no
+// data).
+func sectionReady(m model, v viewID) (*sectionState, bool) {
+	st := m.sections[v]
+	if st == nil || st.loading || st.err != nil {
+		return nil, false
+	}
+	return st, true
+}
+
+// sectionItemCount is the number of rows in section v (0 when not ready).
+func sectionItemCount(m model, v viewID) int {
+	st, ok := sectionReady(m, v)
+	if !ok {
+		return 0
+	}
+	return len(st.list.items)
+}
+
+// sectionHasColor reports whether any row in section v carries the target color
+// (the per-row colors encode severity — see the color→severity map).
+func sectionHasColor(m model, v viewID, target lipgloss.Color) bool {
+	st, ok := sectionReady(m, v)
+	if !ok {
+		return false
+	}
+	for _, it := range st.list.items {
+		if it.color == target {
+			return true
+		}
+	}
+	return false
+}
+
+// tabBadge returns the severity color for a small health dot on tab v, and
+// ok=false when the tab has nothing notable to flag. Derived entirely from
+// already-fetched data: red = errors/overbroad/failing checks; orange = warnings/
+// findings/conflicts/orphans/drift/inventory-diagnostics. Informational tabs
+// (Config/Hooks/Audit) and any still-loading or errored section never badge.
+func tabBadge(m model, v viewID) (lipgloss.Color, bool) {
+	switch v {
+	case viewInventory:
+		// Guard on loading/err so the badge never reflects a zero-valued inventory
+		// before the counts fetch lands (mirrors healthVerdict's gating).
+		if !m.loading && m.err == nil && len(m.inv.Diagnostics) > 0 {
+			return colorOrange, true
+		}
+	case viewConflicts, viewOrphans, viewDrift:
+		if sectionItemCount(m, v) > 0 {
+			return colorOrange, true
+		}
+	case viewSelftest, viewPermissions:
+		// Only RED rows are findings worth flagging: failing self-tests and
+		// overbroad-allow permission rules. Orange "ask" permission rows are benign
+		// (they merely prompt), so Permissions deliberately does NOT badge on them;
+		// selftest has no orange rows.
+		if sectionHasColor(m, v, colorRed) {
+			return colorRed, true
+		}
+	case viewDoctor:
+		if sectionHasColor(m, v, colorRed) {
+			return colorRed, true
+		}
+		if sectionHasColor(m, v, colorOrange) {
+			return colorOrange, true
+		}
+	}
+	return "", false
+}
+
 // tabBarView renders the horizontal tab strip across the full terminal width:
-// the active tab gets the accent background, inactive tabs are dim. Trailing
-// space fills the bar to the terminal width on the chrome background.
-func tabBarView(active viewID, termWidth int) string {
+// the active tab gets the accent background, inactive tabs are dim, and any tab
+// whose data has notable findings carries a small severity dot (red error /
+// amber warn). Trailing space fills the bar to the terminal width on the chrome
+// background.
+func tabBarView(m model) string {
+	active := m.currentView
+	termWidth := m.width
 	cells := make([]string, 0, len(tabLabels))
 	for i := range tabLabels {
-		// The number-key that jumps to this tab: 1..9 for the first nine, 0 for
-		// the tenth — matching digitToView's "1-9 then 0" convention so the tab
-		// label and its keyboard shortcut agree.
-		text := fmt.Sprintf("%d %s", (i+1)%10, tabLabel(viewID(i)))
-		if viewID(i) == active {
-			cells = append(cells, activeTabStyle.Render(text))
-		} else {
-			cells = append(cells, inactiveTabStyle.Render(text))
+		v := viewID(i)
+		// The number-key that jumps to this tab: 1..9 for the first nine, 0 for the
+		// tenth — matching digitToView's "1-9 then 0" convention.
+		text := fmt.Sprintf("%d %s", (i+1)%10, tabLabel(v))
+
+		cellStyle := inactiveTabStyle
+		bg := chromeBg
+		if v == active {
+			cellStyle = activeTabStyle
+			bg = accent
 		}
+		// Append a severity dot when this tab has notable findings. The dot is
+		// rendered with its OWN foreground over the cell's background so it stays
+		// the right color inside the cell (the cell style would otherwise recolor it).
+		content := text
+		if sev, ok := tabBadge(m, v); ok {
+			dot := lipgloss.NewStyle().Foreground(sev).Background(bg).Render(glyph("●", "*"))
+			content = text + " " + dot
+		}
+		cells = append(cells, cellStyle.Render(content))
 	}
 	bar := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 
