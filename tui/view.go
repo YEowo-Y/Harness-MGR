@@ -1003,6 +1003,7 @@ func helpView(width, height int) string {
 		{"1-0", tr("help.jump")},
 		{"[ / ]", tr("help.tabs")},
 		{"/", tr("help.filter")},
+		{"r", tr("help.refresh")},
 		{"w", tr("help.write")},
 		{"W", tr("help.writeMode")},
 		{"?", tr("help.help")},
