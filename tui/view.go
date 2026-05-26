@@ -497,7 +497,7 @@ func tabBarView(active viewID, termWidth int) string {
 
 // statusBarView renders the bottom hint bar spanning the full terminal width.
 // Hints reflect the tree key model: Enter expands/collapses a folder (or selects
-// an item), j/k move the cursor, Tab toggles pane focus, 1-7 / [ ] switch
+// an item), j/k move the cursor, Tab toggles pane focus, 1-8 / [ ] switch
 // sections, q quits.
 func statusBarView(termWidth int) string {
 	dim := lipgloss.NewStyle().Foreground(statusDim)
@@ -508,7 +508,7 @@ func statusBarView(termWidth int) string {
 		sep +
 		keyStyle.Render("Tab") + dim.Render(" "+tr("status.focus")) +
 		sep +
-		keyStyle.Render("1-7") + dim.Render(" "+tr("status.section")) +
+		keyStyle.Render("1-8") + dim.Render(" "+tr("status.section")) +
 		sep +
 		keyStyle.Render("/") + dim.Render(" "+tr("status.filter")) +
 		sep +
@@ -882,7 +882,7 @@ func helpView(width, height int) string {
 		{"j / k", tr("help.move")},
 		{"Enter", tr("help.activate")},
 		{"Tab", tr("help.focus")},
-		{"1-7", tr("help.jump")},
+		{"1-8", tr("help.jump")},
 		{"[ / ]", tr("help.tabs")},
 		{"/", tr("help.filter")},
 		{"?", tr("help.help")},
