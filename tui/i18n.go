@@ -108,6 +108,7 @@ var translations = map[string][2]string{
 	"help.help":     {"toggle this help", "开关此帮助"},
 	"help.dismiss":  {"? / Esc / q to close", "? / Esc / q 关闭"},
 	"help.filter":   {"filter items", "过滤条目"},
+	"help.refresh":  {"refresh this tab", "刷新本页"},
 
 	// Filter bar (/).
 	"filter.label": {"filter:", "过滤:"},
