@@ -56,7 +56,7 @@ var (
 	inactiveTabStyle = lipgloss.NewStyle().
 				Foreground(tabDim).
 				Background(chromeBg).
-				Padding(0, 2)
+				Padding(0, 1)
 )
 
 // ── Layout ──────────────────────────────────────────────────────────────────
