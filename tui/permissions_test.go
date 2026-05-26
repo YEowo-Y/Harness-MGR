@@ -14,9 +14,9 @@ import (
 // diagnostics for the overbroad allow rule.
 func samplePermissionsResult() PermissionsResult {
 	return PermissionsResult{
-		Allow: []string{"Edit(*)", "Bash(git status)"},
-		Ask:   []string{"WebSearch"},
-		Deny:  []string{"Bash(rm -rf)"},
+		Allow:     []string{"Edit(*)", "Bash(git status)"},
+		Ask:       []string{"WebSearch"},
+		Deny:      []string{"Bash(rm -rf)"},
 		Overbroad: []string{"Edit(*)"},
 		Diagnostics: []Diagnostic{
 			{
