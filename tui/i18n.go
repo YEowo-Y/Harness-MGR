@@ -46,7 +46,8 @@ var translations = map[string][2]string{
 	"tab.config":    {"Config", "配置"},
 	"tab.hooks":     {"Hooks", "钩子"},
 	"tab.selftest":  {"Selftest", "自检"},
-	"tab.doctor":    {"Doctor", "体检"},
+	"tab.doctor":       {"Doctor", "体检"},
+	"tab.permissions":  {"Permissions", "权限"},
 
 	// Status-bar hint words (the keys — Enter, j/k, Tab, 1-7, q — stay literal).
 	"status.expand":  {"expand", "展开"},
@@ -81,7 +82,8 @@ var translations = map[string][2]string{
 	"empty.config":           {"no config keys found", "未发现配置项"},
 	"empty.hooks":            {"no hooks found", "未发现钩子"},
 	"empty.selftest":         {"no checks found", "未发现检查项"},
-	"empty.doctor":           {"no checks found", "未发现检查项"},
+	"empty.doctor":       {"no checks found", "未发现检查项"},
+	"empty.permissions": {"no permission rules found", "未发现权限规则"},
 	"empty.items":            {"no items found", "未发现条目"},
 	"empty.objects":          {"no objects found", "未发现对象"},
 	"empty.noMatch":          {"no matches", "无匹配项"},
@@ -117,6 +119,7 @@ var translations = map[string][2]string{
 	"summary.selftestOk":   {"%d checks, all ok", "%d 项检查,全部通过"},
 	"summary.selftestFail": {"%d checks, %d failing", "%d 项检查,%d 项失败"},
 	"summary.doctor":       {"%d checks · %d findings", "%d 项检查 · %d 处发现"},
+	"summary.permissions": {"%d allow · %d ask · %d deny · %d overbroad", "%d 允许 · %d 询问 · %d 拒绝 · %d 过宽"},
 }
 
 // tr returns key's text in the active UI language, falling back to English (then
@@ -142,7 +145,7 @@ func tf(key string, args ...any) string {
 
 // tabKeys maps a viewID to its tab-label translation key, in viewID iota order.
 var tabKeys = []string{
-	"tab.inventory", "tab.conflicts", "tab.orphans", "tab.config", "tab.hooks", "tab.selftest", "tab.doctor",
+	"tab.inventory", "tab.conflicts", "tab.orphans", "tab.config", "tab.hooks", "tab.selftest", "tab.doctor", "tab.permissions",
 }
 
 // tabLabel returns the translated tab label for v (empty string if out of range).
