@@ -738,7 +738,13 @@ func treePaneBody(m model) string {
 		}
 		return detailEmptyStyle.Render(tr("empty.objects"))
 	default:
-		return m.tree.render(m.treeInnerW, m.treeInnerH)
+		if m.treeInnerH < 2 || m.treeInnerW < 2 {
+			return m.tree.render(m.treeInnerW, m.treeInnerH)
+		}
+		contentH := m.treeInnerH - 1
+		s := m.tree.render(m.treeInnerW-1, contentH)
+		return composeListWithScrollbar(s, m.treeInnerW, m.treeInnerH,
+			len(m.tree.visible), contentH, m.tree.offset, m.tree.cursor)
 	}
 }
 
