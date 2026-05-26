@@ -558,10 +558,10 @@ func fetchDoctor(cliPath string) (DoctorReport, error) {
 // subset from `permissions --audit --format json`. Overbroad is the subset of
 // Allow entries that contain a wildcard (*); it may be empty.
 type PermissionsResult struct {
-	Allow    []string     `json:"allow"`
-	Ask      []string     `json:"ask"`
-	Deny     []string     `json:"deny"`
-	Overbroad []string    `json:"overbroad"`
+	Allow       []string     `json:"allow"`
+	Ask         []string     `json:"ask"`
+	Deny        []string     `json:"deny"`
+	Overbroad   []string     `json:"overbroad"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 }
 
@@ -569,9 +569,9 @@ type PermissionsResult struct {
 // diagnostics from the `permissions --audit --format json` envelope.
 type permissionsEnvelope struct {
 	Result struct {
-		Allow    []string `json:"allow"`
-		Ask      []string `json:"ask"`
-		Deny     []string `json:"deny"`
+		Allow     []string `json:"allow"`
+		Ask       []string `json:"ask"`
+		Deny      []string `json:"deny"`
 		Overbroad []string `json:"overbroad"`
 	} `json:"result"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
@@ -603,6 +603,140 @@ func fetchPermissions(cliPath string) (PermissionsResult, error) {
 		return PermissionsResult{}, err
 	}
 	return parsePermissions(data)
+}
+
+// ── Drift structs ───────────────────────────────────────────────────────────
+
+// DriftChange is one changed file from `drift --format json` result.changes.
+// Change is "added" | "removed" | "modified"; Path is the POSIX-relative path
+// within the governed config surface.
+type DriftChange struct {
+	Path   string `json:"path"`
+	Change string `json:"change"`
+}
+
+// DriftSummary holds the added/removed/modified counts from the drift result.
+type DriftSummary struct {
+	Added    int `json:"added"`
+	Removed  int `json:"removed"`
+	Modified int `json:"modified"`
+}
+
+// DriftResult bundles the drift status, the change list, the summary counts, and
+// the top-level diagnostics from `drift --format json`. Status is
+// "no-baseline" | "clean" | "drifted".
+type DriftResult struct {
+	Status      string        `json:"status"`
+	Changes     []DriftChange `json:"changes"`
+	Summary     DriftSummary  `json:"summary"`
+	Diagnostics []Diagnostic  `json:"diagnostics"`
+}
+
+// driftEnvelope decodes result.{status,changes,summary} + the top-level
+// diagnostics from the `drift --format json` envelope.
+type driftEnvelope struct {
+	Result struct {
+		Status  string        `json:"status"`
+		Changes []DriftChange `json:"changes"`
+		Summary DriftSummary  `json:"summary"`
+	} `json:"result"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// parseDrift unmarshals a raw `drift --format json` envelope into a DriftResult.
+// Pure function — no exec, never panics.
+func parseDrift(data []byte) (DriftResult, error) {
+	var env driftEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return DriftResult{}, fmt.Errorf("parsing drift JSON: %w", err)
+	}
+	return DriftResult{
+		Status:      env.Result.Status,
+		Changes:     env.Result.Changes,
+		Summary:     env.Result.Summary,
+		Diagnostics: env.Diagnostics,
+	}, nil
+}
+
+// fetchDrift shells out to `node <cliPath> drift --format json`, captures stdout,
+// and unmarshals it into a DriftResult. It never panics.
+//
+// READ-ONLY — it deliberately does NOT pass --update. `drift` is dry-run by
+// default: without --update it only READS the config surface + the lockfile and
+// reports the diff; the lockfile is written ONLY under --update. Opening the TUI
+// must never persist a new baseline.
+func fetchDrift(cliPath string) (DriftResult, error) {
+	data, err := runJSON(cliPath, "drift", "--format", "json")
+	if err != nil {
+		return DriftResult{}, err
+	}
+	return parseDrift(data)
+}
+
+// ── Audit structs ───────────────────────────────────────────────────────────
+
+// AuditEntry is one metadata-only audit-log record. Its schema is intentionally
+// open: the write side (Phase 3) is not built yet and the entry shape is not
+// frozen, so each entry is decoded as an arbitrary key→raw-JSON map and rendered
+// generically (sorted keys). Only "timestamp" is treated specially (the list
+// title + the engine's sort key).
+type AuditEntry map[string]json.RawMessage
+
+// AuditSummary holds the counts + ISO bounds from the audit result.summary.
+// Total counts well-formed entries before any --since filter; Returned counts
+// those returned after it (the TUI passes no --since, so they match). Oldest /
+// Newest are ISO strings, or "" when there are no timestamped entries (the JSON
+// emits null, which decodes to the empty string).
+type AuditSummary struct {
+	Total            int    `json:"total"`
+	Returned         int    `json:"returned"`
+	SkippedMalformed int    `json:"skippedMalformed"`
+	Oldest           string `json:"oldest"`
+	Newest           string `json:"newest"`
+}
+
+// AuditResult bundles the entry list, the summary, and the top-level diagnostics
+// from `audit --format json`.
+type AuditResult struct {
+	Entries     []AuditEntry `json:"entries"`
+	Summary     AuditSummary `json:"summary"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// auditEnvelope decodes result.{entries,summary} + the top-level diagnostics
+// from the `audit --format json` envelope.
+type auditEnvelope struct {
+	Result struct {
+		Entries []AuditEntry `json:"entries"`
+		Summary AuditSummary `json:"summary"`
+	} `json:"result"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// parseAudit unmarshals a raw `audit --format json` envelope into an AuditResult.
+// Pure function — no exec, never panics.
+func parseAudit(data []byte) (AuditResult, error) {
+	var env auditEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return AuditResult{}, fmt.Errorf("parsing audit JSON: %w", err)
+	}
+	return AuditResult{
+		Entries:     env.Result.Entries,
+		Summary:     env.Result.Summary,
+		Diagnostics: env.Diagnostics,
+	}, nil
+}
+
+// fetchAudit shells out to `node <cliPath> audit --format json`, captures stdout,
+// and unmarshals it into an AuditResult. It never panics. Fully READ-ONLY — the
+// audit command only reads the metadata-only .mgr-state/audit.log (a missing log
+// is benign: zero entries).
+func fetchAudit(cliPath string) (AuditResult, error) {
+	data, err := runJSON(cliPath, "audit", "--format", "json")
+	if err != nil {
+		return AuditResult{}, err
+	}
+	return parseAudit(data)
 }
 
 // sortComponents orders components by kind then name (both ascending), in place.
