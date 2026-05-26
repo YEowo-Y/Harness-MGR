@@ -198,7 +198,14 @@ func sectionListBody(m model) string {
 		}
 		return detailEmptyStyle.Render(sectionEmptyLabel(m.currentView))
 	default:
-		return st.list.render(m.treeInnerW, m.treeInnerH)
+		if m.treeInnerH < 2 || m.treeInnerW < 2 {
+			return st.list.render(m.treeInnerW, m.treeInnerH)
+		}
+		contentH := m.treeInnerH - 1
+		s := st.list.render(m.treeInnerW-1, contentH)
+		total := len(st.list.filtered())
+		return composeListWithScrollbar(s, m.treeInnerW, m.treeInnerH,
+			total, contentH, st.list.offset, st.list.cursor)
 	}
 }
 
