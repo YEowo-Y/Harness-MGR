@@ -17,7 +17,7 @@ func TestTypeIconKnownKinds(t *testing.T) {
 		{"agent", "●"},
 		{"command", "▸"},
 		{"plugin", "✦"},
-		{"marketplace", "■"},
+		{"marketplace", "▪"},
 		{"mcp", "◇"},
 	}
 	for _, tc := range cases {
