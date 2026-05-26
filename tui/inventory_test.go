@@ -325,10 +325,14 @@ func TestRefreshDetailAppendsPreviewForComponent(t *testing.T) {
 	mm, _ = m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = mm.(model)
 	// Skills start expanded; j lands the cursor on the lone skill item.
-	m = pressRune(t, m, 'j')
+	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = mm.(model)
 	if n, ok := m.tree.selectedNode(); !ok || n.comp == nil {
 		t.Fatalf("expected the skill item selected, got %+v ok=%v", n, ok)
 	}
+	// Fire the matching debounce tick so refreshDetail runs with the full preview.
+	mm, _ = m.Update(previewTickMsg{gen: m.previewGen})
+	m = mm.(model)
 	if !strings.Contains(m.detail.View(), "UNIQUE_PREVIEW_BODY") {
 		t.Fatalf("component detail missing file preview body: %q", m.detail.View())
 	}
