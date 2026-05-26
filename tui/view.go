@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -951,23 +950,37 @@ func sourceSummary(s ComponentSource) string {
 	return tier
 }
 
-// truncate shortens s to at most width runes, appending an ellipsis glyph when
-// it had to cut. width <= 0 yields "".
+// truncate shortens s to fit at most `width` terminal COLUMNS, appending an
+// ellipsis glyph when it had to cut. Width is measured via lipgloss.Width — the
+// same display-column measure used everywhere else in the UI — so CJK and other
+// two-column runes are counted correctly; a plain rune count let Chinese text
+// overflow its cell. width <= 0 yields "".
 func truncate(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
-	if utf8.RuneCountInString(s) <= width {
+	if lipgloss.Width(s) <= width {
 		return s
 	}
 	ell := glyph("…", "...")
-	ellLen := utf8.RuneCountInString(ell)
-	if width <= ellLen {
-		runes := []rune(s)
-		return string(runes[:width])
+	budget := width - lipgloss.Width(ell)
+	if budget < 0 {
+		// No room even for the ellipsis: fill raw columns, drop the ellipsis.
+		budget, ell = width, ""
 	}
-	runes := []rune(s)
-	return string(runes[:width-ellLen]) + ell
+	acc, end := 0, len(s)
+	for i, r := range s {
+		cw := lipgloss.Width(string(r))
+		if acc+cw > budget {
+			end = i
+			break
+		}
+		acc += cw
+	}
+	if end >= len(s) {
+		return s[:end] // fit within budget after all — no ellipsis needed
+	}
+	return s[:end] + ell
 }
 
 // ── Placeholder views (Conflicts/Orphans/Config/Hooks/Selftest) ────────────────
