@@ -92,7 +92,12 @@ type auditMsg struct {
 // resolve during the splash, before the user has picked a language, so a baked
 // string would freeze the wrong language.
 type sectionState struct {
-	loading     bool
+	loading bool
+	// loaded marks that a fetch for this section has COMPLETED at least once. It
+	// gates lazy loading: the three non-badge tabs (config/hooks/audit) are not
+	// fetched at startup; lazyLoadCurrent fetches them on first visit and their msg
+	// handler sets loaded, so a revisit never re-fetches. Eager tabs never consult it.
+	loaded      bool
 	err         error
 	list        sectionModel
 	summaryKey  string
@@ -229,16 +234,19 @@ func initialModel(cliPath string) model {
 		detail:        viewport.New(0, 0),
 		spinner:       newSpinner(),
 		focus:         focusTree,
+		// Eager sections start loading — Init fetches them so their tab-bar badge is
+		// correct from launch. The three non-badge tabs (config/hooks/audit) start
+		// idle and are lazy-fetched on first visit by lazyLoadCurrent (see Init).
 		sections: map[viewID]*sectionState{
 			viewConflicts:   {loading: true, list: newSectionModel(nil)},
 			viewOrphans:     {loading: true, list: newSectionModel(nil)},
-			viewConfig:      {loading: true, list: newSectionModel(nil)},
-			viewHooks:       {loading: true, list: newSectionModel(nil)},
+			viewConfig:      {loading: false, list: newSectionModel(nil)},
+			viewHooks:       {loading: false, list: newSectionModel(nil)},
 			viewSelftest:    {loading: true, list: newSectionModel(nil)},
 			viewDoctor:      {loading: true, list: newSectionModel(nil)},
 			viewPermissions: {loading: true, list: newSectionModel(nil)},
 			viewDrift:       {loading: true, list: newSectionModel(nil)},
-			viewAudit:       {loading: true, list: newSectionModel(nil)},
+			viewAudit:       {loading: false, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -414,6 +422,31 @@ func (m *model) refreshCurrent() tea.Cmd {
 	return nil
 }
 
+// lazyLoadCurrent fetches the active tab's data on its FIRST visit, for the three
+// non-badge tabs (config / hooks / audit) that Init deliberately skips. Eager tabs
+// and inventory are no-ops here. The in-flight `loading` flag plus `loaded` (set by
+// the msg handler when the fetch completes) together mean a revisit never re-fetches;
+// a manual `r` refresh still re-runs it via refreshCurrent. Pointer receiver: it flips
+// the shared *sectionState flags, which reach the runtime via the model handleKey
+// returns (same pattern as refreshCurrent).
+func (m *model) lazyLoadCurrent() tea.Cmd {
+	switch m.currentView {
+	case viewConfig, viewHooks, viewAudit:
+	default:
+		return nil
+	}
+	st := m.sections[m.currentView]
+	if st == nil || st.loading || st.loaded {
+		return nil
+	}
+	cmd := sectionFetchCmd(m.currentView, m.cliPath)
+	if cmd == nil {
+		return nil
+	}
+	st.loading = true
+	return cmd
+}
+
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
 // ticking as long as this is true.
 func (m model) anyLoading() bool {
@@ -448,18 +481,20 @@ func blinkTick(d time.Duration) tea.Cmd {
 // mascot blink. The splash persists until the user presses a key — no
 // auto-dismiss timer.
 func (m model) Init() tea.Cmd {
+	// Eager fetches = the visible Inventory tab (counts + detail) PLUS the six
+	// sections whose tab-bar badge must be correct from launch (conflicts / orphans
+	// / selftest / doctor / permissions / drift — see tabBadge). The three non-badge
+	// tabs (config / hooks / audit) are NOT fetched here; lazyLoadCurrent fetches
+	// them on first visit, so startup spawns 8 node processes instead of 11.
 	return tea.Batch(
 		fetchCmd(m.cliPath),
 		fetchDetailCmd(m.cliPath),
 		fetchConflictsCmd(m.cliPath),
 		fetchOrphansCmd(m.cliPath),
-		fetchConfigCmd(m.cliPath),
-		fetchHooksCmd(m.cliPath),
 		fetchSelftestCmd(m.cliPath),
 		fetchDoctorCmd(m.cliPath),
 		fetchPermissionsCmd(m.cliPath),
 		fetchDriftCmd(m.cliPath),
-		fetchAuditCmd(m.cliPath),
 		m.spinner.Tick,
 		blinkTick(blinkOpenInterval),
 	)
@@ -520,6 +555,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sections[viewConfig] = st
 		}
 		st.loading = false
+		st.loaded = true
 		st.err = msg.err
 		if msg.err == nil {
 			st.list = newSectionModel(configItems(msg.data))
@@ -536,6 +572,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sections[viewHooks] = st
 		}
 		st.loading = false
+		st.loaded = true
 		st.err = msg.err
 		if msg.err == nil {
 			st.list = newSectionModel(hooksItems(msg.data))
@@ -658,6 +695,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sections[viewAudit] = st
 		}
 		st.loading = false
+		st.loaded = true
 		st.err = msg.err
 		if msg.err == nil {
 			st.list = newSectionModel(auditItems(msg.data))
@@ -814,12 +852,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clearFilter()
 		m.currentView = (m.currentView + 1) % tabCount
 		m.refreshDetail()
-		return m, nil
+		return m, m.lazyLoadCurrent()
 	case "[":
 		m.clearFilter()
 		m.currentView = (m.currentView - 1 + tabCount) % tabCount
 		m.refreshDetail()
-		return m, nil
+		return m, m.lazyLoadCurrent()
 	case "tab":
 		m.toggleFocus()
 		return m, nil
@@ -877,7 +915,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clearFilter()
 		m.currentView = v
 		m.refreshDetail()
-		return m, nil
+		return m, m.lazyLoadCurrent()
 	}
 	return m.routeToPane(msg)
 }
