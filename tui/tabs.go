@@ -476,7 +476,7 @@ func doctorColor(sev doctorSeverity) lipgloss.Color {
 	case doctorWarn:
 		return colorOrange
 	case doctorInfo:
-		return accent
+		return colorMcp
 	case doctorOk:
 		return colorPlugin
 	default:
