@@ -315,6 +315,16 @@ func fetchDoctorCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchDoctorActiveCmd runs the OPT-IN active doctor probes and reports the
+// outcome as a doctorMsg (same handler as the passive run, so the tab updates in
+// place). Only ever dispatched from a confirmed "a" action — never at startup.
+func fetchDoctorActiveCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchDoctorActive(cliPath)
+		return doctorMsg{data: data, err: err}
+	}
+}
+
 // fetchPermissionsCmd returns a tea.Cmd that runs
 // `permissions --audit --format json` and reports the outcome back as a
 // permissionsMsg. This is fully READ-ONLY — no writes occur.
@@ -563,6 +573,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case doctorMsg:
+		// doctorMsg arrives from BOTH the passive fetch (startup / "r" refresh, where
+		// writeRunning is false) and the confirmed active-probe run ("a"→y, which set
+		// writeRunning true). Capture that before clearing so only the confirmed write
+		// action gets a status-bar toast — passive refreshes stay silent.
+		wasActiveRun := m.writeRunning
+		m.writeRunning = false
 		st := m.sections[viewDoctor]
 		if st == nil {
 			st = &sectionState{}
@@ -578,6 +594,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				findings += ch.Findings
 			}
 			st.summaryKey, st.summaryArgs = "summary.doctor", []any{n, findings}
+		}
+		if wasActiveRun {
+			if msg.err != nil {
+				m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+				m.writeOK = false
+			} else {
+				m.writeStatus = tr("write.activeProbe.done")
+				m.writeOK = true
+			}
 		}
 		if m.currentView == viewDoctor {
 			m.refreshDetail()
@@ -746,8 +771,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y", "enter":
 			a := *m.pending
 			m.pending = nil
-			m.writeRunning = true
 			m.writeStatus = ""
+			m.writeRunning = true
+			if a.run != nil {
+				// Custom on-confirm cmd (e.g. active probes → doctorMsg). writeRunning
+				// shows the "working…" indicator; the result msg clears it.
+				return m, a.run(m.cliPath)
+			}
 			return m, runWriteCmd(m.cliPath, a)
 		case "n", "esc", "q":
 			m.pending = nil
@@ -822,6 +852,21 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.writeOK = true
 		return m, saveConfigCmd(m.uiConfig())
+	case "a":
+		// Active doctor probes (Doctor tab only): side-effecting (spawns node/claude
+		// + a transient governed-dir write), so gated behind write mode like "w",
+		// then confirmed in the modal.
+		if m.currentView != viewDoctor {
+			return m, nil
+		}
+		if !m.writesEnabled {
+			m.writeStatus = tr("write.activeProbe.disabled")
+			m.writeOK = false
+			return m, nil
+		}
+		wa := activeProbeAction()
+		m.pending = &wa
+		return m, nil
 	case "/":
 		m.filterMode = true
 		return m, nil
