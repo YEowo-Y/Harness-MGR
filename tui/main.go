@@ -198,6 +198,16 @@ type model struct {
 	// sections holds the fetch + list state for flat-list section tabs.
 	// Keys are viewConflicts and viewOrphans; initialized in initialModel.
 	sections map[viewID]*sectionState
+
+	// Confirm-gated write flow (Phase A). pending holds the action awaiting
+	// confirmation (nil = no modal); while set, handleKey routes to the confirm
+	// overlay. writeRunning is true between confirm and the writeResultMsg (keeps
+	// the spinner ticking). writeStatus is a transient one-line result shown in the
+	// status bar (cleared on the next keypress); writeOK colors it green/red.
+	pending      *writeAction
+	writeRunning bool
+	writeStatus  string
+	writeOK      bool
 }
 
 func initialModel(cliPath string) model {
@@ -330,7 +340,7 @@ func fetchAuditCmd(cliPath string) tea.Cmd {
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
 // ticking as long as this is true.
 func (m model) anyLoading() bool {
-	if m.loading || m.detailLoading {
+	if m.loading || m.detailLoading || m.writeRunning {
 		return true
 	}
 	for _, st := range m.sections {
@@ -570,6 +580,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshDetail()
 		}
 		return m, nil
+	case writeResultMsg:
+		m.writeRunning = false
+		if msg.err != nil {
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		m.writeStatus = tr(msg.action.doneKey)
+		m.writeOK = true
+		// Re-fetch the affected tab so the UI reflects the write (drift now reads
+		// "clean" against the just-written baseline). The re-fetch is a pure READ.
+		if msg.action.refetch != nil {
+			return m, msg.action.refetch(m.cliPath)
+		}
+		return m, nil
 	case spinner.TickMsg:
 		// Keep ticking only while any fetch is still in flight.
 		if m.anyLoading() {
@@ -645,11 +670,38 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// A pending write action shows a confirm modal that swallows keys: y/Enter runs
+	// it, n/Esc/q cancels. Nothing else acts while it is up (mirrors splash/help).
+	// The engine's assertWritable gate — not this modal — is the real safety
+	// boundary; the modal is the explicit-consent UX guard.
+	if m.pending != nil {
+		switch msg.String() {
+		case "y", "enter":
+			a := *m.pending
+			m.pending = nil
+			m.writeRunning = true
+			m.writeStatus = ""
+			return m, runWriteCmd(m.cliPath, a)
+		case "n", "esc", "q":
+			m.pending = nil
+		}
+		return m, nil
+	}
+	// While a write is in flight, swallow keys so a second write can't be started
+	// (re-entrancy guard): writeRunning is true with pending already nil, so the
+	// modal block above no longer catches it. The write completes via a
+	// writeResultMsg, never a keypress, so nothing useful happens here meanwhile.
+	// (ctrl+c is handled above this, so the user can still quit.)
+	if m.writeRunning {
+		return m, nil
+	}
 	// While typing a / filter, keys edit the query (live-filtering the current
 	// view) instead of navigating; handleFilterKey owns Enter/Esc/Backspace/runes.
 	if m.filterMode {
 		return m.handleFilterKey(msg)
 	}
+	// Any key dismisses a transient write-result line.
+	m.writeStatus = ""
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -679,6 +731,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "?":
 		m.showHelp = true
+		return m, nil
+	case "w":
+		// Open the confirm modal for the current tab's write action, if any.
+		if wa, ok := writeActionFor(m.currentView); ok {
+			m.pending = &wa
+		}
 		return m, nil
 	case "/":
 		m.filterMode = true
@@ -912,6 +970,9 @@ func (m model) View() string {
 	}
 	if m.showHelp {
 		return helpView(m.width, m.height)
+	}
+	if m.pending != nil {
+		return confirmView(m)
 	}
 	return dashboardView(m)
 }
