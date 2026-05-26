@@ -204,10 +204,16 @@ type model struct {
 	// overlay. writeRunning is true between confirm and the writeResultMsg (keeps
 	// the spinner ticking). writeStatus is a transient one-line result shown in the
 	// status bar (cleared on the next keypress); writeOK colors it green/red.
-	pending      *writeAction
-	writeRunning bool
-	writeStatus  string
-	writeOK      bool
+	pending       *writeAction
+	writeRunning  bool
+	writeStatus   string
+	writeOK       bool
+	writesEnabled bool // opt-in: write actions (the "w" key) are live only when true
+}
+
+// uiConfig snapshots the model's persisted TUI preferences for saveConfigCmd.
+func (m model) uiConfig() uiConfig {
+	return uiConfig{Language: langCode(m.lang), WritesEnabled: m.writesEnabled}
 }
 
 func initialModel(cliPath string) model {
@@ -656,7 +662,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.lang = otherLang(m.lang)
 		case "enter", " ":
 			m.showSplash = false
-			return m, saveLangCmd(m.lang) // remember the choice for next launch
+			return m, saveConfigCmd(m.uiConfig()) // remember language + write-mode for next launch
 		case "q", "esc":
 			return m, tea.Quit
 		}
@@ -733,11 +739,26 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.showHelp = true
 		return m, nil
 	case "w":
-		// Open the confirm modal for the current tab's write action, if any.
+		if !m.writesEnabled {
+			// Writes are opt-in and currently off — tell the user how to enable.
+			m.writeStatus = tr("write.disabledHint")
+			m.writeOK = false
+			return m, nil
+		}
 		if wa, ok := writeActionFor(m.currentView); ok {
 			m.pending = &wa
 		}
 		return m, nil
+	case "W":
+		// Toggle opt-in write mode and persist the choice immediately.
+		m.writesEnabled = !m.writesEnabled
+		if m.writesEnabled {
+			m.writeStatus = tr("write.modeOn")
+		} else {
+			m.writeStatus = tr("write.modeOff")
+		}
+		m.writeOK = true
+		return m, saveConfigCmd(m.uiConfig())
 	case "/":
 		m.filterMode = true
 		return m, nil
@@ -1013,7 +1034,9 @@ func main() {
 	// key (handleKey), and leaving mouse reporting off preserves the terminal's
 	// native text selection / copy while the TUI runs.
 	m := initialModel(cliPath)
-	m.lang = loadLang() // restore the language chosen on a previous launch
+	cfg := loadConfig() // restore TUI preferences chosen on a previous launch
+	m.lang = cfg.lang()
+	m.writesEnabled = cfg.WritesEnabled
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
