@@ -107,7 +107,7 @@ func splashView(width, height int) string {
 		bannerBlock = brandWordmark()
 	}
 
-	tagStyle := lipgloss.NewStyle().Foreground(configGray)
+	tagStyle := lipgloss.NewStyle().Foreground(labelGray)
 	navStyle := lipgloss.NewStyle().Foreground(leaderDim)
 
 	block := bannerBlock +
