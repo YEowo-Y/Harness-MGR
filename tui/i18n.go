@@ -125,6 +125,17 @@ var translations = map[string][2]string{
 	"summary.doctor":       {"%d checks · %d findings", "%d 项检查 · %d 处发现"},
 	"summary.permissions":  {"%d allow · %d ask · %d deny · %d overbroad", "%d 允许 · %d 询问 · %d 拒绝 · %d 过宽"},
 
+	// Confirm-gated write actions (Phase A).
+	"write.confirmYes":  {"confirm", "确认"},
+	"write.confirmNo":   {"cancel", "取消"},
+	"write.running":     {"working…", "处理中…"},
+	"write.failed":      {"write failed", "写入失败"},
+	"write.drift.title": {"Update drift baseline?", "更新偏移基线?"},
+	"write.drift.body":  {"Writes a fingerprint of your config to .mgr-state/lockfile.json so future drift checks have a baseline to compare against. Your Claude config is NOT modified — only the .mgr-state working file.", "将你配置的指纹写入 .mgr-state/lockfile.json,供日后偏移检测对比基线。不会修改你的 Claude 配置——只写 .mgr-state 工作文件。"},
+	"write.drift.done":  {"drift baseline updated", "偏移基线已更新"},
+	"write.drift.hint":  {"update", "更新"},
+	"help.write":        {"run write action", "执行写入操作"},
+
 	"summary.drifted":         {"%d added · %d modified · %d removed", "%d 新增 · %d 修改 · %d 删除"},
 	"summary.driftClean":      {"clean · matches baseline", "无偏移 · 与基线一致"},
 	"summary.driftNoBaseline": {"no baseline — run drift --update", "无基线 — 运行 drift --update"},
