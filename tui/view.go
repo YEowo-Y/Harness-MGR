@@ -536,9 +536,19 @@ func statusBarView(m model) string {
 		keyStyle.Render("1-0") + dim.Render(" "+tr("status.section")) +
 		sep +
 		keyStyle.Render("/") + dim.Render(" "+tr("status.filter"))
-	// A tab with a write action advertises it between the filter and help hints.
-	if wa, ok := writeActionFor(m.currentView); ok {
-		hint += sep + keyStyle.Render("w") + dim.Render(" "+tr(wa.hintKey))
+	// Write-mode indicator (always shown): the W toggle + its current state. Only
+	// when write mode is ON does a write-capable tab also advertise its "w <verb>".
+	modeStyle := dim
+	modeLabel := tr("status.writesOff")
+	if m.writesEnabled {
+		modeStyle = dim.Foreground(colorPlugin) // copy-on-write from dim, not a fresh alloc
+		modeLabel = tr("status.writesOn")
+	}
+	hint += sep + keyStyle.Render("W") + modeStyle.Render(" "+modeLabel)
+	if m.writesEnabled {
+		if wa, ok := writeActionFor(m.currentView); ok {
+			hint += sep + keyStyle.Render("w") + dim.Render(" "+tr(wa.hintKey))
+		}
 	}
 	hint += sep +
 		keyStyle.Render("?") + dim.Render(" "+tr("status.help")) +
@@ -908,6 +918,7 @@ func helpView(width, height int) string {
 		{"[ / ]", tr("help.tabs")},
 		{"/", tr("help.filter")},
 		{"w", tr("help.write")},
+		{"W", tr("help.writeMode")},
 		{"?", tr("help.help")},
 		{"q / Esc", tr("status.quit")},
 	}
