@@ -39,6 +39,10 @@ var (
 	dimPlugin      = lipgloss.Color("#10B981")
 	dimMarketplace = lipgloss.Color("#3B82F6")
 	dimMcp         = lipgloss.Color("#06B6D4")
+
+	// selectionBg is the full-row highlight behind the cursor row. Dark slate so
+	// every bright per-type foreground (teal/violet/amber/green/blue/cyan) stays legible.
+	selectionBg = lipgloss.Color("#313244")
 )
 
 // nodeKind identifies a tree folder / object type. The iota order is the fixed
@@ -444,9 +448,11 @@ func (t *treeModel) renderFolderRow(row visRow, meta kindMeta, selected bool, wi
 
 	style := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg)
 	if selected {
-		bar := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg).Render(glyph("▌", ">")) + " "
+		barStyle := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg).Background(selectionBg)
+		bar := barStyle.Render(glyph("▌", ">") + " ") // spacer inside Render so it carries the band bg
 		avail := width - lipgloss.Width(bar)
-		return bar + style.Render(truncate(label, avail))
+		txt := style.Background(selectionBg).Render(truncate(label, avail))
+		return lipgloss.NewStyle().Background(selectionBg).Width(width).Render(bar + txt)
 	}
 	// Two leading spaces align non-cursor rows with the cursor bar width.
 	return "  " + style.Render(truncate(label, width-2))
@@ -460,10 +466,12 @@ func (t *treeModel) renderItemRow(row visRow, meta kindMeta, selected bool, widt
 	name := f.nodes[row.nodeIdx].name
 
 	if selected {
-		bar := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg).Render(glyph("▌", ">")) + "   "
-		txt := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg)
+		barStyle := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg).Background(selectionBg)
+		bar := barStyle.Render(glyph("▌", ">") + "   ") // spacer inside Render so it carries the band bg
+		txt := lipgloss.NewStyle().Bold(true).Foreground(meta.folderFg).Background(selectionBg)
 		avail := width - lipgloss.Width(bar)
-		return bar + highlightMatch(truncate(name, avail), t.filter, txt)
+		content := bar + highlightMatch(truncate(name, avail), t.filter, txt)
+		return lipgloss.NewStyle().Background(selectionBg).Width(width).Render(content)
 	}
 	indent := "    " // 4 spaces
 	txt := lipgloss.NewStyle().Foreground(meta.itemFg)
