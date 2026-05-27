@@ -1,0 +1,1 @@
+synthetic lock-target fixture (P3.U4); a test acquires an exclusive lock on this at runtime.
