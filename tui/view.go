@@ -713,13 +713,42 @@ func inventorySplitView(m model) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
+// skeletonRows renders the six type-folder placeholder rows ("<icon> <label>")
+// in a dim shade — shown while the inventory data loads so the tree's shape is
+// visible immediately. No chevron/count (the data isn't known yet, and several
+// type icons are themselves arrows). Pure (no model), so it is unit-testable.
+func skeletonRows() string {
+	dim := lipgloss.NewStyle().Foreground(leaderDim)
+	var b strings.Builder
+	for i := 0; i < nodeKindCount; i++ {
+		meta := kindMetas[i]
+		iconStr := glyph(meta.icon, "")
+		prefix := ""
+		if iconStr != "" {
+			prefix = iconStr + " "
+		}
+		b.WriteString(dim.Render(prefix + meta.label))
+		if i < nodeKindCount-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// skeletonTreeView is the loading-state body for the Inventory tree pane: the
+// spinner + loading text above the dim placeholder folder rows.
+func skeletonTreeView(m model) string {
+	return m.spinner.View() + " " + configStyle.Render(tr("loading.inventory")) +
+		"\n\n" + skeletonRows()
+}
+
 // treePaneBody renders the master pane's inner content: a spinner while loading,
 // the fetch error, an empty-state hint, or the color-coded tree itself sized to
 // the pane's inner dimensions.
 func treePaneBody(m model) string {
 	switch {
 	case m.detailLoading:
-		return m.spinner.View() + " " + configStyle.Render(tr("loading.inventory"))
+		return skeletonTreeView(m)
 	case m.detailErr != nil:
 		return lipgloss.NewStyle().Foreground(colorRed).
 			Render(glyph("✗", "[x]")+" "+tr("loading.failed")) + "\n\n" +
