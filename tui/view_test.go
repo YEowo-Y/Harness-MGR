@@ -471,3 +471,41 @@ func stripANSI(s string) string {
 func isANSITerminator(r rune) bool {
 	return r >= 0x40 && r <= 0x7E
 }
+
+// ── D4 skeleton tests ─────────────────────────────────────────────────────────
+
+// TestSkeletonRowsAllLabels asserts skeletonRows contains all six type-folder
+// labels so the tree's shape is visible during inventory load.
+func TestSkeletonRowsAllLabels(t *testing.T) {
+	out := stripANSI(skeletonRows())
+	for _, label := range []string{"Skills", "Agents", "Commands", "Plugins", "Marketplaces", "MCP"} {
+		if !strings.Contains(out, label) {
+			t.Fatalf("skeletonRows missing %q:\n%s", label, out)
+		}
+	}
+}
+
+// TestSkeletonRowsExactlySixLines asserts skeletonRows produces exactly 6 lines
+// (5 newlines separating them — no trailing newline).
+func TestSkeletonRowsExactlySixLines(t *testing.T) {
+	out := skeletonRows()
+	if got := strings.Count(out, "\n"); got != 5 {
+		t.Fatalf("skeletonRows newline count = %d, want 5 (6 lines)", got)
+	}
+}
+
+// TestSkeletonTreeViewContainsSpinnerTextAndLabels asserts skeletonTreeView
+// includes the loading i18n string and all six skeleton labels.
+func TestSkeletonTreeViewContainsSpinnerTextAndLabels(t *testing.T) {
+	m := initialModel("unused")
+	m.detailLoading = true
+	out := stripANSI(skeletonTreeView(m))
+	if !strings.Contains(out, tr("loading.inventory")) {
+		t.Fatalf("skeletonTreeView missing loading text %q:\n%s", tr("loading.inventory"), out)
+	}
+	for _, label := range []string{"Skills", "Agents", "Commands", "Plugins", "Marketplaces", "MCP"} {
+		if !strings.Contains(out, label) {
+			t.Fatalf("skeletonTreeView missing label %q:\n%s", label, out)
+		}
+	}
+}
