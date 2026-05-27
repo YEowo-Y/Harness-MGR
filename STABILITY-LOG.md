@@ -95,3 +95,41 @@ CLAUDE.md carried follow-up (1) marked ✅ resolved.
 **Lesson:** the build-cursor follow-up list can lag the code — the orphan expansion was already
 committed before this check, so verifying against the live harness + `git log` beats trusting the
 cursor snapshot. Reinforces the read-the-code-first rule on a shared multi-session tree.
+
+## 2026-05-27 — CC 2.1.146 → 2.1.152 update: full read-only dogfood clean, discovery survived the version bump
+
+**Found during:** Claude Code updated from 2.1.146 (the gate-start baseline) to **2.1.152** during
+the stability-gate window — the trigger event for the gate's "≥1 CC release" condition. Ran the full
+command surface against the live `~/.claude` to confirm the discovery layer survived the version change.
+
+**Run (real `~/.claude`, `--format quiet`):** `inventory`, `conflicts`, `orphans`, `hooks`, `drift`,
+`audit`, `config show-effective`, `permissions --audit`, `doctor`, `selftest --all`.
+
+**Observed — every command exit 0, no crash, no new error:**
+- Read commands + `selftest --all`: **0 error / 0 warn** — identical to the 2026-05-26 baseline.
+- `permissions --audit` + `doctor`: 0 error / **16 warn** — UP from **14** at baseline. The 2 new
+  entries are two path-scoped `Read(...**)` allow-globs that appeared in `settings.json` since:
+  `Read(//c/Users/alice/.claude/plans/**)` and `Read(//c/Users/alice/AppData/Local/Temp/**)`. These
+  are genuine new `allow` rules (read-only, path-scoped, with `**`), **NOT CC 2.1.152 defaults**
+  (they are user-specific absolute paths — added by normal CC session use, then persisted). The tool
+  correctly flags them per #23 (any `allow` entry containing `*`).
+
+**Root cause / resolution:** none — no false positive, false negative, crash, or surprise. The 14→16
+delta is the tool FAITHFULLY reporting 2 genuinely-new overbroad-by-the-rule Read globs in the live
+settings, not a CC-update regression. Discovery (components/plugins/marketplaces/mcp/settings) and all
+25 doctor checks produce identical results across the 2.1.146 → 2.1.152 bump.
+
+**Gate impact:** the **"≥1 Claude Code release" condition is now SATISFIED** and the schema-canary risk
+(CC changing config schema/format and silently breaking discovery) is **RETIRED** — the tool survived a
+real CC version transition with zero regression, the only delta being 2 faithfully-reported new config
+rules. (The 30-day calendar soak is ~2 days in; that duration is a separate, softer "confidence over
+time" measure, not the schema-canary signal.)
+
+**Note (reinforces carried follow-up):** the 2 new `Read(dir/**)` entries are path-scoped read-only
+globs — far more benign than `Edit(*)` / `Bash(curl:*)`. #23's flat "contains `*` ⇒ overbroad" stays
+conservative; a future severity-ranking refinement would rank scoped `Read(dir/**)` below a bare
+`Edit(*)` (already flagged as a possible refinement on 2026-05-25).
+
+**Lesson:** a CC version bump is the gate's KEY TEST EVENT, not merely a waiting milestone — dogfood
+immediately on update. The discovery layer surviving 2.1.146 → 2.1.152 with the only delta being 2
+faithfully-reported new config rules is the strongest gate signal to date.
