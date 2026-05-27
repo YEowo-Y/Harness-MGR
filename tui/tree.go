@@ -40,9 +40,11 @@ var (
 	dimMarketplace = lipgloss.Color("#3B82F6")
 	dimMcp         = lipgloss.Color("#06B6D4")
 
-	// selectionBg is the full-row highlight behind the cursor row. Dark slate so
-	// every bright per-type foreground (teal/violet/amber/green/blue/cyan) stays legible.
-	selectionBg = lipgloss.Color("#313244")
+	// selectionBg is the full-row highlight behind the cursor row. A medium slate
+	// (classic "current line" shade) — visible enough to lock the eye on the
+	// selected row among same-colored rows, while every bright per-type foreground
+	// (teal/violet/amber/green/blue/cyan) stays legible on it.
+	selectionBg = lipgloss.Color("#44475A")
 )
 
 // nodeKind identifies a tree folder / object type. The iota order is the fixed
