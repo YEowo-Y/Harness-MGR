@@ -630,14 +630,6 @@ func statusBarView(m model) string {
 		modeLabel = tr("status.writesOn")
 	}
 	hint += sep + keyStyle.Render("W") + modeStyle.Render(" "+modeLabel)
-	if m.writesEnabled {
-		if wa, ok := writeActionFor(m.currentView); ok {
-			hint += sep + keyStyle.Render("w") + dim.Render(" "+tr(wa.hintKey))
-		}
-		if m.currentView == viewDoctor {
-			hint += sep + keyStyle.Render("a") + dim.Render(" "+tr("write.activeProbe.hint"))
-		}
-	}
 	hint += sep +
 		keyStyle.Render("?") + dim.Render(" "+tr("status.help")) +
 		sep +
