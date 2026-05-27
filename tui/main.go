@@ -1098,6 +1098,7 @@ func main() {
 	snapshot := flag.Bool("snapshot", false, "headless: fetch data, render the styled View() frame to stdout, exit (no TUI)")
 	splash := flag.Bool("splash", false, "headless: render the startup splash screen to stdout, exit (no TUI)")
 	icons := flag.Bool("icons", false, "headless: print the candidate icon sets (emoji vs symbols) to stdout, exit")
+	colorFlag := flag.Bool("color", false, "headless: force a TrueColor profile so --snapshot emits ANSI color in a non-TTY pipe (color verification)")
 	cliFlag := flag.String("cli", "", "path to the claude-mgr Node CLI entry (src/cli.mjs)")
 	flag.Parse()
 
@@ -1110,6 +1111,11 @@ func main() {
 	}
 
 	configureColor()
+	if *colorFlag {
+		// Force color even in a non-TTY pipe so the headless --snapshot emits ANSI
+		// color for verification (configureColor already forces this under WT_SESSION).
+		lipgloss.SetColorProfile(termenv.TrueColor)
+	}
 
 	if *splash {
 		fmt.Println(splashView(defaultWidth, defaultHeight))
@@ -1218,7 +1224,10 @@ func runProbe(cliPath string) int {
 // detect no color and render a monochrome UI. This is the documented v1 fix.
 func configureColor() {
 	if os.Getenv("WT_SESSION") != "" {
-		// TODO: SetColorProfile is a v1 compat shim; migrate to lipgloss.NewRenderer when adopting renderer injection.
+		// SetColorProfile is a lipgloss v1 compat shim. The full NewRenderer
+		// migration (forward-compat for lipgloss v2) was deliberately deferred as
+		// not-worth-the-risk: the headless color-verification it would unlock is
+		// already provided cheaply by the `--color` flag (see main()).
 		lipgloss.SetColorProfile(termenv.TrueColor)
 	}
 }
