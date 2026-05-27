@@ -228,25 +228,64 @@ func TestConfirmViewRendersTitleBodyPrompt(t *testing.T) {
 	}
 }
 
-// ── statusBarView shows write hint on Drift tab ───────────────────────────────
+// ── sectionSummaryBar shows action hints (always, regardless of write mode) ────
+//
+// D5: hints moved from the write-gated status bar to the summary bar so they
+// are visible to new users even before writes are enabled.
 
-func TestStatusBarShowsWriteHintOnDrift(t *testing.T) {
+func TestSummaryBarShowsWriteHintOnDrift(t *testing.T) {
+	st := &sectionState{}
+	// Hint must appear regardless of write mode — tabActionHint has no writesEnabled
+	// parameter, so a direct call is the proof.
+	out := sectionSummaryBar(viewDrift, st, 120)
+	if !strings.Contains(out, tr("write.drift.hint")) {
+		t.Fatalf("summary bar on Drift missing write hint %q:\n%s", tr("write.drift.hint"), out)
+	}
+}
+
+func TestSummaryBarShowsActiveProbeHintOnDoctor(t *testing.T) {
+	st := &sectionState{}
+	out := sectionSummaryBar(viewDoctor, st, 120)
+	if !strings.Contains(out, tr("write.activeProbe.hint")) {
+		t.Fatalf("summary bar on Doctor missing active-probe hint %q:\n%s", tr("write.activeProbe.hint"), out)
+	}
+}
+
+func TestSummaryBarNoHintOnConflicts(t *testing.T) {
+	st := &sectionState{}
+	out := sectionSummaryBar(viewConflicts, st, 120)
+	if strings.Contains(out, tr("write.drift.hint")) {
+		t.Fatalf("summary bar on Conflicts should not contain drift hint:\n%s", out)
+	}
+	if strings.Contains(out, tr("write.activeProbe.hint")) {
+		t.Fatalf("summary bar on Conflicts should not contain active-probe hint:\n%s", out)
+	}
+}
+
+func TestSummaryBarHintIndependentOfWriteMode(t *testing.T) {
+	// tabActionHint is stateless (view-only) — calling sectionSummaryBar directly
+	// without a model proves write mode has no effect on hint visibility.
+	st := &sectionState{}
+	out := sectionSummaryBar(viewDrift, st, 120)
+	if !strings.Contains(out, tr("write.drift.hint")) {
+		t.Fatalf("summary bar hint missing when writesEnabled is irrelevant:\n%s", out)
+	}
+}
+
+// TestStatusBarNoLongerShowsWriteHint confirms the hint was removed from the
+// status bar (no duplication between status bar and summary bar).
+func TestStatusBarNoLongerShowsWriteHint(t *testing.T) {
 	m := loadedModel(120, 30)
-	// Switch to Drift tab with writes enabled — hint only shows when mode is on.
+	// Switch to Drift tab with writes enabled.
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")})
 	m = mm.(model)
 	m.writesEnabled = true
 	out := statusBarView(m)
-	if !strings.Contains(out, tr("write.drift.hint")) {
-		t.Fatalf("status bar on Drift missing write hint %q:\n%s", tr("write.drift.hint"), out)
+	if strings.Contains(out, tr("write.drift.hint")) {
+		t.Fatalf("status bar should NOT contain write hint (moved to summary bar):\n%s", out)
 	}
-
-	// Inventory tab should NOT show the write hint (no write action, regardless of mode).
-	m2 := loadedModel(120, 30)
-	m2.writesEnabled = true
-	out2 := statusBarView(m2)
-	if strings.Contains(out2, tr("write.drift.hint")) {
-		t.Fatalf("status bar on Inventory should not contain write hint %q:\n%s", tr("write.drift.hint"), out2)
+	if strings.Contains(out, tr("write.activeProbe.hint")) {
+		t.Fatalf("status bar should NOT contain active-probe hint (moved to summary bar):\n%s", out)
 	}
 }
 
