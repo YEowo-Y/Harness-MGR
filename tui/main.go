@@ -548,98 +548,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case conflictsMsg:
-		st := m.sections[viewConflicts]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewConflicts] = st
-		}
-		st.loading = false
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(conflictItems(msg.data))
-			st.summaryKey, st.summaryArgs = "summary.conflicts", []any{len(msg.data)}
-		}
-		if m.currentView == viewConflicts {
-			m.refreshDetail()
-		}
+		m.applySectionResult(viewConflicts, msg.err, func() []sectionItem { return conflictItems(msg.data) }, "summary.conflicts", []any{len(msg.data)}, false)
 		return m, nil
 	case orphansMsg:
-		st := m.sections[viewOrphans]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewOrphans] = st
-		}
-		st.loading = false
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(orphanItems(msg.data))
-			s := msg.data.Summary
-			st.summaryKey, st.summaryArgs = "summary.orphans", []any{s.Hard, s.Soft}
-		}
-		if m.currentView == viewOrphans {
-			m.refreshDetail()
-		}
+		m.applySectionResult(viewOrphans, msg.err, func() []sectionItem { return orphanItems(msg.data) }, "summary.orphans", []any{msg.data.Summary.Hard, msg.data.Summary.Soft}, false)
 		return m, nil
 	case configMsg:
-		st := m.sections[viewConfig]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewConfig] = st
-		}
-		st.loading = false
-		st.loaded = true
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(configItems(msg.data))
-			st.summaryKey, st.summaryArgs = "summary.config", []any{len(msg.data.Keys)}
-		}
-		if m.currentView == viewConfig {
-			m.refreshDetail()
-		}
+		m.applySectionResult(viewConfig, msg.err, func() []sectionItem { return configItems(msg.data) }, "summary.config", []any{len(msg.data.Keys)}, true)
 		return m, nil
 	case hooksMsg:
-		st := m.sections[viewHooks]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewHooks] = st
-		}
-		st.loading = false
-		st.loaded = true
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(hooksItems(msg.data))
-			st.summaryKey, st.summaryArgs = "summary.hooks", []any{len(msg.data.Hooks)}
-		}
-		if m.currentView == viewHooks {
-			m.refreshDetail()
-		}
+		m.applySectionResult(viewHooks, msg.err, func() []sectionItem { return hooksItems(msg.data) }, "summary.hooks", []any{len(msg.data.Hooks)}, true)
 		return m, nil
 	case selftestMsg:
-		st := m.sections[viewSelftest]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewSelftest] = st
-		}
-		st.loading = false
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(selftestItems(msg.data))
-			n := len(msg.data.Checks)
-			failing := 0
-			for _, ch := range msg.data.Checks {
-				if !ch.Ok {
-					failing++
-				}
-			}
-			if failing == 0 {
-				st.summaryKey, st.summaryArgs = "summary.selftestOk", []any{n}
-			} else {
-				st.summaryKey, st.summaryArgs = "summary.selftestFail", []any{n, failing}
+		n := len(msg.data.Checks)
+		failing := 0
+		for _, ch := range msg.data.Checks {
+			if !ch.Ok {
+				failing++
 			}
 		}
-		if m.currentView == viewSelftest {
-			m.refreshDetail()
+		summaryKey := "summary.selftestOk"
+		summaryArgs := []any{n}
+		if failing > 0 {
+			summaryKey = "summary.selftestFail"
+			summaryArgs = []any{n, failing}
 		}
+		m.applySectionResult(viewSelftest, msg.err, func() []sectionItem { return selftestItems(msg.data) }, summaryKey, summaryArgs, false)
 		return m, nil
 	case doctorMsg:
 		// doctorMsg arrives from BOTH the passive fetch (startup / "r" refresh, where
@@ -648,22 +582,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// action gets a status-bar toast — passive refreshes stay silent.
 		wasActiveRun := m.writeRunning
 		m.writeRunning = false
-		st := m.sections[viewDoctor]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewDoctor] = st
+		n := len(msg.data.Checks)
+		findings := 0
+		for _, ch := range msg.data.Checks {
+			findings += ch.Findings
 		}
-		st.loading = false
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(doctorItems(msg.data))
-			n := len(msg.data.Checks)
-			findings := 0
-			for _, ch := range msg.data.Checks {
-				findings += ch.Findings
-			}
-			st.summaryKey, st.summaryArgs = "summary.doctor", []any{n, findings}
-		}
+		m.applySectionResult(viewDoctor, msg.err, func() []sectionItem { return doctorItems(msg.data) }, "summary.doctor", []any{n, findings}, false)
 		if wasActiveRun {
 			if msg.err != nil {
 				m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
@@ -673,74 +597,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.writeOK = true
 			}
 		}
-		if m.currentView == viewDoctor {
-			m.refreshDetail()
-		}
 		return m, nil
 	case permissionsMsg:
-		st := m.sections[viewPermissions]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewPermissions] = st
-		}
-		st.loading = false
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(permissionsItems(msg.data))
-			st.summaryKey, st.summaryArgs = "summary.permissions", []any{
-				len(msg.data.Allow), len(msg.data.Ask),
-				len(msg.data.Deny), len(msg.data.Overbroad),
-			}
-		}
-		if m.currentView == viewPermissions {
-			m.refreshDetail()
-		}
+		m.applySectionResult(viewPermissions, msg.err, func() []sectionItem { return permissionsItems(msg.data) }, "summary.permissions", []any{len(msg.data.Allow), len(msg.data.Ask), len(msg.data.Deny), len(msg.data.Overbroad)}, false)
 		return m, nil
 	case driftMsg:
-		st := m.sections[viewDrift]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewDrift] = st
+		var driftSummaryKey string
+		var driftSummaryArgs []any
+		switch msg.data.Status {
+		case "drifted":
+			s := msg.data.Summary
+			driftSummaryKey, driftSummaryArgs = "summary.drifted", []any{s.Added, s.Modified, s.Removed}
+		case "clean":
+			driftSummaryKey, driftSummaryArgs = "summary.driftClean", nil
+		default: // "no-baseline" or any unrecognized status
+			driftSummaryKey, driftSummaryArgs = "summary.driftNoBaseline", nil
 		}
-		st.loading = false
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(driftItems(msg.data))
-			switch msg.data.Status {
-			case "drifted":
-				s := msg.data.Summary
-				st.summaryKey, st.summaryArgs = "summary.drifted", []any{s.Added, s.Modified, s.Removed}
-			case "clean":
-				st.summaryKey, st.summaryArgs = "summary.driftClean", nil
-			default: // "no-baseline" or any unrecognized status
-				st.summaryKey, st.summaryArgs = "summary.driftNoBaseline", nil
-			}
-		}
-		if m.currentView == viewDrift {
-			m.refreshDetail()
-		}
+		m.applySectionResult(viewDrift, msg.err, func() []sectionItem { return driftItems(msg.data) }, driftSummaryKey, driftSummaryArgs, false)
 		return m, nil
 	case auditMsg:
-		st := m.sections[viewAudit]
-		if st == nil {
-			st = &sectionState{}
-			m.sections[viewAudit] = st
+		s := msg.data.Summary
+		auditSummaryKey := "summary.audit"
+		auditSummaryArgs := []any{s.Returned}
+		if s.SkippedMalformed > 0 {
+			auditSummaryKey = "summary.auditSkipped"
+			auditSummaryArgs = []any{s.Returned, s.SkippedMalformed}
 		}
-		st.loading = false
-		st.loaded = true
-		st.err = msg.err
-		if msg.err == nil {
-			st.list = newSectionModel(auditItems(msg.data))
-			s := msg.data.Summary
-			if s.SkippedMalformed > 0 {
-				st.summaryKey, st.summaryArgs = "summary.auditSkipped", []any{s.Returned, s.SkippedMalformed}
-			} else {
-				st.summaryKey, st.summaryArgs = "summary.audit", []any{s.Returned}
-			}
-		}
-		if m.currentView == viewAudit {
-			m.refreshDetail()
-		}
+		m.applySectionResult(viewAudit, msg.err, func() []sectionItem { return auditItems(msg.data) }, auditSummaryKey, auditSummaryArgs, true)
 		return m, nil
 	case writeResultMsg:
 		m.writeRunning = false
@@ -783,6 +666,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	}
 	return m, nil
+}
+
+// applySectionResult applies a finished section fetch to the tab's state: it
+// nil-guards the sectionState, clears loading, records err, and on success
+// installs the rendered list + summary; it refreshes the detail pane when this
+// tab is the current view. setsLoaded marks lazily-loaded tabs (config/hooks/
+// audit) as loaded. buildItems is only invoked on success, matching the prior
+// behavior where item lists were built inside the `if err == nil` block.
+// summaryKey/summaryArgs are likewise applied only on success, so callers may
+// compute them unconditionally — a value computed on the error path (where
+// msg.data is the zero value) is simply discarded here.
+func (m *model) applySectionResult(v viewID, err error, buildItems func() []sectionItem, summaryKey string, summaryArgs []any, setsLoaded bool) {
+	st := m.sections[v]
+	if st == nil {
+		st = &sectionState{}
+		m.sections[v] = st
+	}
+	st.loading = false
+	if setsLoaded {
+		st.loaded = true
+	}
+	st.err = err
+	if err == nil {
+		st.list = newSectionModel(buildItems())
+		st.summaryKey, st.summaryArgs = summaryKey, summaryArgs
+	}
+	if m.currentView == v {
+		m.refreshDetail()
+	}
 }
 
 // handleKey routes keypresses with this precedence:
