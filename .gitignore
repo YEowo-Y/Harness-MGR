@@ -9,6 +9,9 @@ coverage/
 *.log
 # ...but DO track audit-log fixtures read by test/audit.test.mjs (P2.U10).
 !test/fixtures/**/*.log
+# ...and the synthetic .env secret fixtures for snapshot-secrets tests (P3.U4).
+!test/fixtures/secrets/.env
+!test/fixtures/secrets/.env.local
 .omc/
 
 # Go TUI build artifacts (tui/)
