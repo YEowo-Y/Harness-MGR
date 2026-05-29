@@ -40,8 +40,8 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
  */
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
-const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update']);
+const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
@@ -66,7 +66,11 @@ export async function run(argv) {
     const out = await COMMANDS[canonical]({ configDir: cfg.configDir, mgrStateDir: cfg.mgrStateDir, args });
     const diagnostics = [...cfg.diagnostics, ...out.diagnostics];
 
-    return { code: exitCode(diagnostics), stdout: render(canonical, out.result, diagnostics, args.format) };
+    // Honor an explicit numeric code from the handler (e.g. release-gate uses 0/1/2);
+    // backward-compatible: existing handlers don't set code, so we fall back to the
+    // standard exit-code logic.
+    const code = typeof out.code === 'number' ? out.code : exitCode(diagnostics);
+    return { code, stdout: render(canonical, out.result, diagnostics, args.format) };
   } catch (err) {
     // The boundary guarantee: never a bare stack trace. Degrade to a JSON envelope.
     return { code: 2, stdout: formatJson({ error: 'internal', message: errMessage(err) }) };
