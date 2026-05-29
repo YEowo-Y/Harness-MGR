@@ -136,7 +136,7 @@ function permissionsTable(r) {
   ], rows);
 }
 
-/** selftest → release-gate step table or regular check table. @param {Record<string, unknown>} r */
+/** selftest → release-gate step table, schema-canary table, or regular check table. @param {Record<string, unknown>} r */
 function selftestTable(r) {
   // Release-gate path: result has gate:'release' and steps array.
   if (r.gate === 'release' && Array.isArray(r.steps)) {
@@ -153,6 +153,20 @@ function selftestTable(r) {
       { key: 'detail', header: 'detail' },
     ], rows);
     return table ? `${table}\nrelease-gate: ${pass}` : `release-gate: ${pass}`;
+  }
+  // Schema-canary path: result has canary:'schema'.
+  if (r.canary === 'schema') {
+    const changes = Array.isArray(r.changes) ? r.changes : [];
+    const rows = changes.map((c) => ({
+      change: c && c.change, dimension: c && c.dimension, detail: c && c.detail,
+    }));
+    const status = typeof r.status === 'string' ? r.status : 'unknown';
+    const table = rows.length > 0 ? formatTable([
+      { key: 'change', header: 'change' },
+      { key: 'dimension', header: 'dimension' },
+      { key: 'detail', header: 'detail' },
+    ], rows) : '';
+    return table ? `${table}\nschema-canary: ${status}` : `schema-canary: ${status}`;
   }
   // Smoke/rigorous path: result has checks array.
   const checks = Array.isArray(r.checks) ? r.checks : [];
