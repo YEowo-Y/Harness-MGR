@@ -136,8 +136,25 @@ function permissionsTable(r) {
   ], rows);
 }
 
-/** selftest → one row per check with its ok flag. @param {Record<string, unknown>} r */
+/** selftest → release-gate step table or regular check table. @param {Record<string, unknown>} r */
 function selftestTable(r) {
+  // Release-gate path: result has gate:'release' and steps array.
+  if (r.gate === 'release' && Array.isArray(r.steps)) {
+    const steps = r.steps;
+    const rows = steps.map((s) => ({
+      step: s && s.step, name: s && s.name,
+      ok: s && s.pass ? 'yes' : 'no', detail: s && s.detail,
+    }));
+    const pass = r.pass ? 'PASS' : 'FAIL';
+    const table = formatTable([
+      { key: 'step', header: 'step', align: 'right' },
+      { key: 'name', header: 'name' },
+      { key: 'ok', header: 'ok' },
+      { key: 'detail', header: 'detail' },
+    ], rows);
+    return table ? `${table}\nrelease-gate: ${pass}` : `release-gate: ${pass}`;
+  }
+  // Smoke/rigorous path: result has checks array.
   const checks = Array.isArray(r.checks) ? r.checks : [];
   const rows = checks.map((c) => ({ name: c && c.name, ok: c && c.ok }));
   return formatTable([
