@@ -98,12 +98,33 @@ export function tokenizeCommand(str) {
 // ── expandVars ───────────────────────────────────────────────────────────────
 
 /**
- * Single combined matcher for `${VAR}` | `$VAR` | `%VAR%`. Capture group 1/2/3
- * holds the var name for the brace / bare / percent form respectively. Matching
- * all three in ONE pass means a substituted value is never re-scanned, so an env
- * value that itself contains `$X` stays literal instead of cascading.
+ * Single combined matcher for `${VAR}`, `${VAR:-default}`, `${VAR-default}`,
+ * `$VAR`, and `%VAR%`. Matching all forms in ONE pass means substituted text
+ * is never re-scanned (an env value containing `$X` stays literal).
+ *
+ * Capture groups (1-indexed):
+ *   1  braceName  — VAR name in the `${...}` brace form
+ *   2  colonFlag  — ':' when operator is `:-`, '' when operator is `-`, undefined for plain `${VAR}`
+ *   3  braceDefault — the default body (everything up to `}`) when an operator is present
+ *   4  dollarName — VAR name in the bare `$VAR` form
+ *   5  percentName — VAR name in the `%VAR%` Windows form
+ *
+ * Note: `[^}]*` for the default body stops at the FIRST `}`. A default body
+ * that itself contains `}` is unsupported (not needed for real hook paths).
+ * The default body IS expanded once recursively (so `${X:-$HOME/.claude}` works
+ * when HOME is set). Env VALUES are never re-scanned (single-pass invariant
+ * is preserved — only the config-author-written default literal is expanded).
  */
-const VAR_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%/g;
+const VAR_RE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?)-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)|%([A-Za-z_][A-Za-z0-9_]*)%/g;
+
+/**
+ * Maximum string length allowed through the regex engine. Strings longer than
+ * this cap are returned as-is with fullyExpanded:false. Mirrors the precedent in
+ * probe-cli.mjs (4096 chars) but uses a wider 8192-char budget since hook command
+ * strings are slightly longer. Real commands are <300 chars.
+ * This also bounds the cost of the one-level recursive default expansion.
+ */
+const EXPAND_VARS_MAX_LEN = 8192;
 
 /**
  * Resolve the home directory from an env object, applying the Windows fallback.
@@ -147,6 +168,9 @@ function resolveVar(name, env) {
  */
 export function expandVars(str, env) {
   if (typeof str !== 'string') return { value: '', fullyExpanded: false };
+  // Length guard: prevent O(n²) ReDoS on pathologically long/malformed input.
+  // Mirrors probe-cli.mjs:85-87. Real hook commands are <300 chars.
+  if (str.length > EXPAND_VARS_MAX_LEN) return { value: str, fullyExpanded: false };
 
   const e = (env && typeof env === 'object') ? env : process.env;
   let fullyExpanded = true;
@@ -165,10 +189,33 @@ export function expandVars(str, env) {
     }
   }
 
-  // 2. Single pass over ${VAR} / $VAR / %VAR% — matching all three forms at once
-  //    means substituted text is never re-scanned (an env value containing "$X"
-  //    stays literal rather than cascading into a second substitution).
-  value = value.replace(VAR_RE, (m, braceName, dollarName, percentName) => {
+  // 2. Single pass over ${VAR} / ${VAR:-default} / ${VAR-default} / $VAR / %VAR%
+  //    — matching all forms at once means substituted text is never re-scanned
+  //    (an env value containing "$X" stays literal rather than cascading).
+  //
+  //    Callback groups match VAR_RE group numbering (see const comment above):
+  //      braceName    (g1) — VAR name inside ${...}
+  //      colonFlag    (g2) — ':' for `:-`, '' for `-`, undefined for plain ${VAR}
+  //      braceDefault (g3) — default body when an operator is present
+  //      dollarName   (g4) — VAR name in bare $VAR form
+  //      percentName  (g5) — VAR name in %VAR% form
+  value = value.replace(VAR_RE, (m, braceName, colonFlag, braceDefault, dollarName, percentName) => {
+    if (braceName !== undefined && braceDefault !== undefined) {
+      // ${VAR:-default} or ${VAR-default}: operator form.
+      const resolved = resolveVar(braceName, e);
+      const useDefault = colonFlag === ':'
+        ? (resolved === null || resolved === '') // `:-`: unset OR empty
+        : resolved === null;                     // `-`:  unset only
+      if (!useDefault) return resolved;
+      // Default is selected: expand it once (so `${X:-$HOME/y}` resolves HOME).
+      // This does NOT violate the "never re-scan env values" invariant — we are
+      // expanding the config-author-written default literal, not an env value.
+      // Nested `${...}` in a default body are unsupported ([^}]* stops at first }).
+      const sub = expandVars(braceDefault, e);
+      if (!sub.fullyExpanded) fullyExpanded = false;
+      return sub.value;
+    }
+    // Plain ${VAR}, $VAR, or %VAR%: unresolved → leave literal + mark incomplete.
     const resolved = resolveVar(braceName ?? dollarName ?? percentName, e);
     if (resolved === null) { fullyExpanded = false; return m; }
     return resolved;
