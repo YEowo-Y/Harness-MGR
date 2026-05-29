@@ -291,3 +291,145 @@ test('classify: omitted env defaults gracefully (no throw)', () => {
   assert.doesNotThrow(() => classifyHookCommand('any-buddy check'));
   assert.doesNotThrow(() => expandVars('$HOME/x'));
 });
+
+// ── expandVars: ${VAR:-default} and ${VAR-default} forms ─────────────────
+
+test('expandVars: ${VAR:-default} with VAR unset → default, fullyExpanded true', () => {
+  const r = expandVars('${MYVAR:-/default/path}', {});
+  assert.equal(r.value, '/default/path');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: ${VAR:-default} with VAR set → uses VAR value, fullyExpanded true', () => {
+  const r = expandVars('${MYVAR:-/default/path}', { MYVAR: '/real/path' });
+  assert.equal(r.value, '/real/path');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: ${VAR:-default} with VAR set to empty string → default (colon-dash treats empty as unset)', () => {
+  const r = expandVars('${MYVAR:-/fallback}', { MYVAR: '' });
+  assert.equal(r.value, '/fallback');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: ${VAR-default} with VAR set to empty string → empty string kept (dash keeps empty)', () => {
+  const r = expandVars('${MYVAR-/fallback}', { MYVAR: '' });
+  assert.equal(r.value, '');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: ${VAR-default} with VAR unset → default, fullyExpanded true', () => {
+  const r = expandVars('${MYVAR-/fallback}', {});
+  assert.equal(r.value, '/fallback');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: real CC hook path with ${CLAUDE_CONFIG_DIR:-...} literal default → resolves, fullyExpanded true', () => {
+  const input = '${CLAUDE_CONFIG_DIR:-C:\\Users\\alice/.claude}/hooks/post-tool-use.mjs';
+  const r = expandVars(input, {});
+  assert.equal(r.value, 'C:\\Users\\alice/.claude/hooks/post-tool-use.mjs');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: default body with colons and backslashes is preserved verbatim', () => {
+  const r = expandVars('${X:-C:\\Users\\name/path:extra}', {});
+  assert.equal(r.value, 'C:\\Users\\name/path:extra');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: malformed ${VAR:- with no closing brace → no throw, text untouched', () => {
+  assert.doesNotThrow(() => {
+    const r = expandVars('${MISSING_BRACE:-', {});
+    // No match → text is returned as-is
+    assert.equal(r.value, '${MISSING_BRACE:-');
+  });
+});
+
+// Regression: plain ${VAR} still works (no default operator present)
+test('expandVars: regression — plain ${VAR} unset still leaves literal + fullyExpanded false', () => {
+  const r = expandVars('${NOPE}/x', {});
+  assert.equal(r.value, '${NOPE}/x');
+  assert.equal(r.fullyExpanded, false);
+});
+
+// ── classifyHookCommand: end-to-end with ${VAR:-default} ─────────────────
+
+test('classify: node with ${CLAUDE_CONFIG_DIR:-default_dir}/hooks/x.mjs → file, fullyExpanded true', () => {
+  const cmd = 'node "${CLAUDE_CONFIG_DIR:-/synth/claude}/hooks/x.mjs"';
+  const r = classifyHookCommand(cmd, {});
+  assert.deepEqual(r, {
+    kind: 'file',
+    target: '/synth/claude/hooks/x.mjs',
+    fullyExpanded: true,
+  });
+});
+
+// ── HIGH-1: nested $VAR inside default body ────────────────────────────────
+
+test('expandVars: THE REAL SHAPE — ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/x.mjs with HOME set', () => {
+  // CLAUDE_CONFIG_DIR unset → falls back to $HOME/.claude → HOME expands → full path
+  const r = expandVars('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/x.mjs', { HOME: '/home/u' });
+  assert.equal(r.value, '/home/u/.claude/hooks/x.mjs');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: THE REAL SHAPE — USERPROFILE fallback when HOME absent', () => {
+  const r = expandVars('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/x.mjs', { USERPROFILE: 'C:\\Users\\ye' });
+  assert.equal(r.value, 'C:\\Users\\ye/.claude/hooks/x.mjs');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: ${CLAUDE_CONFIG_DIR:-$HOME/.claude} with CLAUDE_CONFIG_DIR set → uses it, does NOT expand default', () => {
+  const r = expandVars('${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/x.mjs', {
+    CLAUDE_CONFIG_DIR: '/custom/dir',
+    HOME: '/home/u',
+  });
+  assert.equal(r.value, '/custom/dir/hooks/x.mjs');
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: nested-unresolved default → fullyExpanded false (graceful degradation)', () => {
+  // Both X and NOPE unset → default $NOPE/y applied → inner NOPE unresolved
+  const r = expandVars('${X:-$NOPE/y}', {});
+  assert.ok(r.value.includes('$NOPE'), 'inner $NOPE must remain literal');
+  assert.equal(r.fullyExpanded, false);
+});
+
+// ── HIGH-2: ReDoS length guard ─────────────────────────────────────────────
+
+test('expandVars: ReDoS regression — very long malformed input returns in <100ms', () => {
+  const hostile = '${A:-'.repeat(50000);
+  const start = Date.now();
+  const r = expandVars(hostile, {});
+  const elapsed = Date.now() - start;
+  assert.ok(elapsed < 100, `must return in <100ms, took ${elapsed}ms`);
+  assert.equal(r.fullyExpanded, false);
+  assert.doesNotThrow(() => expandVars(hostile, {}));
+});
+
+test('expandVars: string at exactly the cap (8192) is processed normally', () => {
+  // A valid short reference at the start of an 8192-char string should resolve.
+  const pad = 'x'.repeat(8192 - 6); // total = exactly 8192 after prepending '$HOME/' (6 chars)
+  const r = expandVars('$HOME/' + pad, { HOME: '/h' });
+  assert.ok(r.value.startsWith('/h/'));
+  assert.equal(r.fullyExpanded, true);
+});
+
+test('expandVars: string one byte over the cap → returned as-is, fullyExpanded false', () => {
+  const over = 'x'.repeat(8193);
+  const r = expandVars(over, {});
+  assert.equal(r.value, over);
+  assert.equal(r.fullyExpanded, false);
+});
+
+// ── classifyHookCommand: end-to-end with nested ${VAR:-$HOME/...} ──────────
+
+test('classify: node with ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/x.mjs → kind:file, target resolves, fullyExpanded true', () => {
+  const cmd = 'node "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/x.mjs"';
+  const r = classifyHookCommand(cmd, { HOME: '/home/u' });
+  assert.deepEqual(r, {
+    kind: 'file',
+    target: '/home/u/.claude/hooks/x.mjs',
+    fullyExpanded: true,
+  });
+});
