@@ -110,13 +110,16 @@ test('defaultChangedSrcFiles: base starting with "-" is ignored (no flag injecti
 
 // ── defaultRunDoctorPassive ──────────────────────────────────────────────────
 
-test('defaultRunDoctorPassive: clean fixture → object with boolean pass (no spawn)', async () => {
+test('defaultRunDoctorPassive: hermetic fixture → object with boolean pass (no spawn)', async () => {
+  // The seam now ignores configDir and always runs over the synthetic hermetic
+  // fixture tree (test/fixtures/real-snapshot/). The passed configDir is kept for
+  // backward-compatible signature but has no effect on the gating decision.
   const r = await defaultRunDoctorPassive({ configDir: minimalFixture, mgrStateDir: '' });
   assert.ok(r && typeof r === 'object');
   assert.equal(typeof r.pass, 'boolean');
   assert.equal(typeof r.detail, 'string');
-  // The minimal fixture yields 0 doctor errors → pass true.
-  assert.equal(r.pass, true, `expected pass true on a clean fixture, detail: ${r.detail}`);
+  // The hermetic fixture yields 0 doctor errors → pass true.
+  assert.equal(r.pass, true, `expected pass true on the hermetic fixture, detail: ${r.detail}`);
 });
 
 // ── defaultRunTests (temp 1-file dirs — NOT the repo suite) ───────────────────
@@ -157,4 +160,25 @@ test('defaultRunCoverage: temp dir without node_modules/c8 → {coverageMap:null
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── defaultRunDoctorPassive over the hermetic fixture ─────────────────────────
+
+test('defaultRunDoctorPassive (default): fixture-backed → pass:true, detail mentions "fixture"', async () => {
+  const r = await defaultRunDoctorPassive({});
+  assert.ok(r && typeof r === 'object', 'returns object');
+  assert.equal(typeof r.pass, 'boolean', 'has boolean pass');
+  assert.equal(typeof r.detail, 'string', 'has string detail');
+  assert.equal(r.pass, true, `expected pass true (fixture run), detail: ${r.detail}`);
+  assert.ok(r.detail.includes('fixture'), `detail should mention "fixture": ${r.detail}`);
+});
+
+test('defaultRunDoctorPassive (default): configDir-independent — bogus configDir still passes', async () => {
+  const r = await defaultRunDoctorPassive({ configDir: '/no/such/path/synthetic-bogus', mgrStateDir: '/no/such/state' });
+  assert.equal(r.pass, true, `expected pass true regardless of configDir, detail: ${r.detail}`);
+});
+
+test('defaultRunDoctorPassive (default): no-args call → pass:true (fixture path resolved from module URL)', async () => {
+  const r = await defaultRunDoctorPassive();
+  assert.equal(r.pass, true, `expected pass true with no args, detail: ${r.detail}`);
 });
