@@ -327,6 +327,7 @@ export async function doctorCommand(ctx) {
   const activeProbes = !!(ctx.args && ctx.args['active-probes']);
   const { input, diagnostics: gatherDiags } = await gatherDoctorInput({
     configDir: ctx.configDir, mgrStateDir: ctx.mgrStateDir, activeProbes, now: Date.now(),
+    cwd: ctx.configDir,
   });
   const report = runDoctor(input, { activeProbes });
   return {
