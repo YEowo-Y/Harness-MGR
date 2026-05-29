@@ -6,6 +6,8 @@ write-side (Phase 3: snapshot / rollback / apply-journal) lands and the dogfood
 log accumulates evidence. It documents the threats that exist *today*, when the
 tool is read-mostly.
 
+> **2026-05-29 review addendum** (see [`docs/project-review-2026-05-29.md`](project-review-2026-05-29.md)). Two write-phase accuracy items are flagged now; a full revision is **release-blocking before U7/U12**: (1) §6's post-hoc sha256 spawned-write drift check is **NOT YET IMPLEMENTED** — vacuously true only because no spawned write exists yet; `tar` (U7) must not land until `boundary.mjs` + `spawn-write-boundary.test.mjs` are built. (2) This doc does not yet cover the LANDED Phase-3 scaffolding: the apply-lock (`lock.mjs`, incl. the unconditional `releaseLock` to fix before U12), the **REQUIRED-injected `assertWritable`** fail-safe contract across the three writers (a good control worth documenting), the secrets allowlist's current **name-only** limitation, and the redaction helper's **verbatim create/overwrite-content** boundary.
+
 **Security posture in one breath:** `claude-mgr` is a zero-runtime-dependency
 Node ESM CLI that **inspects** a Claude Code `~/.claude` install (inventory /
 conflicts / effective-config / doctor / drift / audit / permissions audit). It is
