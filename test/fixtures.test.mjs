@@ -8,7 +8,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -202,4 +202,79 @@ test('real-snapshot REDACTION: no token-like hex string ≥20 chars', () => {
   const raw = readFileSync(fix('real-snapshot/snapshot.json'), 'utf-8');
   const match = raw.match(/[0-9a-fA-F]{20,}/);
   assert.ok(!match, `hex token found in snapshot: ${match?.[0]?.slice(0, 20)}`);
+});
+
+// ── real-snapshot/ scannable tree (new synthetic fixture) ─────────────────────
+
+test('real-snapshot scannable tree: settings.json is valid JSONC object with no duplicateKeys', () => {
+  // Use raw JSON.parse — the '//' key is unique, no actual duplicates.
+  const raw = readFileSync(fix('real-snapshot/settings.json'), 'utf-8');
+  const parsed = JSON.parse(raw);
+  assert.ok(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed), 'settings.json is a JSON object');
+});
+
+test('real-snapshot scannable tree: installed_plugins.json schema version is 2', () => {
+  const raw = readFileSync(fix('real-snapshot/plugins/installed_plugins.json'), 'utf-8');
+  const parsed = JSON.parse(raw);
+  assert.equal(parsed.version, 2, 'schema version must be 2');
+});
+
+test('real-snapshot scannable tree: all required scannable surfaces present', () => {
+  const required = [
+    'settings.json',
+    'plugins/installed_plugins.json',
+    'plugins/known_marketplaces.json',
+    '.mcp.json',
+    'skills/hello-skill/SKILL.md',
+    'agents/synthetic-helper.md',
+    'commands/synthetic-greet.md',
+    'hooks/session-start.mjs',
+    'hooks/pre-tool-use.mjs',
+    'hooks/statusline.mjs',
+    'plugins/cache/synthetic-marketplace/sample-plugin/1.0.0/.gitkeep',
+  ];
+  for (const rel of required) {
+    assert.ok(existsSync(fix(`real-snapshot/${rel}`)), `required file missing: ${rel}`);
+  }
+});
+
+test('real-snapshot REDACTION (whole tree): no real username, email, home path, or hex token', () => {
+  /** Recursively collect all files under a dir, skipping snapshot.json (covered above). */
+  function collectFiles(dir, out) {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const st = statSync(full);
+      if (st.isDirectory()) {
+        collectFiles(full, out);
+      } else if (entry !== 'snapshot.json') {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  const treeRoot = fix('real-snapshot');
+  const files = collectFiles(treeRoot, []);
+  assert.ok(files.length > 0, 'should find files in the tree');
+
+  const forbidden = [
+    { re: /alice/, label: 'username alice' },
+    { re: /exampleuser/, label: 'email prefix exampleuser' },
+    { re: /[A-Za-z]:[/\\]Users/, label: 'Windows absolute home path' },
+    { re: /\/[cC]\/Users\//, label: 'POSIX absolute home path' },
+    { re: /[0-9a-fA-F]{20,}/, label: 'hex token ≥20 chars' },
+  ];
+
+  for (const file of files) {
+    const content = readFileSync(file, 'utf-8');
+    for (const { re, label } of forbidden) {
+      const m = content.match(re);
+      assert.ok(!m, `${label} found in ${file}: ${m?.[0]?.slice(0, 30)}`);
+    }
+  }
+});
+
+test('real-snapshot REDACTION (whole tree): README.md contains synthetic marker', () => {
+  const readme = readFileSync(fix('real-snapshot/README.md'), 'utf-8');
+  assert.ok(readme.includes('SYNTHETIC TEST FIXTURE - NOT REAL'), 'README must carry the synthetic marker');
 });
