@@ -7,6 +7,11 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "coverage": "c8 --reporter=text node --test",
+    "coverage:json": "c8 --reporter=json-summary --reporter=text node --test"
+  },
+  "devDependencies": {
+    "c8": "^11.0.0"
   }
 }
