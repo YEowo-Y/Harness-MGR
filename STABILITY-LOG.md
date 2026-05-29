@@ -133,3 +133,41 @@ conservative; a future severity-ranking refinement would rank scoped `Read(dir/*
 **Lesson:** a CC version bump is the gate's KEY TEST EVENT, not merely a waiting milestone — dogfood
 immediately on update. The discovery layer surviving 2.1.146 → 2.1.152 with the only delta being 2
 faithfully-reported new config rules is the strongest gate signal to date.
+
+## 2026-05-29 — gate-exit infrastructure shipped; `selftest --release-gate` green on CC 2.1.156
+
+**Found during:** the user-directed "build gate-exit infra before resuming U5" mini-phase (executing the
+2026-05-29 multi-agent review's resequencing). Built via a dynamic workflow (build→review→fix) + a
+round-2 hardening pass; two independent opus code-reviewer APPROVEs (0 Blocker / 0 High).
+
+**Built:** `selftest --release-gate` — a 6-step orchestrator (1 catalog-tests / 2 changed-file ≥80%
+line coverage / 3 invariants / 4 boundary / 5 lint / 6 doctor-passive; abort-on-first-failure; exit
+0=pass, 2=step 1-5 fail, 1=step 6 fail) — plus the `c8` dev-dependency + coverage scripts and this
+machine-countable `STABILITY-LOG.jsonl` sibling (`{ts, cc_version, gate_pass, error_diag_count}` per
+run; `src/ops/stability-log.mjs::countGatePass` tallies the ≥20 exit condition). 4 historical runs
+back-filled + this one = **5 `gate_pass:true` rows**.
+
+**Observed (real `~/.claude`, live):** `node src/cli.mjs selftest --release-gate --format json` →
+**exit 0, `pass:true`, all 6 steps pass**, 0 diagnostics. Step 6 doctor passive = **25 checks, 0
+errors** on **CC 2.1.156**. Full suite **1195 / 0 fail** (+73).
+
+**Gate signal — 3rd CC release survived:** the window has now seen 2.1.146 → 2.1.152 → **2.1.156**
+with zero discovery regression. The schema-canary RISK stays retired; the schema-fingerprint-canary
+MECHANISM (review item C) is still unbuilt.
+
+**A real bug the end-to-end run caught (unit tests could not):** spawning `node --test` from inside
+the gate — while the gate itself ran under `node --test` during dev — makes the child inherit
+`NODE_TEST_CONTEXT=child-v8`, which flips it into reporter mode → it discovers ZERO test files →
+exits 0: a **false green**. Fixed by `childEnv()` stripping that one var before the spawn
+(behavior-preserving on the real CLI path, where the var is absent). The round-2 reviewer empirically
+reproduced the trap. This is exactly why the DoD's "run it end-to-end for real" step exists.
+
+**Still open for gate-EXIT (logged, not blocking):** ≥20 `gate_pass` rows (15 more, ~1/session), the
+immovable ≥30-day calendar floor (~2026-06-24), the schema-fingerprint-canary, and review item C's
+`test/manifest.json` / `test/golden/` / redacted scannable `real-snapshot/` tree + the fn≤30-vs-80
+decision (step 5 kept at ≤80 per P1.U16).
+
+**Lesson:** the gate-EXIT is now MECHANICALLY testable — `selftest --release-gate` exits 0/non-0 over
+6 falsifiable checks and `countGatePass` gives a script-countable tally, replacing human-adjudicated
+"is it stable?" prose (the S4 gate-theater risk for a non-coder owner). What remains is mechanical:
+15 more dogfood rows + the calendar.
