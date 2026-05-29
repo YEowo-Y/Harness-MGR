@@ -21,6 +21,7 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+export { snapshotDirHashes, checkSpawnWriteBoundary } from './spawn-write-boundary.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
