@@ -300,4 +300,29 @@ describe('runReleaseGate', () => {
       'catalog-tests', 'coverage', 'invariants', 'boundary', 'lint', 'schema-canary', 'doctor-smoke',
     ]);
   });
+
+  it('step 6: fixture doctor pass:true → gate code 0 (seam wires fixture result)', async () => {
+    // The seam returns pass:true (as if the fixture run passed). Gate code must be 0.
+    const r = await runReleaseGate(makeOpts({
+      runDoctorPassive: async () => ({ pass: true, detail: 'doctor passive (fixture): 25 checks, 0 error(s)' }),
+    }));
+    assert.equal(r.code, 0);
+    assert.equal(r.pass, true);
+    const s6 = r.steps.find((s) => s.name === 'doctor-smoke');
+    assert.ok(s6);
+    assert.equal(s6.pass, true);
+    assert.ok(s6.detail.includes('fixture'), `detail should mention fixture: ${s6.detail}`);
+  });
+
+  it('step 6: fixture doctor pass:false → gate code 1 (fixture result gates, not live)', async () => {
+    // Fixture run fails; this must produce code 1 regardless of any live state.
+    const r = await runReleaseGate(makeOpts({
+      runDoctorPassive: async () => ({ pass: false, detail: 'doctor passive (fixture): 2 error(s)' }),
+    }));
+    assert.equal(r.code, 1);
+    assert.equal(r.pass, false);
+    const s6 = r.steps.find((s) => s.name === 'doctor-smoke');
+    assert.ok(s6);
+    assert.equal(s6.pass, false);
+  });
 });
