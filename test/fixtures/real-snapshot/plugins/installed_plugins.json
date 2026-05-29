@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "plugins": {
+    "sample-plugin@synthetic-marketplace": [
+      { "name": "sample-plugin", "marketplace": "synthetic-marketplace", "version": "1.0.0", "enabled": true }
+    ],
+    "dormant-plugin@synthetic-marketplace": [
+      { "name": "dormant-plugin", "marketplace": "synthetic-marketplace", "version": "2.3.0", "enabled": false }
+    ]
+  }
+}

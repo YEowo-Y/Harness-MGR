@@ -1,0 +1,3 @@
+// SYNTHETIC TEST FIXTURE - NOT REAL
+// This file's sole purpose is to make the parent directory exist so plugins.mjs
+// computes cachePresent:true for sample-plugin@synthetic-marketplace version 1.0.0.

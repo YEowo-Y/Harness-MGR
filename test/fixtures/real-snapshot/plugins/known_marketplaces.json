@@ -1,0 +1,7 @@
+{
+  "synthetic-marketplace": {
+    "source": { "source": "github", "repo": "synthetic-owner/synthetic-marketplace" },
+    "installLocation": "<CLAUDE_DIR>/plugins/marketplaces/synthetic-marketplace",
+    "lastUpdated": "2026-01-01T00:00:00.000Z"
+  }
+}

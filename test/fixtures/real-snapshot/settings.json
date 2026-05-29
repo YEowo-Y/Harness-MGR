@@ -1,0 +1,20 @@
+{
+  "//": "SYNTHETIC TEST FIXTURE - NOT REAL. Invented values; no real config copied.",
+  "model": "sonnet",
+  "outputStyle": "Explanatory",
+  "statusLine": { "type": "command", "command": "node hooks/statusline.mjs" },
+  "permissions": {
+    "allow": ["Read", "Glob", "Grep", "Bash(git status)"],
+    "ask": ["Bash(rm:*)"],
+    "deny": ["Bash(curl:*)"]
+  },
+  "enabledPlugins": { "sample-plugin@synthetic-marketplace": true },
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "node hooks/session-start.mjs" } ] }
+    ],
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [ { "type": "command", "command": "node hooks/pre-tool-use.mjs" } ] }
+    ]
+  }
+}
