@@ -239,7 +239,7 @@ test('releaseLock: removes the lock file → released:true, no diagnostics', () 
   const { dir, cleanup } = makeTmpDir();
   try {
     setupLockFile(dir, { pid: FIXED_PID, startTime: FIXED_ISO, hostname: FIXED_HOST });
-    const result = releaseLock({ stateDir: dir });
+    const result = releaseLock({ stateDir: dir, pid: FIXED_PID });
     assert.equal(result.released, true);
     assert.equal(result.diagnostics.length, 0);
     assert.ok(!existsSync(lockPath(dir)), 'lock file must be gone');
@@ -259,8 +259,8 @@ test('releaseLock: second release after first is idempotent', () => {
   const { dir, cleanup } = makeTmpDir();
   try {
     setupLockFile(dir, { pid: FIXED_PID, startTime: FIXED_ISO, hostname: FIXED_HOST });
-    releaseLock({ stateDir: dir });
-    const result2 = releaseLock({ stateDir: dir });
+    releaseLock({ stateDir: dir, pid: FIXED_PID });
+    const result2 = releaseLock({ stateDir: dir, pid: FIXED_PID });
     assert.equal(result2.released, false);
     assert.equal(result2.diagnostics.length, 0);
   } finally { cleanup(); }
@@ -397,9 +397,76 @@ test('acquireLock: missing assertWritable → acquired:false, error diag, NOTHIN
   } finally { cleanup(); }
 });
 
+// ── releaseLock: ownership check ──────────────────────────────────────────────
+
+test('releaseLock: different pid → released:false, apply-lock-not-owner error, file still exists', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const holderPid = 4242;
+    setupLockFile(dir, { pid: holderPid, startTime: FIXED_ISO, hostname: FIXED_HOST });
+    const result = releaseLock({ stateDir: dir, pid: 99999 });
+    assert.equal(result.released, false);
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0].code, 'apply-lock-not-owner');
+    assert.equal(result.diagnostics[0].severity, 'error');
+    assert.ok(result.diagnostics[0].message.includes('4242'), 'message names holder pid');
+    assert.ok(result.diagnostics[0].message.includes('99999'), 'message names our pid');
+    assert.ok(existsSync(lockPath(dir)), 'lock file must still exist');
+  } finally { cleanup(); }
+});
+
+test('releaseLock: owner pid releases successfully → released:true, no diagnostics, file gone', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const ownerPid = 4242;
+    setupLockFile(dir, { pid: ownerPid, startTime: FIXED_ISO, hostname: FIXED_HOST });
+    const result = releaseLock({ stateDir: dir, pid: ownerPid });
+    assert.equal(result.released, true);
+    assert.equal(result.diagnostics.length, 0);
+    assert.ok(!existsSync(lockPath(dir)), 'lock file must be gone');
+  } finally { cleanup(); }
+});
+
+test('releaseLock: ENOENT with pid set is benign → released:false, no diagnostics, no throw', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const result = releaseLock({ stateDir: dir, pid: 4242 });
+    assert.equal(result.released, false);
+    assert.equal(result.diagnostics.length, 0);
+  } finally { cleanup(); }
+});
+
+test('releaseLock: corrupt lock (holder===null) is still removable by releaseLock', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const lp = lockPath(dir);
+    mkdirSync(dirname(lp), { recursive: true });
+    writeFileSync(lp, '{ broken json');
+    const result = releaseLock({ stateDir: dir, pid: 4242 });
+    assert.equal(result.released, true);
+    assert.equal(result.diagnostics.length, 0);
+    assert.ok(!existsSync(lockPath(dir)), 'lock file must be gone');
+  } finally { cleanup(); }
+});
+
+test('releaseLock: injected readFn returning different-pid holder triggers refusal', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    setupLockFile(dir, { pid: 4242, startTime: FIXED_ISO, hostname: FIXED_HOST });
+    // readFn always returns a holder with pid 9999 regardless of file content
+    const readFn = () => JSON.stringify({ pid: 9999, startTime: FIXED_ISO, hostname: FIXED_HOST });
+    const result = releaseLock({ stateDir: dir, pid: 1111, readFn });
+    assert.equal(result.released, false);
+    assert.equal(result.diagnostics.length, 1);
+    assert.equal(result.diagnostics[0].code, 'apply-lock-not-owner');
+    assert.ok(result.diagnostics[0].message.includes('9999'), 'message names the injected holder pid');
+    assert.ok(existsSync(lockPath(dir)), 'lock file must still exist');
+  } finally { cleanup(); }
+});
+
 // ── diagnostic code coverage ──────────────────────────────────────────────────
 
-test('all 7 diagnostic codes are distinct kebab strings starting with apply-lock-', () => {
+test('all 8 diagnostic codes are distinct kebab strings starting with apply-lock-', () => {
   const KNOWN_CODES = [
     'apply-lock-held',
     'apply-lock-reclaimed-stale',
@@ -408,6 +475,7 @@ test('all 7 diagnostic codes are distinct kebab strings starting with apply-lock
     'apply-lock-error',
     'apply-lock-broken',
     'apply-lock-absent',
+    'apply-lock-not-owner',
   ];
   assert.equal(new Set(KNOWN_CODES).size, KNOWN_CODES.length, 'codes must be distinct');
   for (const code of KNOWN_CODES) {
