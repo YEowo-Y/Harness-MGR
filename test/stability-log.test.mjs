@@ -347,13 +347,18 @@ test('readStabilityLog: never throws with no args', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Real STABILITY-LOG.jsonl oracle (4 backfilled gate_pass:true rows)
+// Real STABILITY-LOG.jsonl oracle.
+// gate_pass rows are APPEND-ONLY (>=4 backfilled, then one per release-gate
+// run toward the >=20 gate-exit floor), so this asserts a monotonic LOWER
+// BOUND rather than an exact count — an exact `=== N` would break on every
+// legitimate gate-pass append. malformed/diagnostics stay exact: the committed
+// real log must always be well-formed.
 // ---------------------------------------------------------------------------
 
-test('readStabilityLog: real STABILITY-LOG.jsonl gatePassCount === 4', () => {
+test('readStabilityLog: real STABILITY-LOG.jsonl gatePassCount >= 4 (append-only)', () => {
   const result = readStabilityLog({ logPath: REAL_LOG });
   assert.equal(result.missing, false);
-  assert.equal(result.gatePassCount, 4, `expected 4 gate_pass:true rows, got ${result.gatePassCount}`);
+  assert.ok(result.gatePassCount >= 4, `expected >=4 gate_pass:true rows, got ${result.gatePassCount}`);
   assert.equal(result.malformed, 0, `expected 0 malformed lines, got ${result.malformed}`);
   assert.equal(result.diagnostics.length, 0);
 });
