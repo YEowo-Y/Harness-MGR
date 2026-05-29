@@ -52,8 +52,10 @@ const failBoundary = () => ({ diagnostics: [{ severity: 'error', code: 'bound-fa
 const passDoctor = async () => ({ pass: true, detail: 'doctor passive: 22 checks, 0 errors' });
 const failDoctor = async () => ({ pass: false, detail: 'doctor passive: 1 error(s)' });
 
+const passSchemaCanary = async () => ({ pass: true, detail: 'clean', diagnostics: [] });
+
 /**
- * Build an opts object with ALL SEVEN seams injected with passing fakes by default.
+ * Build an opts object with ALL EIGHT seams injected with passing fakes by default.
  * srcDir is a dummy that the real tree is never touched. Override any seam per test.
  * @param {Record<string, unknown>} [overrides]
  */
@@ -67,6 +69,7 @@ function makeOpts(overrides = {}) {
     runCoverage: passCoverage,
     changedSrcFiles: noChangedFiles,
     runDoctorPassive: passDoctor,
+    runSchemaCanary: passSchemaCanary,
     checkInvariants: passInvariants,
     checkBoundary: passBoundary,
     lintTree: passLint,
@@ -78,14 +81,17 @@ function makeOpts(overrides = {}) {
 
 describe('runReleaseGate', () => {
 
-  it('all-pass: code 0, pass true, 6 steps', async () => {
+  it('all-pass: code 0, pass true, 7 steps (incl schema-canary)', async () => {
     const r = await runReleaseGate(makeOpts());
     assert.equal(r.code, 0, `expected code 0 but got ${r.code}`);
     assert.equal(r.pass, true);
-    assert.equal(r.steps.length, 6);
+    assert.equal(r.steps.length, 7);
     for (const s of r.steps) {
       assert.equal(s.pass, true, `step ${s.step} (${s.name}) failed: ${s.detail}`);
     }
+    // schema-canary step is present by name
+    assert.ok(r.steps.some((s) => s.name === 'schema-canary'), 'schema-canary step present');
+    assert.ok(r.steps.some((s) => s.name === 'doctor-smoke'), 'doctor-smoke step present');
   });
 
   it('step 1 fail: code 2, only 1 step in steps', async () => {
@@ -228,11 +234,10 @@ describe('runReleaseGate', () => {
     const r = await runReleaseGate(makeOpts({ runDoctorPassive: failDoctor }));
     assert.equal(r.code, 1);
     assert.equal(r.pass, false);
-    assert.equal(r.steps.length, 6);
-    const s6 = r.steps.find((s) => s.step === 6);
+    assert.equal(r.steps.length, 7); // steps 1-5 + schema-canary + doctor-smoke
+    const s6 = r.steps.find((s) => s.name === 'doctor-smoke');
     assert.ok(s6);
     assert.equal(s6.pass, false);
-    assert.equal(s6.step, 6);
     assert.equal(s6.name, 'doctor-smoke');
   });
 
@@ -288,9 +293,11 @@ describe('runReleaseGate', () => {
     assert.equal(s2.pass, true, `step 2 should pass but got: ${s2.detail}`);
   });
 
-  it('step ordering is 1-2-3-4-5-6 when all pass', async () => {
+  it('step ordering by name: catalog-tests,coverage,invariants,boundary,lint,schema-canary,doctor-smoke', async () => {
     const r = await runReleaseGate(makeOpts());
-    const nums = r.steps.map((s) => s.step);
-    assert.deepEqual(nums, [1, 2, 3, 4, 5, 6]);
+    const names = r.steps.map((s) => s.name);
+    assert.deepEqual(names, [
+      'catalog-tests', 'coverage', 'invariants', 'boundary', 'lint', 'schema-canary', 'doctor-smoke',
+    ]);
   });
 });
