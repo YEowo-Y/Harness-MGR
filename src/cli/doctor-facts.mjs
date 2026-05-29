@@ -51,10 +51,10 @@ import { gatherCliProbe } from '../discovery/probe-cli.mjs';
 /**
  * Gather the DoctorInput facts bundle for a config dir.
  *
- * @param {{ configDir: string, mgrStateDir: string, activeProbes?: boolean, now?: number }} opts
+ * @param {{ configDir: string, mgrStateDir: string, activeProbes?: boolean, now?: number, cwd?: string }} opts
  * @returns {Promise<{ input: DoctorInput, diagnostics: Diagnostic[] }>}
  */
-export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes = false, now } = {}) {
+export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes = false, now, cwd } = {}) {
   try {
     /** @type {Diagnostic[]} */
     const diagnostics = [];
@@ -77,7 +77,7 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes =
       now: typeof now === 'number' ? now : Date.now(),
     };
 
-    await addPassiveProbes(input, diagnostics, { configDir, mgrStateDir, effective, mcpServers: s.mcpServers });
+    await addPassiveProbes(input, diagnostics, { configDir, mgrStateDir, effective, mcpServers: s.mcpServers, cwd });
     if (activeProbes) await addActiveProbes(input, diagnostics, configDir);
 
     return { input, diagnostics };
@@ -94,18 +94,18 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes =
  * (read-only icacls, async), which is awaited here so #24 always has its fact.
  * @param {DoctorInput} input  mutated in place
  * @param {Diagnostic[]} diagnostics  appended in place
- * @param {{ configDir: string, mgrStateDir: string, effective: Record<string, unknown>, mcpServers: object[] }} ctx
+ * @param {{ configDir: string, mgrStateDir: string, effective: Record<string, unknown>, mcpServers: object[], cwd?: string }} ctx
  * @returns {Promise<void>}
  */
 async function addPassiveProbes(input, diagnostics, ctx) {
-  const { configDir, mgrStateDir, effective, mcpServers } = ctx;
+  const { configDir, mgrStateDir, effective, mcpServers, cwd } = ctx;
 
   const mcp = gatherMcpProbes({ configDir, mcpServers });
   input.mcpAuth = mcp.mcpAuth;
   input.mcpResolution = mcp.mcpResolution;
   push(diagnostics, mcp.diagnostics);
 
-  const hooks = gatherHookProbes({ hooks: effective.hooks });
+  const hooks = gatherHookProbes({ hooks: effective.hooks, cwd });
   input.hookFacts = hooks.hookFacts;
   push(diagnostics, hooks.diagnostics);
 
@@ -113,7 +113,7 @@ async function addPassiveProbes(input, diagnostics, ctx) {
   input.fsFacts = fs.fsFacts;
   push(diagnostics, fs.diagnostics);
 
-  const sl = gatherStatuslineProbe({ statusLineCommand: statusLineCommand(effective) });
+  const sl = gatherStatuslineProbe({ statusLineCommand: statusLineCommand(effective), cwd });
   input.statusline = sl.statusline;
   push(diagnostics, sl.diagnostics);
 
