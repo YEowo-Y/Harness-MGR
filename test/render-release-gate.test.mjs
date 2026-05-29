@@ -1,9 +1,16 @@
 /**
- * Tests for the release-gate branch of src/cli/render.mjs::renderTable.
+ * Tests for the release-gate and schema-canary branches of
+ * src/cli/render.mjs::renderTable.
  *
  * Covers selftestTable's `gate:'release'` arm (render.mjs ~140-156): the step
  * table rows (step#, name, ok yes/no, detail) plus the trailing `release-gate:
  * PASS/FAIL` line, for pass:true, pass:false, and the empty-steps ternary fallback.
+ *
+ * Also covers selftestTable's `canary:'schema'` arm (render.mjs ~158-170):
+ *   - clean status (no changes) → `schema-canary: clean`
+ *   - drifted status with changes[] → table rows + `schema-canary: drifted`
+ *   - unknown status coercion → `schema-canary: unknown`
+ *   - defensive: dimensions:null on dispatch-failed path → no throw
  */
 
 import test from 'node:test';
@@ -65,4 +72,56 @@ test('renderTable: a non-release selftest result falls to the checks table', () 
 
 test('renderQuiet: selftest one-line summary names command + tallies', () => {
   assert.equal(renderQuiet('selftest', 0, 2), 'selftest: 0 error(s), 2 warning(s)');
+});
+
+// ── schema-canary render arm (render.mjs:158-170) ─────────────────────────────
+
+test('renderTable: schema-canary clean (no changes) → schema-canary: clean line', () => {
+  const out = renderTable('selftest', { canary: 'schema', status: 'clean', changes: [] });
+  assert.ok(out.startsWith('claude-mgr selftest'), 'title line present');
+  assert.ok(out.includes('schema-canary: clean'), 'summary line present');
+  // No change rows when changes is empty — just the summary line.
+  assert.ok(!out.includes('change'), 'no change column header for empty changes');
+});
+
+test('renderTable: schema-canary drifted with changes[] → table rows + schema-canary: drifted', () => {
+  const changes = [
+    { change: 'modified', dimension: 'settingsKeys', detail: 'added extraKey' },
+    { change: 'modified', dimension: 'mcpServerCount', detail: '3 → 4' },
+  ];
+  const out = renderTable('selftest', { canary: 'schema', status: 'drifted', changes });
+  assert.ok(out.includes('schema-canary: drifted'), 'drifted summary line present');
+  // Column headers present.
+  assert.ok(/\bchange\b/.test(out), 'change column header present');
+  assert.ok(/\bdimension\b/.test(out), 'dimension column header present');
+  assert.ok(/\bdetail\b/.test(out), 'detail column header present');
+  // Row content present.
+  assert.ok(out.includes('settingsKeys'));
+  assert.ok(out.includes('mcpServerCount'));
+  assert.ok(out.includes('added extraKey'));
+});
+
+test('renderTable: schema-canary unknown status coerces to the literal string "unknown"', () => {
+  // r.status coercion: `typeof r.status === 'string' ? r.status : 'unknown'`
+  // When status is a non-string the rendered line says 'unknown'.
+  const out = renderTable('selftest', { canary: 'schema', status: 42, changes: [] });
+  assert.ok(out.includes('schema-canary: unknown'), 'non-string status must coerce to "unknown"');
+});
+
+test('renderTable: schema-canary with dimensions:null (dispatch-failed path) does not throw', () => {
+  // The catch path in canaryDispatch returns dimensions:null; the render arm only
+  // reads r.changes and r.status so this must be harmless.
+  let out;
+  assert.doesNotThrow(() => {
+    out = renderTable('selftest', {
+      canary: 'schema', status: 'no-baseline', changes: [], dimensions: null,
+    });
+  });
+  assert.ok(typeof out === 'string');
+  assert.ok(out.includes('schema-canary: no-baseline'));
+});
+
+test('renderTable: schema-canary baseline-updated → schema-canary: baseline-updated line', () => {
+  const out = renderTable('selftest', { canary: 'schema', status: 'baseline-updated', changes: [] });
+  assert.ok(out.includes('schema-canary: baseline-updated'));
 });
