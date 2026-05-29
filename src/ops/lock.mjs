@@ -60,11 +60,12 @@ function lp(sd) { return join(sd, LOCK_REL); }
 /**
  * Read + parse the lock file. Returns { holder, err }.
  * @param {string} path
+ * @param {(p: string, enc: string) => string} [readFn]
  * @returns {{ holder: LockHolder|null, err: string|null }}
  */
-function readHolder(path) {
+function readHolder(path, readFn = readFileSync) {
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    const parsed = JSON.parse(readFn(path, 'utf8'));
     if (!parsed || typeof parsed !== 'object') return { holder: null, err: 'not an object' };
     if (!Number.isInteger(parsed.pid) || parsed.pid <= 0) {
       return { holder: null, err: 'missing or invalid pid' };
@@ -211,13 +212,19 @@ export function acquireLock(opts) {
 // ── releaseLock ────────────────────────────────────────────────────────────────
 
 /**
- * Remove the apply lock file. ENOENT is benign (released:false).
- * NOTE: unconditional — does not verify ownership; sufficient for U2.
- * @param {{ stateDir?: string }} [opts]
+ * Remove the apply lock file if owned by the calling process.
+ * Refuses (released:false, apply-lock-not-owner error) when the lock exists
+ * and is held by a DIFFERENT pid. An absent or unreadable/corrupt lock is
+ * still removable (holder===null path). ENOENT is benign (released:false).
+ *
+ * @param {object} [opts]
+ * @param {string}  opts.stateDir
+ * @param {number}  [opts.pid]      defaults to process.pid
+ * @param {(p: string, enc: string) => string} [opts.readFn]  injectable reader seam
  * @returns {{ released: boolean, diagnostics: Diagnostic[] }}
  */
 export function releaseLock(opts) {
-  const { stateDir } = opts ?? {};
+  const { stateDir, pid = process.pid, readFn = readFileSync } = opts ?? {};
   const bag = new DiagnosticBag();
   if (typeof stateDir !== 'string' || !stateDir) {
     bag.add({ severity: 'error', code: 'apply-lock-error', phase: 'lock',
@@ -225,6 +232,12 @@ export function releaseLock(opts) {
     return { released: false, diagnostics: bag.all() };
   }
   const lockFile = lp(stateDir);
+  const { holder } = readHolder(lockFile, readFn);
+  if (holder && holder.pid !== pid) {
+    bag.add({ severity: 'error', code: 'apply-lock-not-owner', phase: 'lock', path: lockFile,
+      message: `cannot release lock owned by pid ${holder.pid}; our pid is ${pid}` });
+    return { released: false, diagnostics: bag.all() };
+  }
   try { unlinkSync(lockFile); return { released: true, diagnostics: bag.all() }; }
   catch (e) {
     if (e && e.code === 'ENOENT') return { released: false, diagnostics: bag.all() };
@@ -238,11 +251,12 @@ export function releaseLock(opts) {
 
 /**
  * Force-remove the apply lock (--break-lock escape). Reports holder + liveness.
- * @param {{ stateDir?: string, killFn?: Function }} [opts]
+ * Unconditional by design: unlike releaseLock it does NOT verify ownership.
+ * @param {{ stateDir?: string, killFn?: Function, readFn?: (p: string, enc: string) => string }} [opts]
  * @returns {{ broken: boolean, holder: LockHolder|null, holderAlive: boolean|null, diagnostics: Diagnostic[] }}
  */
 export function breakLock(opts) {
-  const { stateDir, killFn = process.kill } = opts ?? {};
+  const { stateDir, killFn = process.kill, readFn = readFileSync } = opts ?? {};
   const bag = new DiagnosticBag();
   const absent = { broken: false, holder: null, holderAlive: null };
   if (typeof stateDir !== 'string' || !stateDir) {
@@ -251,7 +265,7 @@ export function breakLock(opts) {
     return { ...absent, diagnostics: bag.all() };
   }
   const lockFile = lp(stateDir);
-  const { holder, err: readErr } = readHolder(lockFile);
+  const { holder, err: readErr } = readHolder(lockFile, readFn);
   if (readErr && readErr.includes('ENOENT')) {
     bag.add({ severity: 'info', code: 'apply-lock-absent', phase: 'lock', path: lockFile,
       message: 'apply lock was not present' });
