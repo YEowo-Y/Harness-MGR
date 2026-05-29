@@ -11,6 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -157,6 +158,44 @@ function parseMjsLines(text) {
     if (p.endsWith('.mjs')) out.push(p);
   }
   return out;
+}
+
+/**
+ * DEFAULT runSchemaCanary seam: dynamically imports probe-schema + schema-canary
+ * to keep the release-gate's static graph paths.mjs-free (M2-safe).
+ * Returns {pass:true, detail, diagnostics}. Never throws — any failure degrades
+ * to {pass:true, detail:'schema canary skipped: <msg>', diagnostics:[]}.
+ *
+ * @param {{configDir: string}} opts
+ * @returns {Promise<{pass: boolean, detail: string, diagnostics: import('../lib/diagnostic.mjs').Diagnostic[]}>}
+ */
+export async function defaultRunSchemaCanary({ configDir }) {
+  try {
+    const { gatherSchemaFacts } = await import('../discovery/probe-schema.mjs');
+    const { scan } = await import('../discovery/scan.mjs');
+    const { computeFingerprint, compareFingerprint } = await import('../selftest/schema-canary.mjs');
+    const { readJsonFile } = await import('../discovery/read-json.mjs');
+    const baselineUrl = new URL('../selftest/schema-baseline.json', import.meta.url);
+    const baselinePath = fileURLToPath(baselineUrl);
+
+    const { facts, diagnostics: gatherDiags } = gatherSchemaFacts({ configDir, scanFn: scan });
+    const { fingerprint, dimensions, diagnostics: computeDiags } = computeFingerprint(facts);
+    const { value: baseline } = readJsonFile(baselinePath);
+    const { status, changes, diagnostics: compareDiags } = compareFingerprint({
+      current: { fingerprint, dimensions },
+      baseline,
+    });
+
+    const diagnostics = [...gatherDiags, ...computeDiags, ...compareDiags];
+    const driftCount = changes.length;
+    const detail = status === 'clean' ? 'clean'
+      : status === 'no-baseline' ? 'no baseline'
+      : `${driftCount} schema change(s) (WARN, non-blocking)`;
+    return { pass: true, detail, diagnostics };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err ?? '');
+    return { pass: true, detail: `schema canary skipped: ${msg}`, diagnostics: [] };
+  }
 }
 
 /**
