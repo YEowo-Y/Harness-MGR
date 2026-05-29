@@ -1,0 +1,5 @@
+{"ts":"2026-05-24T00:00:00Z","cc_version":"2.1.146","gate_pass":true,"error_diag_count":0,"note":"backfill: P2.U5a dogfood — doctor #8/#10 false-positive found+fixed same unit; 0 error-severity on real harness"}
+{"ts":"2026-05-25T00:00:00Z","cc_version":"2.1.146","gate_pass":true,"error_diag_count":0,"note":"backfill: P2.U12 phase-2 gate consolidated dogfood — all 11 commands exit 0, 0 error (14 overbroad warn + 18 orphan info only)"}
+{"ts":"2026-05-26T00:00:00Z","cc_version":"2.1.146","gate_pass":true,"error_diag_count":0,"note":"backfill: active-probe dogfood clean + orphan follow-up (1) resolved; 0 error"}
+{"ts":"2026-05-27T00:00:00Z","cc_version":"2.1.152","gate_pass":true,"error_diag_count":0,"note":"backfill: CC 2.1.146→2.1.152 update dogfood — discovery survived version bump, 0 error (14→16 overbroad warns only)"}
+{"ts":"2026-05-29T09:28:52Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"first LIVE selftest --release-gate run: exit 0, all 6 steps pass; doctor 25 checks 0 errors on CC 2.1.156 (3rd release survived: 2.1.146→2.1.152→2.1.156)"}
