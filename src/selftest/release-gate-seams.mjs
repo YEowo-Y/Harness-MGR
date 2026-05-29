@@ -199,24 +199,38 @@ export async function defaultRunSchemaCanary({ configDir }) {
 }
 
 /**
- * DEFAULT runDoctorPassive seam: dynamically imports doctor-facts + doctor index
- * to avoid the paths.mjs static-graph constraint. Returns {pass, detail}.
+ * DEFAULT runDoctorPassive seam: runs `doctor --passive` over the SYNTHETIC
+ * hermetic fixture tree (test/fixtures/real-snapshot/) for a deterministic,
+ * env-independent gate. The passed configDir/mgrStateDir are NOT used for the
+ * gating decision — the fixture path is resolved from this module's own URL.
  *
- * @param {{configDir: string, mgrStateDir: string}} opts
+ * Keeping the signature {configDir, mgrStateDir} preserves backward compatibility
+ * with release-gate.mjs callers and hermetic unit-test fakes.
+ *
+ * @param {{configDir?: string, mgrStateDir?: string}} _opts
  * @returns {Promise<{pass: boolean, detail: string}>}
  */
-export async function defaultRunDoctorPassive({ configDir, mgrStateDir }) {
+export async function defaultRunDoctorPassive(_opts) {
   try {
     const { gatherDoctorInput } = await import('../cli/doctor-facts.mjs');
     const { runDoctor } = await import('../analysis/doctor/index.mjs');
+
+    const fixtureUrl = new URL('../../test/fixtures/real-snapshot/', import.meta.url);
+    const fixtureDir = fileURLToPath(fixtureUrl);
+    const fixtureMgrState = join(fixtureDir, '.mgr-state');
+
     const { input } = await gatherDoctorInput({
-      configDir, mgrStateDir, activeProbes: false, now: Date.now(),
+      configDir: fixtureDir,
+      mgrStateDir: fixtureMgrState,
+      activeProbes: false,
+      now: Date.now(),
+      cwd: fixtureDir,
     });
     const report = runDoctor(input, { activeProbes: false });
     const errorCount = report.diagnostics.filter((d) => d.severity === 'error').length;
     return errorCount === 0
-      ? { pass: true, detail: `doctor passive: ${report.checks.length} checks, 0 errors` }
-      : { pass: false, detail: `doctor passive: ${errorCount} error(s)` };
+      ? { pass: true, detail: `doctor passive (fixture): ${report.checks.length} checks, 0 error(s)` }
+      : { pass: false, detail: `doctor passive (fixture): ${errorCount} error(s)` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err ?? '');
     return { pass: false, detail: `doctor gather failed: ${msg}` };
