@@ -23,9 +23,11 @@
  *   3 invariants     checkInvariants: no error diagnostics.      FAIL → code 2.
  *   4 boundary       checkBoundary: no error diagnostics.        FAIL → code 2.
  *   5 lint           lintTree: no error diagnostics.             FAIL → code 2.
+ *   schema-canary    schema surface fingerprint check.           ALWAYS pass:true (WARN only).
  *   6 doctor-smoke   passive doctor: 0 error diagnostics.        FAIL → code 1.
  *
  * Exit codes: 0=all pass, 2=step 1-5 failed, 1=step 6 failed.
+ * The schema-canary step is non-failing: drift is a WARN, never changes pass/code.
  * Zero npm dependencies. Never throws.
  */
 
@@ -37,6 +39,7 @@ import {
   defaultRunCoverage,
   defaultChangedSrcFiles,
   defaultRunDoctorPassive,
+  defaultRunSchemaCanary,
 } from './release-gate-seams.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
@@ -70,6 +73,7 @@ import {
  * @property {Function} [runCoverage]
  * @property {Function} [changedSrcFiles]
  * @property {Function} [runDoctorPassive]
+ * @property {Function} [runSchemaCanary]   injectable seam (default: defaultRunSchemaCanary); non-failing
  * @property {Function} [checkInvariants]   injectable seam (default: the real import); enables hermetic step-3 failure tests
  * @property {Function} [checkBoundary]     injectable seam (default: the real import); enables hermetic step-4 failure tests
  * @property {Function} [lintTree]          injectable seam (default: the real import); enables hermetic step-5 failure tests
@@ -108,6 +112,7 @@ async function runGate(opts) {
     runCoverage = defaultRunCoverage,
     changedSrcFiles = defaultChangedSrcFiles,
     runDoctorPassive = defaultRunDoctorPassive,
+    runSchemaCanary = defaultRunSchemaCanary,
     checkInvariants: invariantsFn = checkInvariants,
     checkBoundary: boundaryFn = checkBoundary,
     lintTree: lintFn = lintTree,
@@ -153,6 +158,19 @@ async function runGate(opts) {
   });
   steps.push(step5);
   if (!step5.pass) return { pass: false, steps, diagnostics, code: 2 };
+
+  // Schema-canary: ALWAYS pass:true — drift is a WARN, never a gate failure.
+  const stepCanary = await safeStep(0, 'schema-canary', async () => {
+    const r = await Promise.resolve(runSchemaCanary({ configDir }));
+    // Push any drift diagnostics into the shared array so they appear in output.
+    if (r && Array.isArray(r.diagnostics)) {
+      for (const d of r.diagnostics) diagnostics.push(d);
+    }
+    const detail = (r && typeof r.detail === 'string') ? r.detail : 'ok';
+    return { pass: true, detail };
+  });
+  steps.push(stepCanary);
+  // No abort: schema-canary never fails the gate.
 
   const step6 = await safeStep(6, 'doctor-smoke', () => runDoctorPassive({ configDir, mgrStateDir }));
   steps.push(step6);
