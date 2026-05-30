@@ -31,7 +31,7 @@
  * (lines 378-401).
  */
 
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import { readFileSync, mkdirSync, unlinkSync, rmdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
@@ -54,6 +54,11 @@ const PHASE = 'snapshot';
 
 /**
  * @typedef {Object} SnapshotResult
+ * NOTE: when `ok` is false the path fields (snapshotDir / archivePath /
+ * manifestPath) are DIAGNOSTIC-ONLY. They may be null, or — in the same-second
+ * `snapshot-id-collision` case — reference a PRE-EXISTING snapshot this run did
+ * NOT create. Callers must not act on them (or on `kept`/`fileCount`) unless
+ * `ok` is true.
  * @property {boolean} ok
  * @property {boolean} [dryRun]          true when this was a preview (no write happened)
  * @property {string|null} snapshotId
@@ -112,6 +117,46 @@ function hashKeptFiles(baseDir, kept, readFileFn, bag) {
 /** Message from an unknown thrown value; never throws. */
 function errMsg(e) {
   return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * Default snapshot-dir creator with an ATOMIC collision guard (follow-up #12).
+ * Ensures the `snapshots/` PARENT exists (recursive, idempotent), then creates
+ * the `<id>` LEAF NON-recursively so an already-existing id dir throws EEXIST
+ * with NO check-then-create (TOCTOU) window. Snapshot ids are second-resolution
+ * (SNAPSHOT_ID_RE), so two `snapshot --apply` runs in the same wall-clock second
+ * resolve to the SAME id + dir; the EEXIST is caught by the orchestrator and
+ * turned into a `snapshot-id-collision` refusal rather than silently overwriting
+ * the first snapshot's files.tar + manifest.json. Mirrors the mkdirSync default
+ * the seam previously inlined, minus the unconditional `recursive` on the leaf.
+ * @param {string} dir  absolute `<mgrStateDir>/snapshots/<id>` dir
+ */
+function defaultMkdir(dir) {
+  mkdirSync(dirname(dir), { recursive: true });
+  mkdirSync(dir); // NON-recursive → throws EEXIST if the id dir already exists
+}
+
+/**
+ * Create the snapshot dir, classifying any failure into a stable {code,message}
+ * the orchestrator turns into a failProgress result (extracted to keep
+ * createSnapshot under the function-SLOC limit). An EEXIST means the
+ * second-resolution id already exists — a same-second collision (#12): REFUSE
+ * with `snapshot-id-collision` rather than overwrite the first snapshot. Returns
+ * null on success. Never throws.
+ * @param {(p:string)=>void} mkdirFn @param {string} dir @param {string} id
+ * @returns {{code:string, message:string}|null}
+ */
+function tryMakeSnapshotDir(mkdirFn, dir, id) {
+  try {
+    mkdirFn(dir);
+    return null;
+  } catch (e) {
+    if (e && e.code === 'EEXIST') {
+      return { code: 'snapshot-id-collision',
+        message: `a snapshot already exists at id ${id} (ids are second-resolution); retry in a moment` };
+    }
+    return { code: 'snapshot-mkdir-failed', message: `could not create snapshot dir: ${errMsg(e)}` };
+  }
 }
 
 /**
@@ -224,7 +269,7 @@ export async function createSnapshot(opts) {
   const resolveFn = seams.resolveFn ?? resolveTar;
   const spawnFn = seams.spawnFn; // undefined → createSnapshotTar uses safeSpawn
   const readFileFn = seams.readFileFn ?? readFileSync;
-  const mkdirFn = seams.mkdirFn ?? ((p) => mkdirSync(p, { recursive: true }));
+  const mkdirFn = seams.mkdirFn ?? defaultMkdir;
   // D2 cleanup seams: targeted unlink + EMPTY-only rmdir (never recursive).
   const unlinkFn = seams.unlinkFn ?? unlinkSync;
   const rmdirFn = seams.rmdirFn ?? rmdirSync;
@@ -299,8 +344,11 @@ export async function createSnapshot(opts) {
   // 7. Validate the .mgr-state destination through the gate, then mkdir it.
   try { assertWritable(archivePath, 'apply'); }
   catch (e) { return failProgress('snapshot-write-denied', `write gate denied: ${errMsg(e)}`); }
-  try { mkdirFn(dir); }
-  catch (e) { return failProgress('snapshot-mkdir-failed', `could not create snapshot dir: ${errMsg(e)}`); }
+  // mkdir via the (default ATOMIC) creator. An EEXIST = a same-second id
+  // collision (#12) → snapshot-id-collision; cleanup stays OFF so the existing
+  // first snapshot is left untouched. tryMakeSnapshotDir never throws.
+  const mkErr = tryMakeSnapshotDir(mkdirFn, dir, id);
+  if (mkErr) return failProgress(mkErr.code, mkErr.message);
 
   // 8. Archive the kept files (relative POSIX paths, rooted at targetClaudeDir).
   //    From here on, the dir exists → a failure runs the bounded cleanup (cleanup:true).
