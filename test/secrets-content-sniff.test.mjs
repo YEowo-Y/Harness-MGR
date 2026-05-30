@@ -372,6 +372,73 @@ test('Buffer input: PEM inside Buffer is detected', () => {
 });
 
 // ---------------------------------------------------------------------------
+// skipEntropy option (follow-up #10 — prose precision tuning)
+// ---------------------------------------------------------------------------
+
+// A 43-char base64 run (32 random bytes) that DOES match kind:'entropy' by
+// default. Embedded as a JSON value so the run is contiguous and ≥40 chars.
+const ENTROPY_RUN = (() => {
+  const lcg = makeLcg(0xdeadbeef);
+  return lcgBase64(lcg, 32); // 43-char high-entropy base64 run
+})();
+const ENTROPY_INPUT = `{"key":"${ENTROPY_RUN}"}`;
+
+test('skipEntropy:true — a high-entropy run that WOULD match by default returns {match:false}', () => {
+  // Baseline: default behaviour DOES flag it as entropy.
+  const def = sniffSecretContent(ENTROPY_INPUT);
+  assert.equal(def.match, true, 'precondition: entropy run matches by default');
+  assert.equal(def.kind, 'entropy', 'precondition: matched via the entropy leg');
+  // With skipEntropy, the entropy leg is skipped → no match.
+  assert.deepEqual(
+    sniffSecretContent(ENTROPY_INPUT, { skipEntropy: true }),
+    { match: false },
+    'entropy leg suppressed under skipEntropy',
+  );
+});
+
+test('skipEntropy:true — a PEM block is STILL detected (deterministic leg kept)', () => {
+  const pem = '-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEA\n-----END OPENSSH PRIVATE KEY-----';
+  const result = sniffSecretContent(pem, { skipEntropy: true });
+  assert.equal(result.match, true, 'PEM still caught with skipEntropy');
+  assert.equal(result.kind, 'pem');
+  assert.equal(result.pattern, 'pem-block');
+});
+
+test('skipEntropy:true — ghp_ / AKIA / JWT tokens are STILL detected', () => {
+  const ghp = sniffSecretContent('auth: ghp_SyntheticTestFixtureNoRealToken12345', { skipEntropy: true });
+  assert.equal(ghp.match, true, 'github token caught with skipEntropy');
+  assert.equal(ghp.kind, 'token');
+  assert.equal(ghp.pattern, 'github-token');
+
+  const akia = sniffSecretContent('key: AKIASYNTH3T1CTEST123 ', { skipEntropy: true });
+  assert.equal(akia.match, true, 'AKIA caught with skipEntropy');
+  assert.equal(akia.kind, 'token');
+  assert.equal(akia.pattern, 'aws-akia');
+
+  const jwt = sniffSecretContent('eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.SyntheticSig1234567890abcdef', { skipEntropy: true });
+  assert.equal(jwt.match, true, 'JWT caught with skipEntropy');
+  assert.equal(jwt.kind, 'token');
+  assert.equal(jwt.pattern, 'jwt');
+});
+
+test('skipEntropy DEFAULT/false unchanged — entropy detection still fires (regression)', () => {
+  // Absent opts.
+  assert.equal(sniffSecretContent(ENTROPY_INPUT).kind, 'entropy', 'no-opts: entropy fires');
+  // Explicit false.
+  assert.equal(sniffSecretContent(ENTROPY_INPUT, { skipEntropy: false }).kind, 'entropy', 'false: entropy fires');
+  // Junk opts shapes coerce to default (entropy still fires).
+  assert.equal(sniffSecretContent(ENTROPY_INPUT, {}).kind, 'entropy', '{}: entropy fires');
+  assert.equal(sniffSecretContent(ENTROPY_INPUT, null).kind, 'entropy', 'null opts: entropy fires');
+  assert.equal(sniffSecretContent(ENTROPY_INPUT, { skipEntropy: 'yes' }).kind, 'entropy', 'truthy-non-true: entropy fires');
+});
+
+test('skipEntropy:true — never throws on bad input', () => {
+  assert.doesNotThrow(() => sniffSecretContent(null, { skipEntropy: true }));
+  assert.doesNotThrow(() => sniffSecretContent(123, { skipEntropy: true }));
+  assert.deepEqual(sniffSecretContent(undefined, { skipEntropy: true }), { match: false });
+});
+
+// ---------------------------------------------------------------------------
 // Input cap behaviour
 // ---------------------------------------------------------------------------
 
