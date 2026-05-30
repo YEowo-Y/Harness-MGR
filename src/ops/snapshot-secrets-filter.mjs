@@ -40,6 +40,24 @@
  * step only — they remain subject to the name matcher (which never matches them),
  * so a lockfile is kept rather than false-dropped.
  *
+ * --- Prose entropy exemption (follow-up #10) ---
+ * PROSE files (`.md` / `.markdown`) are content-sniffed with `{skipEntropy:true}`,
+ * so the high-entropy run heuristic (the sniffer's leg 3) does NOT run on them —
+ * a prose file is dropped ONLY by a deterministic PEM/token shape OR by its
+ * basename, never by entropy alone. WHY: the snapshot dogfood over the real
+ * ~/.claude showed the entropy net false-positive-dropping ~19 LEGITIMATE skill
+ * `.md` files (long URLs/paths, base64 examples, and embedded hashes in prose
+ * read as high-entropy runs). For a SNAPSHOT this is a real DATA-COMPLETENESS
+ * loss — those docs silently vanish from the backup. The deterministic legs are
+ * retained (PEM + token), so a REAL key pasted into a `.md` is STILL dropped; the
+ * only secret this now misses is a raw-base64-no-prefix credential sitting inside
+ * a prose file, which is ALREADY the sniffer's documented entropy GAP (and is
+ * still caught by the name/extension matcher if the file is named like a secret).
+ * The recall/precision trade favours keeping legit docs because the residual miss
+ * is narrow and already-documented, while the false-drop harm is concrete.
+ * Non-prose files (e.g. `config.json`, binary blobs) are UNCHANGED — they still
+ * get the full three-leg sniff including entropy.
+ *
  * --- Auth gate ---
  * `mcp-needs-auth-cache.json` is NOT emitted by the U5 walker (it is not in the
  * snapshot allowlist scope). It is added to `kept` ONLY when `includeAuth===true`
@@ -98,10 +116,32 @@ const LOCKFILE_BASENAMES = new Set([
   'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'npm-shrinkwrap.json',
 ]);
 
+/**
+ * PROSE file extensions (lowercased, with the leading dot). A prose file is
+ * content-sniffed with `{skipEntropy:true}` so the entropy heuristic cannot
+ * false-drop it; only PEM/token shapes (or its basename) can drop it. See the
+ * module header "Prose entropy exemption (follow-up #10)".
+ * @type {Set<string>}
+ */
+const PROSE_EXTENSIONS = new Set(['.md', '.markdown']);
+
 /** Last POSIX path segment, lowercased. Pure; never throws. */
 function basenameLower(rel) {
   const i = rel.lastIndexOf('/');
   return (i >= 0 ? rel.slice(i + 1) : rel).toLowerCase();
+}
+
+/**
+ * Is `rel` a PROSE file (by extension)? Case-insensitive, basename-scoped so a
+ * dotted ancestor dir can't misclassify. Pure; never throws.
+ * @param {string} rel  POSIX-relative path
+ * @returns {boolean}
+ */
+function isProseFile(rel) {
+  const base = basenameLower(rel);
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return false; // no extension, or a leading-dot dotfile like ".md"
+  return PROSE_EXTENSIONS.has(base.slice(dot));
 }
 
 /**
@@ -150,7 +190,11 @@ function classify(rel, baseDir, readFileFn, allowlist) {
     bytes = null; // unreadable → no content → name matcher already said keep
   }
   if (bytes != null) {
-    const contentHit = sniffSecretContent(bytes);
+    // Prose files (.md/.markdown) skip the entropy leg (follow-up #10): they
+    // legitimately carry high-entropy runs (URLs, base64 examples, hashes). A
+    // real key pasted into a .md is still caught by the PEM/token legs.
+    const skipEntropy = isProseFile(rel);
+    const contentHit = sniffSecretContent(bytes, { skipEntropy });
     if (contentHit.match) {
       return { by: 'content', kind: contentHit.kind ?? 'unknown', pattern: contentHit.pattern ?? '' };
     }
