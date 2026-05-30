@@ -40,7 +40,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
  */
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
-const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason']);
+const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason', '--keep', '--older-than']);
 const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
@@ -111,7 +111,11 @@ function parseArgs(argv) {
 
 /**
  * Resolve the canonical command name from the positionals. No positional → null.
- * The two-word `config show-effective` collapses to one canonical key; otherwise
+ * Two-word commands collapse to one canonical key (both tokens consumed):
+ *   `config show-effective` → `config:show-effective`
+ *   `snapshot list`         → `snapshot:list`
+ *   `snapshot gc`           → `snapshot:gc`
+ * A bare `snapshot` (no sub-verb) stays `snapshot` (the create command). Otherwise
  * the first positional is the canonical name verbatim (membership checked later).
  *
  * @param {string[]} positionals
@@ -121,6 +125,8 @@ function canonicalize(positionals) {
   const first = positionals[0];
   if (typeof first !== 'string' || first.length === 0) return null;
   if (first === 'config' && positionals[1] === 'show-effective') return 'config:show-effective';
+  if (first === 'snapshot' && positionals[1] === 'list') return 'snapshot:list';
+  if (first === 'snapshot' && positionals[1] === 'gc') return 'snapshot:gc';
   return first;
 }
 
