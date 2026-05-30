@@ -125,9 +125,12 @@ test('roundtrip: MULTI-CHUNK (-c + -r append) archive is still byte-identical (P
     // run and this companion check agree). This proves the real `-c`+`-r` append
     // path runs across multiple spawns, not just the unit-level seam.
     const fixed = ['-c', '-f', archivePath, '-C', srcDir];
-    const overhead = tarPath.length + fixed.reduce((n, a) => n + a.length + 1, 0);
+    // Byte-accurate (#11): mirror createSnapshotTar's Buffer.byteLength budgeting so
+    // this companion check agrees with the real run for the unicode member (whose
+    // UTF-8 byte cost exceeds its UTF-16 .length).
+    const overhead = Buffer.byteLength(tarPath, 'utf8') + fixed.reduce((n, a) => n + Buffer.byteLength(a, 'utf8') + 1, 0);
     const rels = files.map((f) => f.rel);
-    const longest = Math.max(...rels.map((r) => r.length)) + 1;
+    const longest = Math.max(...rels.map((r) => Buffer.byteLength(r, 'utf8'))) + 1;
     const argvBudget = overhead + longest + 1; // room for ~1 member per chunk → >=3 chunks
     const { chunks } = chunkByArgvBudget(rels, overhead, argvBudget);
     assert.ok(chunks && chunks.length >= 3, `companion check expected >=3 chunks, got ${chunks && chunks.length}`);
