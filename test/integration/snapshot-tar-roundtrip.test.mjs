@@ -15,6 +15,10 @@
  *   - a binary file containing every byte 0x00..0xFF
  *   - a file inside a nested subdirectory
  *   - a file whose NAME is non-ASCII (unicode)
+ *
+ * A SECOND test (P3.D1) forces MULTI-CHUNK archiving by injecting a tiny
+ * `argvBudget`, proving the `-c` first-chunk + `-r` append-chunk sequence produces
+ * an archive whose extracted files are STILL byte-identical (incl. unicode + binary).
  */
 
 import test from 'node:test';
@@ -25,6 +29,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolveTar, createSnapshotTar, extractSnapshotTar } from '../../src/ops/snapshot-tar.mjs';
+import { chunkByArgvBudget } from '../../src/ops/snapshot-tar-chunk.mjs';
 
 /**
  * The fixture file set. `rel` is the POSIX-relative path handed to the walker /
@@ -87,6 +92,61 @@ test('roundtrip: real tar create→extract yields byte-identical files', async (
       assert.ok(
         Buffer.compare(out, f.bytes) === 0,
         `byte mismatch for ${f.rel}: got ${out.length} bytes, expected ${f.bytes.length}`,
+      );
+    }
+  } finally {
+    for (const d of [srcDir, destDir]) {
+      try { rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ }
+    }
+    try { rmSync(join(archivePath, '..'), { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+});
+
+test('roundtrip: MULTI-CHUNK (-c + -r append) archive is still byte-identical (P3.D1)', async (t) => {
+  const { tarPath, diagnostics } = resolveTar();
+  if (!tarPath) {
+    t.skip(`system tar not found (${diagnostics.map((d) => d.code).join(',')}) — skipping multi-chunk round-trip`);
+    return;
+  }
+
+  const srcDir = mkdtempSync(join(tmpdir(), 'mgr-tar-mc-src-'));
+  const destDir = mkdtempSync(join(tmpdir(), 'mgr-tar-mc-dest-'));
+  const archivePath = join(mkdtempSync(join(tmpdir(), 'mgr-tar-mc-arc-')), 'snapshot.tar');
+  try {
+    const files = fixtureFiles();
+    for (const f of files) {
+      const abs = join(srcDir, ...f.rel.split('/'));
+      mkdirSync(join(abs, '..'), { recursive: true });
+      writeFileSync(abs, f.bytes);
+    }
+
+    // Choose a budget that DEMONSTRABLY forces >=3 chunks for these 5 members,
+    // computed against the SAME fixed overhead createSnapshotTar uses (so the real
+    // run and this companion check agree). This proves the real `-c`+`-r` append
+    // path runs across multiple spawns, not just the unit-level seam.
+    const fixed = ['-c', '-f', archivePath, '-C', srcDir];
+    const overhead = tarPath.length + fixed.reduce((n, a) => n + a.length + 1, 0);
+    const rels = files.map((f) => f.rel);
+    const longest = Math.max(...rels.map((r) => r.length)) + 1;
+    const argvBudget = overhead + longest + 1; // room for ~1 member per chunk → >=3 chunks
+    const { chunks } = chunkByArgvBudget(rels, overhead, argvBudget);
+    assert.ok(chunks && chunks.length >= 3, `companion check expected >=3 chunks, got ${chunks && chunks.length}`);
+
+    // CREATE with the tiny budget → REAL multi-spawn -c + -r against the system tar.
+    const created = await createSnapshotTar({ tarPath, archivePath, baseDir: srcDir, files: rels, argvBudget });
+    assert.equal(created.ok, true, `multi-chunk create failed: ${JSON.stringify(created.diagnostics)}`);
+    assert.equal(created.diagnostics.length, 0);
+
+    const extracted = await extractSnapshotTar({ tarPath, archivePath, destDir });
+    assert.equal(extracted.ok, true, `extract failed: ${JSON.stringify(extracted.diagnostics)}`);
+
+    // GOLDEN ORACLE: every member (incl. unicode + the 0x00..0xFF binary) survives
+    // the append sequence byte-identical.
+    for (const f of files) {
+      const out = readFileSync(join(destDir, ...f.rel.split('/')));
+      assert.ok(
+        Buffer.compare(out, f.bytes) === 0,
+        `multi-chunk byte mismatch for ${f.rel}: got ${out.length} bytes, expected ${f.bytes.length}`,
       );
     }
   } finally {
