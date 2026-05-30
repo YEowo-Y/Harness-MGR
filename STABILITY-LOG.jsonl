@@ -16,3 +16,4 @@
 {"ts":"2026-05-30T14:59:12.863Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"#12 fixed: same-second snapshot-id collision guard (atomic non-recursive mkdir EEXIST refusal); 1535 tests, release-gate exit 0"}
 {"ts":"2026-05-30T15:26:57.654Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"#9+#11 fixed: clock-sampled-once + byte-accurate argv budget; 1537 tests, release-gate exit 0"}
 {"ts":"2026-05-30T15:46:54.084Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"#7 fixed: probe-state symlink-root guard for drift (mirrors U5); 1538 tests, release-gate exit 0"}
+{"ts":"2026-05-30T15:58:11.703Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"#3 fixed: drift now tracks .mcp.json + plugin registries (plugins/ never walked); 1539 tests, release-gate exit 0"}
