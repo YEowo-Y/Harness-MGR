@@ -168,17 +168,21 @@ export async function snapshotCommand(ctx, deps = {}) {
  */
 function summarizeSnapshot(r, applied) {
   const res = r && typeof r === 'object' ? r : {};
+  const ok = !!res.ok;
   const kept = Array.isArray(res.kept) ? res.kept : [];
   const dropped = Array.isArray(res.dropped) ? res.dropped : [];
   return {
     mode: applied ? 'applied' : 'dry-run',
-    ok: !!res.ok,
+    ok,
     snapshotId: res.snapshotId ?? null,
     fileCount: typeof res.fileCount === 'number' ? res.fileCount : kept.length,
     keptCount: kept.length,
     droppedCount: dropped.length,
     dropped: dropped.map((d) => (d && typeof d === 'object' ? d.path : d)),
-    archivePath: res.archivePath ?? null,
-    manifestPath: res.manifestPath ?? null,
+    // D3 OUTPUT HONESTY: never surface an archive/manifest path for a snapshot that
+    // failed — on ok:false those files were never written (or were cleaned up by D2),
+    // so reporting a path would be a lie. A successful dry-run also has no paths.
+    archivePath: ok ? (res.archivePath ?? null) : null,
+    manifestPath: ok ? (res.manifestPath ?? null) : null,
   };
 }
