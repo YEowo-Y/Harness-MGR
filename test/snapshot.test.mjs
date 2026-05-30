@@ -21,6 +21,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync,
+  unlinkSync, rmdirSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -244,6 +245,120 @@ test('createSnapshot: a manifest-write gate denial → snapshot-manifest-write-f
     // writeManifest surfaces manifest-write-error; our step adds the rollup code.
     assert.ok(res.diagnostics.some((d) => d.code === 'manifest-write-error'));
     assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-manifest-write-failed'));
+  } finally { t.cleanup(); }
+});
+
+// ── (7b) D2 FAILURE CLEANUP: a failed --apply leaves NO snapshot dir on disk ─────
+
+/** A spawn seam that actually CREATES the archive file (so cleanup has something to
+ *  unlink), then resolves ok — simulating a real tar that wrote files.tar. */
+function makeWritingSpawn() {
+  const calls = [];
+  const fn = (spec) => {
+    calls.push(spec);
+    // tar's args are ['-c','-f',<archive>,'-C',<base>, ...members]; write the archive.
+    const archive = spec.args[2];
+    try { writeFileSync(archive, Buffer.from('FAKE TAR BYTES')); } catch { /* ignore */ }
+    return Promise.resolve({ stdout: '', stderr: '' });
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+/** Spy unlink/rmdir seams recording every path they were asked to remove. */
+function makeRmSpies() {
+  const unlinked = [];
+  const rmdired = [];
+  const unlinkFn = (p) => { unlinked.push(p); return unlinkSync(p); };
+  const rmdirFn = (p) => { rmdired.push(p); return rmdirSync(p); };
+  return { unlinked, rmdired, unlinkFn, rmdirFn };
+}
+
+test('createSnapshot D2: a tar failure removes the snapshot dir (no orphan) and only that dir', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  // mkdir really creates the dir; tar fails AFTER the dir exists.
+  const spawnFn = makeSpawn({ throw: Object.assign(new Error('tar: exit 1'), { code: 1 }) });
+  const spies = makeRmSpies();
+  const snapDir = join(t.stateDir, 'snapshots', FIXED_ID);
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: PASS_GATE,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn, unlinkFn: spies.unlinkFn, rmdirFn: spies.rmdirFn },
+    });
+    assert.equal(res.ok, false);
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-archive-failed'));
+    // The snapshot dir is GONE — no orphan left behind.
+    assert.ok(!existsSync(snapDir), 'snapshot dir must be removed after a failed apply');
+    // The cleanup rmdir'd EXACTLY the snapshots/<id> dir and nothing else.
+    assert.deepEqual(spies.rmdired, [snapDir]);
+    // The .mgr-state/snapshots parent dir is NOT removed (cleanup is bounded to <id>).
+    assert.ok(existsSync(join(t.stateDir, 'snapshots')), 'the snapshots/ parent must survive');
+    // Every unlink target is INSIDE the snapshot dir (never an outside path).
+    for (const p of spies.unlinked) assert.ok(p.startsWith(snapDir), `unlink escaped snapshot dir: ${p}`);
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot D2: a manifest-write failure removes the dir incl. the written files.tar', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  // tar SUCCEEDS and writes files.tar; the manifest write is then DENIED → cleanup
+  // must remove BOTH files.tar and the now-empty dir.
+  const spawnFn = makeWritingSpawn();
+  const gate = (p) => { if (String(p).endsWith('manifest.json')) throw new Error('manifest write forbidden'); return p; };
+  const spies = makeRmSpies();
+  const snapDir = join(t.stateDir, 'snapshots', FIXED_ID);
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: gate,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn, unlinkFn: spies.unlinkFn, rmdirFn: spies.rmdirFn },
+    });
+    assert.equal(res.ok, false);
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-manifest-write-failed'));
+    // The whole snapshot dir (incl. the real files.tar tar wrote) is gone.
+    assert.ok(!existsSync(snapDir), 'snapshot dir must be removed after a manifest failure');
+    assert.ok(!existsSync(join(snapDir, 'files.tar')), 'the partial files.tar must be unlinked');
+    // files.tar was the unlinked archive; rmdir removed exactly the snapshot dir.
+    assert.ok(spies.unlinked.includes(join(snapDir, 'files.tar')), 'files.tar must be the unlink target');
+    assert.deepEqual(spies.rmdired, [snapDir]);
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot D2: a cleanup failure degrades to a warn and does NOT mask the original error', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  const spawnFn = makeSpawn({ throw: Object.assign(new Error('tar: exit 1'), { code: 1 }) });
+  // rmdir throws a NON-ENOENT error (e.g. dir busy) → must surface a warn, not throw,
+  // and the original snapshot-archive-failed error stays the primary signal.
+  const rmdirFn = () => { throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); };
+  const unlinkFn = () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); };
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: PASS_GATE,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn, unlinkFn, rmdirFn },
+    });
+    assert.equal(res.ok, false);
+    // The ORIGINAL error is still present (not masked by the cleanup failure).
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-archive-failed'), 'original error preserved');
+    // The cleanup failures surface as warns (not errors, not throws).
+    const cleanupWarns = res.diagnostics.filter((d) => d.code === 'snapshot-cleanup-failed');
+    assert.ok(cleanupWarns.length >= 1, 'cleanup failure surfaced as a warn');
+    assert.ok(cleanupWarns.every((d) => d.severity === 'warn'));
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot D2: NO cleanup on a pre-mkdir failure (gate denial) — nothing to remove', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  const spies = makeRmSpies();
+  // Gate denies the archive path BEFORE mkdir → cleanup must NOT run (no dir created).
+  const gate = () => { throw new Error('outside governed region'); };
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: gate,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: makeSpawn(), unlinkFn: spies.unlinkFn, rmdirFn: spies.rmdirFn },
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.diagnostics.find((d) => d.code.startsWith('snapshot-')).code, 'snapshot-write-denied');
+    // No cleanup ran (the dir was never created).
+    assert.deepEqual(spies.unlinked, []);
+    assert.deepEqual(spies.rmdired, []);
   } finally { t.cleanup(); }
 });
 
