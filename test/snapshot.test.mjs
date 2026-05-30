@@ -302,3 +302,59 @@ test('createSnapshot: tolerates undefined / null opts without throwing', async (
   const c = await createSnapshot({});
   assert.equal(c.ok, false);
 });
+
+// ── (11) dry-run: walk+filter only, no write, no gate required ───────────────────
+
+test('createSnapshot dryRun: previews kept/dropped, no archive/manifest, writes nothing', async () => {
+  const t = makeTree((cd) => {
+    put(cd, 'agents/a.md', Buffer.from('clean\n', 'utf8'));
+    put(cd, 'skills/s/SKILL.md', Buffer.from('# skill\n', 'utf8'));
+    put(cd, 'hooks/id_rsa', Buffer.from('-----BEGIN OPENSSH PRIVATE KEY-----\nx\n', 'utf8'));
+  });
+  const spawnFn = makeSpawn();
+  // mkdirFn must NOT be called in dry-run — make it throw if it is.
+  const mkdirFn = () => { throw new Error('dry-run must not mkdir'); };
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, reason: 'preview',
+      // assertWritable intentionally OMITTED — dry-run needs no write gate.
+      dryRun: true, now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn, mkdirFn },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    assert.equal(res.dryRun, true);
+    assert.equal(res.snapshotId, FIXED_ID, 'preview id is the same shape an apply would use');
+    // kept = the 2 clean files (sorted); the secret is dropped.
+    assert.deepEqual(res.kept, ['agents/a.md', 'skills/s/SKILL.md']);
+    assert.equal(res.fileCount, 2);
+    assert.ok(res.dropped.some((d) => d.path === 'hooks/id_rsa'), 'secret dropped in preview');
+    // No archive / manifest / dir paths in a preview.
+    assert.equal(res.snapshotDir, null);
+    assert.equal(res.archivePath, null);
+    assert.equal(res.manifestPath, null);
+    // CRITICAL: nothing was spawned (no tar) and nothing was written.
+    assert.equal(spawnFn.calls.length, 0, 'dry-run never spawns tar');
+    assert.ok(!existsSync(join(t.stateDir, 'snapshots')), 'dry-run never creates the snapshots dir');
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot dryRun: a missing tar WARNS but still returns the preview', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, dryRun: true, now: FIXED_NOW,
+      seams: { resolveFn: () => ({ tarPath: null, diagnostics: [] }) },
+    });
+    // Preview still succeeds (the kept partition is the point of a dry-run).
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    assert.equal(res.dryRun, true);
+    assert.deepEqual(res.kept, ['agents/a.md']);
+    // ...but a WARN tells the user --apply would fail.
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-tar-unavailable' && d.severity === 'warn'), JSON.stringify(res.diagnostics));
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot dryRun: still validates targetClaudeDir / mgrStateDir', async () => {
+  const a = await createSnapshot({ targetClaudeDir: '', mgrStateDir: 'x', dryRun: true });
+  assert.equal(a.ok, false);
+  assert.equal(a.diagnostics[0].code, 'snapshot-bad-args');
+});
