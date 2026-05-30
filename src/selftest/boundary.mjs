@@ -22,6 +22,11 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 export { snapshotDirHashes, checkSpawnWriteBoundary } from './spawn-write-boundary.mjs';
+export { checkSpawnSpecGuardrail, MUTATION_FLAGS, LEGIT_POSIX_PATH } from './spawn-spec-guardrail.mjs';
+export { checkSpawnSpecCompleteness } from './spawn-spec-completeness.mjs';
+import { checkSpawnSpecGuardrail } from './spawn-spec-guardrail.mjs';
+import { checkSpawnSpecCompleteness } from './spawn-spec-completeness.mjs';
+import { SPAWN_SPECS } from './spawn-spec-registry.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -260,9 +265,11 @@ function loadSrcFiles(srcDir, diags) {
 export function checkBoundary({ srcDir, assertWritable, roots } = {}) {
   /** @type {Diagnostic[]} */
   const diags = [];
+  /** @type {Array<{path: string, source: string}>} */
+  let srcFiles = [];
   if (typeof srcDir === 'string') {
-    const files = loadSrcFiles(srcDir, diags);
-    for (const d of checkStaticImports(files)) diags.push(d);
+    srcFiles = loadSrcFiles(srcDir, diags);
+    for (const d of checkStaticImports(srcFiles)) diags.push(d);
   }
   if (typeof assertWritable === 'function' && roots != null) {
     for (const d of checkWriteAllowlist(assertWritable, roots)) diags.push(d);
@@ -270,6 +277,18 @@ export function checkBoundary({ srcDir, assertWritable, roots } = {}) {
     diags.push({ severity: 'info', code: 'boundary-runtime-skipped',
       message: 'runtime write-allowlist check skipped (assertWritable/roots not provided)',
       phase: 'boundary' });
+  }
+  // Spawn-spec guardrail: runs unconditionally (pure, no assertWritable/roots needed).
+  // Fails the gate if any allowSlashPositionals:true consumer has a permissive pattern.
+  for (const d of checkSpawnSpecGuardrail(SPAWN_SPECS)) diags.push(d);
+  // Spawn-spec completeness: static backstop — every src/ module that sets
+  // allowSlashPositionals:true must be registered in SPAWN_SPECS.  Runs when
+  // srcDir was provided (srcFiles already loaded above); skips silently otherwise.
+  if (srcFiles.length > 0) {
+    const registeredIds = new Set(
+      SPAWN_SPECS.map((s) => (s && typeof s.id === 'string' ? s.id : '')),
+    );
+    for (const d of checkSpawnSpecCompleteness(srcFiles, registeredIds)) diags.push(d);
   }
   return { diagnostics: diags };
 }
