@@ -298,8 +298,11 @@ export async function createSnapshot(opts) {
   if (tarRes.hardFail) return fail(tarRes.hardFail.code, tarRes.hardFail.message);
   const tarPath = tarRes.tarPath;
 
-  // 3. Compute the snapshot id + destination paths.
-  const id = makeSnapshotId(now());
+  // 3. Compute the snapshot id + destination paths. Sample the clock ONCE so the
+  //    (second-resolution) id and the manifest's (full-ISO) createdAt provably
+  //    share one instant — they can never straddle a second boundary (#9a).
+  const capturedAt = now();
+  const id = makeSnapshotId(capturedAt);
   const dir = snapshotDir(mgrStateDir, id);
   const archivePath = join(dir, ARCHIVE_NAME);
 
@@ -357,7 +360,7 @@ export async function createSnapshot(opts) {
   if (!tar.ok) return failProgress('snapshot-archive-failed', 'tar archive creation failed', true);
 
   // 9. Build the manifest from the hashed records.
-  const built = buildManifest({ snapshotId: id, targetClaudeDir, files: records, reason, now });
+  const built = buildManifest({ snapshotId: id, targetClaudeDir, files: records, reason, now: () => capturedAt });
   for (const d of built.diagnostics) bag.add(d);
   if (!built.manifest) return failProgress('snapshot-manifest-failed', 'manifest build failed', true);
 
