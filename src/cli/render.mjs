@@ -19,6 +19,7 @@
  */
 
 import { formatTable } from '../output/table.mjs';
+import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
 
 /**
  * @typedef {import('./commands.mjs').CommandOutput} CommandOutput
@@ -62,6 +63,8 @@ function renderBody(canonical, result) {
     case 'audit': return auditTable(r);
     case 'drift': return driftTable(r);
     case 'snapshot': return snapshotTable(r);
+    case 'snapshot:list': return snapshotListTable(r);
+    case 'snapshot:gc': return snapshotGcTable(r);
     default: return kvTable(r);
   }
 }
@@ -232,6 +235,9 @@ function snapshotTable(r) {
     { key: 'value', header: 'value' },
   ], rows);
 }
+
+// snapshot:list + snapshot:gc bodies live in snapshot-store-render.mjs (imported
+// above) so this module stays under the 200-SLOC lint ceiling.
 
 /**
  * Generic fallback: a 2-column key/value dump of an object's own enumerable
