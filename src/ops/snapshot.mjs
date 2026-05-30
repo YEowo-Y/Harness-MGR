@@ -53,6 +53,7 @@ const PHASE = 'snapshot';
 /**
  * @typedef {Object} SnapshotResult
  * @property {boolean} ok
+ * @property {boolean} [dryRun]          true when this was a preview (no write happened)
  * @property {string|null} snapshotId
  * @property {string|null} snapshotDir   absolute dir holding the archive + manifest
  * @property {string|null} archivePath   absolute path of files.tar
@@ -112,17 +113,58 @@ function errMsg(e) {
 }
 
 /**
+ * Resolve the system tar for a snapshot, aggregating its diagnostics into `bag`.
+ * For --apply a missing/unresolvable tar is a HARD failure (`{ hardFail }` set with
+ * the code to return). For a dry-run it is advisory only — `hardFail` stays null and
+ * a single `snapshot-tar-unavailable` WARN is added so the user learns --apply would
+ * fail, but the preview still proceeds. Never throws.
+ *
+ * @param {() => {tarPath:string|null, diagnostics?:Diagnostic[]}} resolveFn
+ * @param {boolean} dryRun
+ * @param {DiagnosticBag} bag
+ * @returns {{tarPath: string|null, hardFail: {code:string, message:string}|null}}
+ */
+function resolveTarOrFail(resolveFn, dryRun, bag) {
+  let tarPath = null;
+  try {
+    const r = resolveFn();
+    for (const d of r?.diagnostics ?? []) bag.add(d);
+    tarPath = r?.tarPath ?? null;
+  } catch (e) {
+    if (!dryRun) return { tarPath: null, hardFail: { code: 'snapshot-tar-resolve-failed', message: `resolveTar failed: ${errMsg(e)}` } };
+    bag.add({ severity: 'warn', code: 'snapshot-tar-unavailable', phase: PHASE, message: `system tar is unavailable; --apply would fail: ${errMsg(e)}` });
+    return { tarPath: null, hardFail: null };
+  }
+  if (!isNonEmptyStr(tarPath)) {
+    if (!dryRun) return { tarPath: null, hardFail: { code: 'snapshot-tar-unavailable', message: 'system tar is unavailable; cannot create a snapshot' } };
+    if (!bag.all().some((d) => d.code === 'snapshot-tar-unavailable')) {
+      bag.add({ severity: 'warn', code: 'snapshot-tar-unavailable', phase: PHASE, message: 'system tar is unavailable; --apply would fail' });
+    }
+  }
+  return { tarPath, hardFail: null };
+}
+
+/**
  * Create a snapshot of `targetClaudeDir` into `<mgrStateDir>/snapshots/<id>/`.
  * Wires walk → secrets-filter → hash → tar → manifest. Pure orchestration over
  * injectable seams; NEVER throws — every failure yields a Diagnostic + ok:false
  * with the aggregated diagnostics from every step that ran.
+ *
+ * DRY-RUN (dryRun:true): the CLI default. Runs ONLY walk + secrets-filter (the same
+ * code path --apply uses, so the kept/dropped partition is IDENTICAL to what an apply
+ * would capture) and returns a preview — `dryRun:true`, a preview `snapshotId`, null
+ * dir/archive/manifest paths, NO hashing, NO tar, NO manifest, and NO write at all.
+ * `assertWritable` is NOT required in dry-run (nothing is written). tar is still
+ * resolved so an absent tar surfaces a WARN (the user learns --apply would fail), but
+ * the preview is still returned.
  *
  * @param {object} opts
  * @param {string}  opts.targetClaudeDir        absolute path to the governed dir
  * @param {string}  opts.mgrStateDir            absolute path to the .mgr-state dir
  * @param {string}  [opts.reason='']            user-supplied snapshot reason
  * @param {boolean} [opts.includeAuth=false]    opt in to capturing the auth-cache file
- * @param {(path:string, ctx:string)=>string} opts.assertWritable  governed-write gate (REQUIRED)
+ * @param {boolean} [opts.dryRun=false]         preview only — walk+filter, write nothing
+ * @param {(path:string, ctx:string)=>string} [opts.assertWritable]  governed-write gate (REQUIRED unless dryRun)
  * @param {() => Date} [opts.now]               clock injection (defaults to Date)
  * @param {object} [opts.seams]                 { resolveFn, spawnFn, readFileFn, mkdirFn }
  * @returns {Promise<SnapshotResult>}
@@ -130,7 +172,7 @@ function errMsg(e) {
 export async function createSnapshot(opts) {
   const bag = new DiagnosticBag();
   const o = opts && typeof opts === 'object' ? opts : {};
-  const { targetClaudeDir, mgrStateDir, reason = '', includeAuth = false, assertWritable } = o;
+  const { targetClaudeDir, mgrStateDir, reason = '', includeAuth = false, dryRun = false, assertWritable } = o;
   const now = typeof o.now === 'function' ? o.now : () => new Date();
   const seams = o.seams && typeof o.seams === 'object' ? o.seams : {};
   const resolveFn = seams.resolveFn ?? resolveTar;
@@ -148,23 +190,19 @@ export async function createSnapshot(opts) {
     return { ...empty, diagnostics: bag.all() };
   };
 
-  // 1. Validate inputs (fail-safe on a missing write gate — never bypass).
+  // 1. Validate inputs (fail-safe on a missing write gate — never bypass). The
+  //    write gate is REQUIRED only when a write will actually happen (not dry-run).
   if (!isNonEmptyStr(targetClaudeDir)) return fail('snapshot-bad-args', 'targetClaudeDir must be a non-empty string');
   if (!isNonEmptyStr(mgrStateDir)) return fail('snapshot-bad-args', 'mgrStateDir must be a non-empty string');
-  if (typeof assertWritable !== 'function') {
+  if (!dryRun && typeof assertWritable !== 'function') {
     return fail('snapshot-bad-args', 'assertWritable (the governed-write gate) must be injected');
   }
 
-  // 2. Resolve tar up front — no point walking if we cannot archive.
-  let tarPath;
-  try {
-    const r = resolveFn();
-    for (const d of r?.diagnostics ?? []) bag.add(d);
-    tarPath = r?.tarPath ?? null;
-  } catch (e) {
-    return fail('snapshot-tar-resolve-failed', `resolveTar failed: ${errMsg(e)}`);
-  }
-  if (!isNonEmptyStr(tarPath)) return fail('snapshot-tar-unavailable', 'system tar is unavailable; cannot create a snapshot');
+  // 2. Resolve tar up front. For --apply this is a hard prerequisite (no point
+  //    walking if we cannot archive); for a dry-run it is advisory (preview anyway).
+  const tarRes = resolveTarOrFail(resolveFn, dryRun, bag);
+  if (tarRes.hardFail) return fail(tarRes.hardFail.code, tarRes.hardFail.message);
+  const tarPath = tarRes.tarPath;
 
   // 3. Compute the snapshot id + destination paths.
   const id = makeSnapshotId(now());
@@ -178,6 +216,18 @@ export async function createSnapshot(opts) {
   // 5. Drop secrets (name OR content) — runs BEFORE tar so no credential is archived.
   const filter = filterSnapshotSecrets({ baseDir: targetClaudeDir, files: walk.files, includeAuth });
   for (const d of filter.diagnostics) bag.add(d);
+
+  // 5d. DRY-RUN short-circuit: walk + filter are done, which is the entire preview.
+  //     Return the kept/dropped partition with NO hashing, NO tar, NO manifest, NO
+  //     write — identical kept/dropped to what --apply would capture (same code path).
+  if (dryRun) {
+    return {
+      ok: true, dryRun: true,
+      snapshotId: id, snapshotDir: null, archivePath: null, manifestPath: null,
+      kept: filter.kept, dropped: filter.dropped, fileCount: filter.kept.length,
+      diagnostics: bag.all(),
+    };
+  }
 
   // Partial-progress failure: id/dir/archivePath/filter are now known, so surface
   // them alongside the error instead of the bare `empty` shell. Closes over the
