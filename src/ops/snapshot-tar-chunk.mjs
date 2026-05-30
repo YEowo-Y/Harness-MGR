@@ -33,22 +33,32 @@ export function hasNonAscii(s) {
   return false;
 }
 
+/** The argv COST of a member NAME in BYTES — `Buffer.byteLength(s,'utf8')`, the
+ *  real command-line cost on the OS (a multi-byte UTF-8 name costs MORE than its
+ *  UTF-16 `.length`). Budgeting in bytes (not code units) keeps each chunk safely
+ *  under the OS argv cap even for unicode-heavy names (#11). Buffer is a Node
+ *  global — this module still imports nothing. */
+function memberBytes(s) {
+  return Buffer.byteLength(s, 'utf8');
+}
+
 /**
  * Partition `files` into argv-budget-sized chunks for a `-c` create (chunk 0) +
  * `-r` append (chunks 1..n) sequence, with the UNICODE-SAFE invariant that EVERY
  * non-ASCII-named member is placed in chunk 0 (the only chunk written by the
  * wide-char-safe `-c` mode). Subsequent chunks are ASCII-only, safe to append.
  *
- * `fixedOverheadChars` is the cost the caller pays on EVERY spawn regardless of the
+ * `fixedOverheadBytes` is the cost the caller pays on EVERY spawn regardless of the
  * member list (tarPath + the fixed flags + archivePath + '-C' + baseDir + their
  * per-token separators), computed by the caller the same way it budgets the whole
- * command line. Each member contributes `member.length + 1` (the +1 mirrors the
- * caller's per-token join separator).
+ * command line — in UTF-8 BYTES (the caller uses Buffer.byteLength to match
+ * `memberBytes`). Each member contributes `memberBytes(member) + 1` (the +1
+ * mirrors the caller's per-token join separator).
  *
  * FAILURE MODES (chunks:null + a reason, so the caller fails cleanly — never an
  * oversized OR a corrupting spawn):
  *   - `tooLong`: a SINGLE member cannot fit even an otherwise-empty chunk
- *     (`fixedOverheadChars + member.length + 1 > budget`).
+ *     (`fixedOverheadBytes + memberBytes(member) + 1 > budget`).
  *   - `unicodeOverflow`: the non-ASCII members TOGETHER exceed one chunk's budget,
  *     so they cannot all ride chunk 0 — appending any of them via `-r` would corrupt
  *     it, so we refuse rather than corrupt. (Astronomically rare: hundreds of
@@ -58,26 +68,26 @@ export function hasNonAscii(s) {
  * whether that means "one empty-archive create" or "skip tar entirely".
  *
  * @param {string[]} files               POSIX-relative member paths (already validated)
- * @param {number}   fixedOverheadChars  per-spawn fixed argv cost (tarPath+flags+archive+-C+baseDir)
- * @param {number}   budget              max argv chars per spawn
+ * @param {number}   fixedOverheadBytes  per-spawn fixed argv cost (tarPath+flags+archive+-C+baseDir)
+ * @param {number}   budget              max argv BYTES per spawn (UTF-8; #11)
  * @returns {{ chunks: string[][]|null, tooLong?: string, unicodeOverflow?: boolean }}
  */
-export function chunkByArgvBudget(files, fixedOverheadChars, budget) {
+export function chunkByArgvBudget(files, fixedOverheadBytes, budget) {
   /** @type {string[]} */
   const nonAscii = [];
   /** @type {string[]} */
   const ascii = [];
   for (const f of files) {
     // A member that cannot fit even a fresh (empty) chunk is unchunkable.
-    if (fixedOverheadChars + f.length + 1 > budget) return { chunks: null, tooLong: f };
+    if (fixedOverheadBytes + memberBytes(f) + 1 > budget) return { chunks: null, tooLong: f };
     (hasNonAscii(f) ? nonAscii : ascii).push(f);
   }
 
   // Chunk 0 starts with ALL non-ASCII members (so they ride the wide-char-safe -c
   // create). If they alone overflow one chunk we must refuse — we cannot append a
   // non-ASCII member via -r without corruption.
-  let used = fixedOverheadChars;
-  for (const f of nonAscii) used += f.length + 1;
+  let used = fixedOverheadBytes;
+  for (const f of nonAscii) used += memberBytes(f) + 1;
   if (used > budget) return { chunks: null, unicodeOverflow: true };
 
   /** @type {string[][]} */
@@ -88,11 +98,11 @@ export function chunkByArgvBudget(files, fixedOverheadChars, budget) {
   // Greedily fill chunk 0 with as many ASCII members as fit, then spill the rest
   // into subsequent (ASCII-only) append chunks.
   for (const f of ascii) {
-    const cost = f.length + 1;
+    const cost = memberBytes(f) + 1;
     if (current.length > 0 && used + cost > budget) {
       chunks.push(current);
       current = [];
-      used = fixedOverheadChars;
+      used = fixedOverheadBytes;
     }
     current.push(f);
     used += cost;
