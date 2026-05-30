@@ -43,6 +43,20 @@ import { safeSpawn } from '../lib/safe-spawn.mjs';
 const NODE_PATH_RE = /^(?:[A-Za-z]:[\\/]|[\\/]).+\.(?:mjs|cjs|js)$/i;
 
 /**
+ * Spawn-spec descriptor for this module's safeSpawn call.
+ * Exported so spawn-spec-registry.mjs can register it with the guardrail, and
+ * so the safeSpawn schema below spreads from this single source of truth —
+ * the guarded pattern and the gated pattern are the SAME object reference.
+ *
+ * @type {Readonly<{id:string, allowSlashPositionals:true, positionalPattern:RegExp}>}
+ */
+export const HOOK_SYNTAX_SPAWN_SPEC = Object.freeze({
+  id: 'probe-hook-syntax',
+  allowSlashPositionals: /** @type {true} */ (true),
+  positionalPattern: NODE_PATH_RE,
+});
+
+/**
  * Node.js-checkable extensions (lowercased for comparison).
  * @type {ReadonlySet<string>}
  */
@@ -83,7 +97,14 @@ async function defaultRunNodeCheck(absPath) {
       // allowSlashPositionals: on POSIX the script path is `/abs/...`; opt out of
       // the slash-flag gate so it is validated by NODE_PATH_RE (a positional),
       // not rejected as a flag. On Windows the path is `C:\...` so this is a no-op.
-      schema: { allowedFlags: ['--check'], positionalPattern: NODE_PATH_RE, allowSlashPositionals: true, maxArgs: 2 },
+      // Spread from HOOK_SYNTAX_SPAWN_SPEC so the guarded pattern and the gated
+      // pattern are the SAME reference — no drift between the descriptor and the gate.
+      schema: {
+        allowedFlags: ['--check'],
+        positionalPattern: HOOK_SYNTAX_SPAWN_SPEC.positionalPattern,
+        allowSlashPositionals: HOOK_SYNTAX_SPAWN_SPEC.allowSlashPositionals,
+        maxArgs: 2,
+      },
       timeoutMs: 10000,
     });
     return { status: 'ok', detail: '' };
