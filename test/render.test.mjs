@@ -54,6 +54,59 @@ test('renderTable snapshot: defensive on a missing/empty result', () => {
   assert.match(out, /snapshotId/);
 });
 
+// ── snapshot:list / snapshot:gc (the new management cases) ─────────────────────────
+
+test('renderTable snapshot:list: one row per snapshot with completeness', () => {
+  const out = renderTable('snapshot:list', {
+    count: 2,
+    snapshots: [
+      { id: '2026-05-25T10-00-00Z', createdAt: '2026-05-25T00:00:00.000Z', reason: 'nightly', fileCount: 42, complete: true },
+      { id: '2026-05-20T10-00-00Z', complete: false }, // incomplete → empty cells + complete:no
+    ],
+  });
+  assert.match(out, /claude-mgr snapshot:list/);
+  assert.match(out, /2026-05-25T10-00-00Z/);
+  assert.match(out, /nightly/);
+  assert.match(out, /42/);
+  assert.match(out, /yes/); // complete:true
+  assert.match(out, /no/);  // complete:false (the incomplete row)
+});
+
+test('renderTable snapshot:list: defensive on a missing snapshots array', () => {
+  const out = renderTable('snapshot:list', {});
+  assert.match(out, /claude-mgr snapshot:list/); // header renders even with no rows
+});
+
+test('renderTable snapshot:gc dry-run: header counts + a "would delete" row per id', () => {
+  const out = renderTable('snapshot:gc', {
+    mode: 'dry-run',
+    deleted: [], wouldDelete: ['2026-05-20T10-00-00Z', '2026-05-18T10-00-00Z'], retained: ['2026-05-25T10-00-00Z'],
+    deletedCount: 0, wouldDeleteCount: 2, retainedCount: 1,
+  });
+  assert.match(out, /gc dry-run: would delete 2, retained 1/);
+  assert.match(out, /would delete/);
+  assert.match(out, /2026-05-20T10-00-00Z/);
+  assert.match(out, /2026-05-18T10-00-00Z/);
+  assert.doesNotMatch(out, /2026-05-25T10-00-00Z/); // retained id is not a delete row
+});
+
+test('renderTable snapshot:gc applied: header + a "deleted" row per id', () => {
+  const out = renderTable('snapshot:gc', {
+    mode: 'applied',
+    deleted: ['2026-05-20T10-00-00Z'], wouldDelete: [], retained: ['2026-05-25T10-00-00Z'],
+    deletedCount: 1, wouldDeleteCount: 0, retainedCount: 1,
+  });
+  assert.match(out, /gc applied: deleted 1, retained 1/);
+  assert.match(out, /2026-05-20T10-00-00Z/);
+});
+
+test('renderTable snapshot:gc: empty (nothing to delete) → header only, no rows table', () => {
+  const out = renderTable('snapshot:gc', {
+    mode: 'dry-run', deleted: [], wouldDelete: [], retained: [], deletedCount: 0, wouldDeleteCount: 0, retainedCount: 0,
+  });
+  assert.match(out, /gc dry-run: would delete 0, retained 0/);
+});
+
 // ── every other command case ─────────────────────────────────────────────────────
 
 test('renderTable inventory: one row per count metric', () => {
