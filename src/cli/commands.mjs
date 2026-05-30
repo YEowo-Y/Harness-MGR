@@ -30,6 +30,7 @@ import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
+import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
 import { selftestCommand } from './selftest-command.mjs';
 
 /**
@@ -357,7 +358,13 @@ export const COMMANDS = Object.freeze({
   // snapshotCommand takes an optional second `deps` arg; the registry passes only
   // ctx, so wrap it to use the default (real) deps.
   'snapshot': (ctx) => snapshotCommand(ctx),
+  // snapshot management: list (read-only) + gc (retention prune, DRY-RUN by default).
+  // Both take an optional second seam arg; the registry passes only ctx so they use
+  // the default (real) store functions.
+  'snapshot:list': (ctx) => snapshotListCommand(ctx),
+  'snapshot:gc': (ctx) => snapshotGcCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
 export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
+export { snapshotListCommand, snapshotGcCommand };
