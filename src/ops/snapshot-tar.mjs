@@ -75,11 +75,13 @@ const TAR_ALLOWED_FLAGS = Object.freeze(['-c', '-f', '-x', '-C', '--version']);
 const TAR_PATH_RE = /^[^\0-\x1F"'`|&;<>$*?]+$/;
 
 /**
- * Conservative byte budget for the assembled tar command line. The Windows
- * CreateProcess limit is ~32767 chars; we stay well under it (and leave room for
- * the exe path + fixed flags) so a snapshot of a normal `~/.claude` always fits and
- * an oversized tree fails cleanly via tar-too-many-files instead of a truncated
- * CreateProcess. (Direct-argv tradeoff — see the module header.)
+ * Conservative byte budget for the assembled tar command line. This is a
+ * heuristic safety margin, NOT an exact CreateProcess model: the Windows
+ * CreateProcess limit is ~32767 chars, and we stay well under it (leaving room
+ * for the exe path + fixed flags + per-arg quoting/marshalling overhead) so a
+ * snapshot of a normal `~/.claude` always fits and an oversized tree fails
+ * cleanly via tar-too-many-files instead of a truncated CreateProcess. (Direct-
+ * argv tradeoff — see the module header.)
  */
 const TAR_ARGV_BUDGET = 24000;
 
@@ -106,6 +108,21 @@ function tarSchema(argvLen) {
 /** True if any segment of a POSIX/Windows path is exactly `..` (traversal). */
 function hasTraversal(p) {
   return /(?:^|[\\/])\.\.(?:[\\/]|$)/.test(p);
+}
+
+/**
+ * True when a member path is NOT a safe relative path — a leading `/` or `\`
+ * (POSIX/UNC absolute), a `^[A-Za-z]:` drive prefix (Windows absolute), or a
+ * leading `@` (tar's concatenate-archive sigil). Any of these would let an
+ * absolute/foreign path become an archive member, so tar would READ a file
+ * OUTSIDE baseDir into the snapshot (information disclosure). The U5 walker only
+ * ever emits relative POSIX paths, so this is a defense-in-depth hardening of
+ * createSnapshotTar's EXPORTED contract for any future non-walker caller.
+ * @param {string} p
+ * @returns {boolean}
+ */
+function isNonRelativeMember(p) {
+  return p.startsWith('/') || p.startsWith('\\') || p.startsWith('@') || /^[A-Za-z]:/.test(p);
 }
 
 /**
@@ -306,6 +323,10 @@ function validateCreateArgs(o) {
     // Defense-in-depth: a `..` segment in a file entry could let the archive
     // escape baseDir; the walker never emits one, but refuse it here too.
     if (hasTraversal(f)) return `files[] entry must not contain a '..' segment: ${f}`;
+    // Defense-in-depth: a non-relative member (absolute /\ , drive C:, or a
+    // leading @ concat sigil) could make tar read a file OUTSIDE baseDir into
+    // the archive. The walker only emits relative POSIX paths; refuse the rest.
+    if (isNonRelativeMember(f)) return `files[] entry must be a relative path (no absolute/drive/@ prefix): ${f}`;
   }
   return '';
 }
