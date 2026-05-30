@@ -473,3 +473,68 @@ test('createSnapshot dryRun: still validates targetClaudeDir / mgrStateDir', asy
   assert.equal(a.ok, false);
   assert.equal(a.diagnostics[0].code, 'snapshot-bad-args');
 });
+
+// ── (12) follow-up #12: same-second id collision REFUSES + preserves the first ──
+
+test('createSnapshot #12: a same-id second --apply refuses and never overwrites the first', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('first\n', 'utf8')));
+  const snapDir = join(t.stateDir, 'snapshots', FIXED_ID);
+  try {
+    // First --apply at FIXED_ID: a writing spawn lays down a real files.tar and
+    // the manifest is written. Capture both as the golden baseline.
+    const first = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, reason: 'first',
+      assertWritable: PASS_GATE, now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: makeWritingSpawn() },
+    });
+    assert.equal(first.ok, true, JSON.stringify(first.diagnostics));
+    const tarBefore = readFileSync(join(snapDir, 'files.tar'));
+    const manBefore = readFileSync(join(snapDir, 'manifest.json'));
+
+    // Second --apply with the SAME injected clock → SAME second-resolution id →
+    // the id dir already exists. Supply a CLOBBERING spawn that would write
+    // DIFFERENT bytes if it ran; the collision guard must stop it before tar.
+    const clobberCalls = [];
+    const clobber = (spec) => {
+      clobberCalls.push(spec);
+      try { writeFileSync(spec.args[2], Buffer.from('CLOBBERED-DIFFERENT-BYTES')); } catch { /* ignore */ }
+      return Promise.resolve({ stdout: '', stderr: '' });
+    };
+    const second = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, reason: 'second',
+      assertWritable: PASS_GATE, now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: clobber },
+    });
+
+    // The second run REFUSES with the collision code (ok:false).
+    assert.equal(second.ok, false);
+    assert.equal(second.diagnostics.find((d) => d.code.startsWith('snapshot-')).code, 'snapshot-id-collision');
+    // The guard fired BEFORE tar — the clobbering spawn never ran.
+    assert.equal(clobberCalls.length, 0, 'tar must not run on a collision');
+    // GOLDEN: the first snapshot's artifacts are byte-identical (untouched). The
+    // manifest carries reason:'first' — a silent overwrite would rewrite it with
+    // reason:'second', so this byte-compare is the falsifiable oracle.
+    assert.ok(Buffer.compare(readFileSync(join(snapDir, 'files.tar')), tarBefore) === 0, 'files.tar must be unchanged');
+    assert.ok(Buffer.compare(readFileSync(join(snapDir, 'manifest.json')), manBefore) === 0, 'manifest.json must be unchanged');
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot #12: an EEXIST from mkdir → snapshot-id-collision, NO cleanup of the existing dir', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  const spies = makeRmSpies();
+  // Simulate the atomic non-recursive mkdir hitting an already-existing id dir.
+  const mkdirFn = () => { throw Object.assign(new Error('EEXIST: file already exists'), { code: 'EEXIST' }); };
+  const spawnFn = makeSpawn();
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: PASS_GATE,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn, mkdirFn, unlinkFn: spies.unlinkFn, rmdirFn: spies.rmdirFn },
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.diagnostics.find((d) => d.code.startsWith('snapshot-')).code, 'snapshot-id-collision');
+    // tar never ran (the collision is caught at mkdir, before the archive step).
+    assert.equal(spawnFn.calls.length, 0, 'no tar spawn on a collision');
+    // CRITICAL: cleanup must NOT run — the existing dir is the FIRST snapshot, not
+    // ours to delete. A wrong cleanup here would destroy a valid prior snapshot.
+    assert.deepEqual(spies.unlinked, [], 'collision must not unlink the existing snapshot');
+    assert.deepEqual(spies.rmdired, [], 'collision must not rmdir the existing snapshot');
+  } finally { t.cleanup(); }
+});
