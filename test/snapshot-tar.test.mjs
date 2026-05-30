@@ -341,17 +341,81 @@ test('createSnapshotTar: a filename that merely CONTAINS dots (not a `..` segmen
   assert.equal(res.ok, true);
 });
 
-test('createSnapshotTar: an oversized file list fails cleanly with tar-too-many-files, no spawn', async () => {
+// ── (5) D1 chunked archiving: -c first chunk, -r append each subsequent chunk ──
+
+test('createSnapshotTar: a large file list CHUNKS into -c + -r spawns and succeeds', async () => {
   const spawnFn = makeSpawn({ stdout: '' });
-  // Build enough long paths to blow the 24000-char argv budget.
+  // ~400 long paths (~74 chars each ≈ 29600 argv chars) overflow the 24000 budget,
+  // so the list is split across multiple spawns instead of failing.
   const files = [];
   for (let i = 0; i < 400; i++) files.push(`skills/${String(i).padStart(4, '0')}-${'x'.repeat(60)}/SKILL.md`);
   const res = await createSnapshotTar({
     tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn,
   });
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.ok(spawnFn.calls.length > 1, `expected >1 chunk spawn, got ${spawnFn.calls.length}`);
+  // FIRST spawn creates (-c); every SUBSEQUENT spawn appends (-r) into the same archive.
+  assert.equal(spawnFn.calls[0].args[0], '-c');
+  for (let i = 1; i < spawnFn.calls.length; i++) assert.equal(spawnFn.calls[i].args[0], '-r');
+  // Every chunk targets the same archive + baseDir, and each passes the real gate.
+  for (const spec of spawnFn.calls) {
+    assert.deepEqual(spec.args.slice(1, 5), ['-f', 'C:\\t\\a.tar', '-C', 'C:\\b']);
+    assert.equal(spec.schema.maxArgs, spec.args.length, 'tight per-chunk maxArgs');
+    assert.doesNotThrow(() => validateSpawnSpec(spec));
+  }
+  // Every member is archived exactly once across all chunks (no loss, no dup).
+  const archived = spawnFn.calls.flatMap((s) => s.args.slice(5));
+  assert.deepEqual(archived.slice().sort(), files.slice().sort());
+});
+
+test('createSnapshotTar: an injected small argvBudget forces multi-chunk with a few files', async () => {
+  // The DoD seam: a small budget makes a handful of files split into >=3 chunks
+  // (so a multi-chunk path is exercised WITHOUT materializing 500 real files).
+  const spawnFn = makeSpawn({ stdout: '' });
+  const files = ['agents/a.md', 'agents/b.md', 'skills/s/SKILL.md', 'commands/c.md', 'settings.json'];
+  const res = await createSnapshotTar({
+    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn, argvBudget: 75,
+  });
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.ok(spawnFn.calls.length >= 3, `expected >=3 chunks under a tiny budget, got ${spawnFn.calls.length}`);
+  assert.equal(spawnFn.calls[0].args[0], '-c');
+  assert.ok(spawnFn.calls.slice(1).every((s) => s.args[0] === '-r'), 'all but the first append');
+  const archived = spawnFn.calls.flatMap((s) => s.args.slice(5));
+  assert.deepEqual(archived.slice().sort(), files.slice().sort());
+});
+
+test('createSnapshotTar: a single member too long to fit any chunk → tar-path-too-long, no spawn', async () => {
+  const spawnFn = makeSpawn({ stdout: '' });
+  // One path longer than the (tiny) budget itself cannot be chunked.
+  const files = ['agents/ok.md', `skills/${'y'.repeat(200)}/SKILL.md`];
+  const res = await createSnapshotTar({
+    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn, argvBudget: 120,
+  });
   assert.equal(res.ok, false);
-  assert.equal(res.diagnostics[0].code, 'tar-too-many-files');
-  assert.equal(spawnFn.calls.length, 0, 'oversized list is refused before spawning (never truncates)');
+  assert.equal(res.diagnostics[0].code, 'tar-path-too-long');
+  assert.equal(spawnFn.calls.length, 0, 'never emits an oversized spawn');
+});
+
+test('createSnapshotTar: a FAILED append chunk surfaces tar-create-failed (partial archive)', async () => {
+  // First chunk (-c) succeeds; the second (-r) rejects → ok:false + tar-create-failed.
+  let n = 0;
+  const calls = [];
+  const spawnFn = (spec) => {
+    calls.push(spec);
+    n += 1;
+    if (n >= 2) return Promise.reject(Object.assign(new Error('tar: exit 1 on append'), { code: 1 }));
+    return Promise.resolve({ stdout: '', stderr: '' });
+  };
+  spawnFn.calls = calls;
+  const files = ['agents/a.md', 'agents/b.md', 'skills/s/SKILL.md', 'commands/c.md'];
+  const res = await createSnapshotTar({
+    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn, argvBudget: 75,
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.archivePath, null);
+  assert.equal(res.diagnostics[0].code, 'tar-create-failed');
+  assert.match(res.diagnostics[0].message, /append failed/);
+  assert.equal(calls[0].args[0], '-c', 'first chunk created before the append failed');
 });
 
 // ── never-throws on garbage input ─────────────────────────────────────────────
