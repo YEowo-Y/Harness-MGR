@@ -20,10 +20,17 @@
  * Correctness (a byte-identical round-trip INCLUDING unicode filenames) is the
  * headline DoD, so we pass the relative file paths as direct argv, which Node
  * marshals as wide-char arguments that bsdtar decodes correctly. The cost is the
- * Windows command-line length cap (~32 KiB): we BUDGET the argv up front and, when
- * a tree would exceed the safe budget, FAIL CLEANLY with a `tar-too-many-files`
- * diagnostic rather than silently truncating or corrupting a snapshot. A chunked /
- * list-file path for very large ASCII-only trees is a DEFERRED enhancement.
+ * Windows command-line length cap (~32 KiB): we BUDGET the argv per spawn and, when
+ * a tree would exceed it, CHUNK the file list (P3.D1) — the first chunk is created
+ * (`-c`) and each subsequent ASCII-only chunk is appended (`-r`) into the same
+ * archive, so a real `~/.claude` (664 files ≈ 28614 argv chars) archives without
+ * the old `tar-too-many-files` hard failure. UNICODE-SAFE APPEND: bsdtar's `-r`
+ * mode CORRUPTS a non-ASCII member name on Windows (it reads the appended arg
+ * through the OEM codepage, e.g. `ñ`→`_`), while `-c` marshals wide-chars correctly
+ * — so the chunker (see snapshot-tar-chunk.mjs) forces EVERY non-ASCII-named member
+ * into the first `-c` chunk; only pure-ASCII members are ever appended. The only
+ * clean failures are a single member too long for any chunk (`tar-path-too-long`)
+ * or non-ASCII members that together overflow one chunk (`tar-unicode-overflow`).
  *
  * WINDOWS-PRIMARY / no allowSlashPositionals: on Windows the absolute path
  * positionals are drive-letter paths (`C:\...`), which do NOT begin with `/`, so
@@ -47,6 +54,7 @@ import { tmpdir } from 'node:os';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { resolveCommand } from '../lib/resolve-command.mjs';
 import { safeSpawn } from '../lib/safe-spawn.mjs';
+import { chunkByArgvBudget } from './snapshot-tar-chunk.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -55,9 +63,15 @@ import { safeSpawn } from '../lib/safe-spawn.mjs';
  * no `-z`/`-j` (codec), no `--checkpoint*` (the classic exec-injection vector),
  * no `@` (concatenate-archive). A token not in this set and starting with `-`
  * (or `/`, by the default flag gate) is rejected `spawn-flag-not-allowed`.
+ *
+ * `-r` (append) is part of chunked archiving (P3.D1): a large file list is split
+ * into argv-budget-sized chunks, the FIRST written with `-c` (create) and each
+ * SUBSEQUENT one appended with `-r` into the same uncompressed archive. bsdtar
+ * (Windows System32) supports `-r -f <archive> -C <baseDir> <members...>`. `-r`
+ * cannot extract or run a codec, so it adds no new injection surface beyond `-c`.
  * @type {ReadonlyArray<string>}
  */
-const TAR_ALLOWED_FLAGS = Object.freeze(['-c', '-f', '-x', '-C', '--version']);
+const TAR_ALLOWED_FLAGS = Object.freeze(['-c', '-r', '-f', '-x', '-C', '--version']);
 
 /**
  * Second-belt positional pattern, applied by safe-spawn to EVERY non-flag token —
@@ -75,15 +89,19 @@ const TAR_ALLOWED_FLAGS = Object.freeze(['-c', '-f', '-x', '-C', '--version']);
 const TAR_PATH_RE = /^[^\0-\x1F"'`|&;<>$*?]+$/;
 
 /**
- * Conservative byte budget for the assembled tar command line. This is a
- * heuristic safety margin, NOT an exact CreateProcess model: the Windows
- * CreateProcess limit is ~32767 chars, and we stay well under it (leaving room
- * for the exe path + fixed flags + per-arg quoting/marshalling overhead) so a
- * snapshot of a normal `~/.claude` always fits and an oversized tree fails
- * cleanly via tar-too-many-files instead of a truncated CreateProcess. (Direct-
- * argv tradeoff — see the module header.)
+ * Conservative per-CHUNK byte budget for an assembled tar command line. The Windows
+ * CreateProcess limit is ~32767 chars (EMPIRICALLY confirmed on this box: a single
+ * spawn fails `ENAMETOOLONG` between ~32600 and ~33000 argv chars). We stay under it
+ * with headroom for the exe path + fixed flags + per-arg marshalling. A file list
+ * that would exceed this budget is SPLIT across a `-c` create + `-r` append sequence
+ * (P3.D1) rather than refused, so a real `~/.claude` (664 files ≈ 28614 argv chars)
+ * archives in a SINGLE chunk and a larger harness chunks cleanly. Failures: a SINGLE
+ * member too long for any chunk (tar-path-too-long), or non-ASCII members that
+ * together exceed one chunk (tar-unicode-overflow — they must all ride the unicode-
+ * safe `-c` chunk; see the chunker header). Injectable per-call via `argvBudget` so
+ * tests force multi-chunk with a handful of files. (Direct-argv tradeoff — header.)
  */
-const TAR_ARGV_BUDGET = 24000;
+const TAR_ARGV_BUDGET = 30000;
 
 /** Spawn timeout (ms) — generous for a large config tree, still bounded. */
 const TAR_TIMEOUT_MS = 60000;
@@ -221,9 +239,20 @@ export async function probeTarVersion(opts) {
  * walker), rooted at `baseDir`, written to `archivePath`. The relative file paths
  * are passed as DIRECT ARGV (`tar -c -f <archive> -C <baseDir> a b c ...`) so the
  * Windows bsdtar decodes unicode names correctly (the `-T` list-file form cannot
- * — see the module header). When the assembled command line would exceed the safe
- * argv budget, the call FAILS CLEANLY with `tar-too-many-files` instead of
- * truncating. Never throws.
+ * — see the module header).
+ *
+ * CHUNKED (P3.D1): when the member list would exceed the per-spawn argv budget the
+ * list is SPLIT — the FIRST chunk is created (`-c`) and each subsequent chunk is
+ * APPENDED (`-r`) into the same archive — so a real `~/.claude` (664 files) archives
+ * in a single chunk and a larger harness chunks cleanly. Every chunk's argv passes
+ * the SAME safe-spawn schema (allowedFlags incl. `-r`, the same TAR_PATH_RE, an exact
+ * maxArgs). UNICODE-SAFE: the chunker forces every non-ASCII-named member into the
+ * `-c` chunk (Windows bsdtar `-r` corrupts non-ASCII names — see the chunker header),
+ * so only ASCII members are appended. If ANY chunk spawn fails the call returns
+ * `{ ok:false }` + a diagnostic (the caller cleans up the partial archive). Two clean
+ * failures (never an oversized OR corrupting spawn): a single member too long for any
+ * chunk → `tar-path-too-long`; non-ASCII members that together overflow one chunk →
+ * `tar-unicode-overflow`. Never throws.
  *
  * @param {object} opts
  * @param {string}   opts.tarPath      absolute path to tar
@@ -231,6 +260,7 @@ export async function probeTarVersion(opts) {
  * @param {string}   opts.baseDir      absolute root the relative paths resolve under
  * @param {string[]} opts.files        POSIX-relative file paths to archive (no `..`)
  * @param {string}   [opts.cwd]        spawn cwd (defaults to os.tmpdir())
+ * @param {number}   [opts.argvBudget] per-chunk argv char budget (defaults TAR_ARGV_BUDGET)
  * @param {(spec:object)=>Promise<{stdout:string,stderr:string}>} [opts.spawnFn]  spawn seam
  * @returns {Promise<{ ok: boolean, archivePath: string|null, diagnostics: Diagnostic[] }>}
  */
@@ -246,25 +276,57 @@ export async function createSnapshotTar(opts) {
 
   const { tarPath, archivePath, baseDir, files, cwd = tmpdir() } = o;
   const spawnFn = o.spawnFn ?? safeSpawn;
+  const budget = Number.isFinite(o.argvBudget) && o.argvBudget > 0 ? o.argvBudget : TAR_ARGV_BUDGET;
 
-  const args = ['-c', '-f', archivePath, '-C', baseDir, ...files];
-  // Budget the whole command line (exe + every arg + a join separator each) so an
-  // oversized tree is refused, never silently truncated by CreateProcess.
-  const argvChars = tarPath.length + args.reduce((n, a) => n + a.length + 1, 0);
-  if (argvChars > TAR_ARGV_BUDGET) {
-    return fail('tar-too-many-files',
-      `snapshot file list (${files.length} files, ~${argvChars} argv chars) exceeds the safe ` +
-      `command-line budget (${TAR_ARGV_BUDGET}); chunked archiving is a deferred enhancement`);
+  // Fixed per-spawn argv cost: exe + the fixed flags/paths + their join separators.
+  // Mirrors the old single-spawn `tarPath + Σ(arg.length+1)` budgeting, minus the
+  // members (which the chunker accounts for per-chunk).
+  const fixed = ['-c', '-f', archivePath, '-C', baseDir];
+  const fixedOverhead = tarPath.length + fixed.reduce((n, a) => n + a.length + 1, 0);
+
+  const { chunks, tooLong, unicodeOverflow } = chunkByArgvBudget(files, fixedOverhead, budget);
+  if (chunks === null && unicodeOverflow) {
+    return fail('tar-unicode-overflow',
+      `the non-ASCII-named snapshot members exceed a single tar command-line budget (${budget}); ` +
+      `they cannot all ride the unicode-safe create chunk and bsdtar's append corrupts non-ASCII names`);
+  }
+  if (chunks === null) {
+    return fail('tar-path-too-long',
+      `a single snapshot member exceeds the per-spawn argv budget (${budget}) and cannot be chunked: ${tooLong}`);
   }
 
+  // Empty list → one empty-archive create (no members). Otherwise: -c the first
+  // chunk, -r (append) each subsequent chunk into the same archive.
+  const batches = chunks.length === 0 ? [[]] : chunks;
+  const ctx = { spawnFn, tarPath, archivePath, baseDir, cwd };
+  for (let i = 0; i < batches.length; i += 1) {
+    const mode = i === 0 ? '-c' : '-r';
+    const err = await runTarChunk(ctx, mode, batches[i]);
+    if (err) return fail('tar-create-failed', `tar ${mode === '-c' ? 'create' : 'append'} failed: ${err}`);
+  }
+  return { ok: true, archivePath, diagnostics: bag.all() };
+}
+
+/**
+ * Spawn ONE tar create/append for a single chunk through safe-spawn. Returns an
+ * error message string on failure (so the caller turns it into a diagnostic) or
+ * null on success. `mode` is `-c` (create, first chunk) or `-r` (append). The
+ * members are validated upstream (validateCreateArgs) and re-gated by the schema.
+ * Never throws.
+ * @param {{spawnFn:(spec:object)=>Promise<unknown>, tarPath:string, archivePath:string, baseDir:string, cwd:string}} ctx
+ * @param {string} mode @param {string[]} members @returns {Promise<string|null>}
+ */
+async function runTarChunk(ctx, mode, members) {
+  const { spawnFn, tarPath, archivePath, baseDir, cwd } = ctx;
+  const args = [mode, '-f', archivePath, '-C', baseDir, ...members];
   try {
     await spawnFn({
       exe: tarPath, args, cwd, allowedCwds: [cwd],
       schema: tarSchema(args.length), timeoutMs: TAR_TIMEOUT_MS,
     });
-    return { ok: true, archivePath, diagnostics: bag.all() };
+    return null;
   } catch (e) {
-    return fail('tar-create-failed', `tar create failed: ${errMsg(e)}`);
+    return errMsg(e);
   }
 }
 
