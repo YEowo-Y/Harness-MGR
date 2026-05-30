@@ -92,7 +92,9 @@ const TAR_PATH_RE = /^[^\0-\x1F"'`|&;<>$*?]+$/;
  * Conservative per-CHUNK byte budget for an assembled tar command line. The Windows
  * CreateProcess limit is ~32767 chars (EMPIRICALLY confirmed on this box: a single
  * spawn fails `ENAMETOOLONG` between ~32600 and ~33000 argv chars). We stay under it
- * with headroom for the exe path + fixed flags + per-arg marshalling. A file list
+ * with headroom for the exe path + fixed flags + per-arg marshalling. We budget in
+ * UTF-8 BYTES (Buffer.byteLength; #11) — a multi-byte name's byte count >= its UTF-16
+ * length, so byte-budgeting OVER-counts vs the char cap and errs SAFE. A file list
  * that would exceed this budget is SPLIT across a `-c` create + `-r` append sequence
  * (P3.D1) rather than refused, so a real `~/.claude` (664 files ≈ 28614 argv chars)
  * archives in a SINGLE chunk and a larger harness chunks cleanly. Failures: a SINGLE
@@ -254,13 +256,20 @@ export async function probeTarVersion(opts) {
  * chunk → `tar-path-too-long`; non-ASCII members that together overflow one chunk →
  * `tar-unicode-overflow`. Never throws.
  *
+ * CALLER CONTRACT — WRITE GATE (#9b): createSnapshotTar does NOT call
+ * assertWritable on `archivePath`; it is a low-level tar wrapper. The CALLER must
+ * validate `archivePath` through the governed-write gate (assertWritable) BEFORE
+ * invoking, so the spawn only ever writes into an approved location. The U8
+ * orchestrator (snapshot.mjs) gates it before the spawn; any future caller (e.g.
+ * the apply path P3.U12) reusing this function MUST do the same.
+ *
  * @param {object} opts
  * @param {string}   opts.tarPath      absolute path to tar
  * @param {string}   opts.archivePath  absolute path of the archive to write
  * @param {string}   opts.baseDir      absolute root the relative paths resolve under
  * @param {string[]} opts.files        POSIX-relative file paths to archive (no `..`)
  * @param {string}   [opts.cwd]        spawn cwd (defaults to os.tmpdir())
- * @param {number}   [opts.argvBudget] per-chunk argv char budget (defaults TAR_ARGV_BUDGET)
+ * @param {number}   [opts.argvBudget] per-chunk argv BYTE budget (UTF-8; defaults TAR_ARGV_BUDGET)
  * @param {(spec:object)=>Promise<{stdout:string,stderr:string}>} [opts.spawnFn]  spawn seam
  * @returns {Promise<{ ok: boolean, archivePath: string|null, diagnostics: Diagnostic[] }>}
  */
@@ -282,7 +291,10 @@ export async function createSnapshotTar(opts) {
   // Mirrors the old single-spawn `tarPath + Σ(arg.length+1)` budgeting, minus the
   // members (which the chunker accounts for per-chunk).
   const fixed = ['-c', '-f', archivePath, '-C', baseDir];
-  const fixedOverhead = tarPath.length + fixed.reduce((n, a) => n + a.length + 1, 0);
+  // Byte-accurate budgeting (#11): count UTF-8 bytes, not UTF-16 code units, so a
+  // unicode-heavy archivePath/baseDir can't undercount vs the OS argv cap (the
+  // chunker's memberBytes accounts for member names the same way).
+  const fixedOverhead = Buffer.byteLength(tarPath, 'utf8') + fixed.reduce((n, a) => n + Buffer.byteLength(a, 'utf8') + 1, 0);
 
   const { chunks, tooLong, unicodeOverflow } = chunkByArgvBudget(files, fixedOverhead, budget);
   if (chunks === null && unicodeOverflow) {
