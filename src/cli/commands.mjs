@@ -29,7 +29,7 @@ import { loaderConfidence } from '../analysis/load-order.mjs';
 import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
-import { auditCommand, driftCommand } from './ops-commands.mjs';
+import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { selftestCommand } from './selftest-command.mjs';
 
 /**
@@ -354,7 +354,10 @@ export const COMMANDS = Object.freeze({
   'doctor': doctorCommand,
   'audit': auditCommand,
   'drift': driftCommand,
+  // snapshotCommand takes an optional second `deps` arg; the registry passes only
+  // ctx, so wrap it to use the default (real) deps.
+  'snapshot': (ctx) => snapshotCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, selftestCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
