@@ -61,6 +61,7 @@ function renderBody(canonical, result) {
     case 'doctor': return doctorTable(r);
     case 'audit': return auditTable(r);
     case 'drift': return driftTable(r);
+    case 'snapshot': return snapshotTable(r);
     default: return kvTable(r);
   }
 }
@@ -206,6 +207,29 @@ function driftTable(r) {
   return formatTable([
     { key: 'change', header: 'change' },
     { key: 'path', header: 'path' },
+  ], rows);
+}
+
+/**
+ * snapshot → a key/value summary: mode (dry-run|applied), snapshotId, file/kept/
+ * drop counts, and on a successful apply the archive + manifest paths. Defensive —
+ * missing fields render as empty cells. @param {Record<string, unknown>} r
+ */
+function snapshotTable(r) {
+  const rows = [
+    { field: 'mode', value: r.mode },
+    { field: 'snapshotId', value: r.snapshotId },
+    { field: 'fileCount', value: r.fileCount },
+    { field: 'keptCount', value: r.keptCount },
+    { field: 'droppedCount', value: r.droppedCount },
+  ];
+  if (r.mode === 'applied') {
+    rows.push({ field: 'archivePath', value: r.archivePath });
+    rows.push({ field: 'manifestPath', value: r.manifestPath });
+  }
+  return formatTable([
+    { key: 'field', header: 'field' },
+    { key: 'value', header: 'value' },
   ], rows);
 }
 
