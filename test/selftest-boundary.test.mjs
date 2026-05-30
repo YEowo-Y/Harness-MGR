@@ -302,3 +302,19 @@ test('all diagnostics from checkBoundary carry phase:boundary', () => {
     assert.equal(d.phase, 'boundary', `diagnostic missing phase:boundary -- ${JSON.stringify(d)}`);
   }
 });
+
+// ── J. Spawn-spec guardrail end-to-end via checkBoundary over real src ────
+// Proves the wiring: the same path selftest --boundary (selftest-command.mjs:286)
+// and release-gate step 4 (release-gate.mjs:144) use emits zero spawn-spec-* errors.
+
+test('checkBoundary over real src emits zero spawn-spec-* errors', () => {
+  const { diagnostics } = checkBoundary({ srcDir: repoSrc });
+  const spawnSpecErrors = diagnostics.filter(
+    (d) => d.severity === 'error' && typeof d.code === 'string' && d.code.startsWith('spawn-spec-'),
+  );
+  assert.deepEqual(
+    spawnSpecErrors,
+    [],
+    `real registry must be clean through checkBoundary, got: ${JSON.stringify(spawnSpecErrors)}`,
+  );
+});
