@@ -37,6 +37,12 @@ function fixtureFiles() {
     { rel: 'binary.dat', bytes: allBytes },
     { rel: 'skills/nested/SKILL.md', bytes: Buffer.from('# nested skill\nline2\n', 'utf8') },
     { rel: 'commands/café-señor-日本語.md', bytes: Buffer.from('unicode filename payload', 'utf8') },
+    // Follow-up #8(b): a real file literally named `@weird.md` INSIDE a walked
+    // subdir. Its rel path `agents/@weird.md` has a NON-LEADING `@`, so it passes
+    // createSnapshotTar's non-relative-member guard and must round-trip literally
+    // (proving a non-leading @ member is archived as a file, never spliced as the
+    // tar concatenate-archive sigil).
+    { rel: 'agents/@weird.md', bytes: Buffer.from('at-prefixed filename in a subdir\n', 'utf8') },
   ];
 }
 
