@@ -332,3 +332,59 @@ test('a non-array argv (undefined / null / number) does not throw → code 2', a
     });
   }
 });
+
+// ── snapshot list / gc routing (the two-word canonicalize) ────────────────────────
+
+test('canonicalize: `snapshot list` → snapshot:list (empty list on minimal, exit 0)', async () => {
+  const out = await run(['snapshot', 'list', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'snapshot:list'); // two-word collapsed to the canonical key
+  assert.deepEqual(env.result.snapshots, []); // no .mgr-state/snapshots under the fixture
+  assert.equal(env.result.count, 0);
+});
+
+test('canonicalize: `snapshot gc` with no criterion → snapshot:gc, gc-no-criterion warn, deletes nothing', async () => {
+  const out = await run(['snapshot', 'gc', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0); // a warn is not an error
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'snapshot:gc');
+  assert.equal(env.result.mode, 'dry-run'); // no --apply
+  assert.deepEqual(env.result.deleted, []);
+  assert.deepEqual(env.result.wouldDelete, []);
+  assert.ok(env.diagnostics.some((d) => d.code === 'gc-no-criterion' && d.severity === 'warn'));
+});
+
+test('canonicalize: bare `snapshot` stays the create command (dry-run preview), NOT snapshot:list/gc', async () => {
+  const out = await run(['snapshot', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'snapshot'); // bare → the create command, not a sub-verb
+  assert.equal(env.result.mode, 'dry-run');
+});
+
+test('snapshot gc: --keep flag is parsed as a value flag and reaches the handler', async () => {
+  // --keep 2 is a value flag; with no snapshots present nothing is pruned, but the
+  // criterion is accepted (no gc-no-criterion warn) → exit 0, dry-run, empty lists.
+  const out = await run(['snapshot', 'gc', '--keep', '2', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.equal(env.command, 'snapshot:gc');
+  assert.ok(!env.diagnostics.some((d) => d.code === 'gc-no-criterion'), 'a valid --keep is a criterion');
+  assert.deepEqual(env.result.wouldDelete, []);
+});
+
+test('snapshot gc: a bad --keep value emits gc-keep-invalid warn (and falls back to no-criterion)', async () => {
+  const out = await run(['snapshot', 'gc', '--keep', 'abc', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.ok(env.diagnostics.some((d) => d.code === 'gc-keep-invalid' && d.severity === 'warn'));
+  // With the only criterion invalid, gc refuses to delete (no-criterion path).
+  assert.ok(env.diagnostics.some((d) => d.code === 'gc-no-criterion'));
+});
+
+test('snapshot list: default table format renders the snapshot:list header', async () => {
+  const out = await run(['snapshot', 'list', '--config-dir', MIN]);
+  assert.equal(out.code, 0);
+  assert.ok(typeof out.stdout === 'string' && out.stdout.includes('snapshot:list'));
+});
