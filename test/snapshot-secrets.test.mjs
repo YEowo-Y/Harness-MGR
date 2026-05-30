@@ -188,6 +188,84 @@ test('U6 a non-lockfile config WITH the same integrity hash IS dropped by conten
   assert.equal(res.dropped[0].by, 'content', 'dropped by content');
 });
 
+// ---------------------------------------------------------------------------
+// follow-up #10 — prose (.md/.markdown) entropy exemption
+// ---------------------------------------------------------------------------
+
+// A 43-char high-entropy base64 run that the entropy leg WOULD flag by default.
+// Deterministic (no Math.random) so the oracle is reproducible.
+const ENTROPY_RUN = (() => {
+  let s = 0xdeadbeef >>> 0;
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) { s = (Math.imul(1664525, s) + 1013904223) >>> 0; bytes[i] = s & 0xff; }
+  return Buffer.from(bytes).toString('base64');
+})();
+// Prose body carrying the entropy run as an inline base64 example (the real-world
+// false-positive shape: a high-entropy run embedded in Markdown prose).
+const PROSE_WITH_ENTROPY = `# Example\n\nA base64 token example: \`${ENTROPY_RUN}\`\n\nSee the docs.`;
+// A real PEM pasted into a prose file — MUST still be caught by the PEM leg.
+const PROSE_WITH_PEM = `# Notes\n\nPaste your key:\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEA\n-----END OPENSSH PRIVATE KEY-----\n`;
+
+test('U6/#10 a PROSE .md with a high-entropy run is KEPT (entropy leg skipped)', () => {
+  const res = filterSnapshotSecrets({
+    baseDir: '/virtual',
+    files: ['skills/foo/SKILL.md'],
+    readFileFn: () => PROSE_WITH_ENTROPY,
+  });
+  assert.deepStrictEqual(res.kept, ['skills/foo/SKILL.md'], 'prose .md with entropy run kept');
+  assert.deepStrictEqual(res.dropped, [], 'nothing dropped — entropy suppressed for prose');
+});
+
+test('U6/#10 a .markdown file with a high-entropy run is also KEPT', () => {
+  const res = filterSnapshotSecrets({
+    baseDir: '/virtual',
+    files: ['skills/foo/GUIDE.markdown'],
+    readFileFn: () => PROSE_WITH_ENTROPY,
+  });
+  assert.deepStrictEqual(res.kept, ['skills/foo/GUIDE.markdown'], '.markdown with entropy run kept');
+  assert.deepStrictEqual(res.dropped, [], 'nothing dropped for .markdown prose');
+});
+
+test('U6/#10 a PROSE .md with a real PEM is STILL DROPPED (by:content, kind:pem)', () => {
+  const res = filterSnapshotSecrets({
+    baseDir: '/virtual',
+    files: ['skills/foo/leaked.md'],
+    readFileFn: () => PROSE_WITH_PEM,
+  });
+  assert.deepStrictEqual(res.kept, [], 'leaked.md not kept');
+  assert.equal(res.dropped.length, 1, 'exactly one drop');
+  assert.equal(res.dropped[0].path, 'skills/foo/leaked.md');
+  assert.equal(res.dropped[0].by, 'content', 'PEM in prose dropped by content');
+  assert.equal(res.dropped[0].kind, 'pem', 'PEM leg still fires for prose');
+});
+
+test('U6/#10 a NON-prose config.json with the SAME entropy run STILL DROPS (by:content, kind:entropy)', () => {
+  // Falsifiable counterpart: the entropy exemption is prose-scoped, NOT a blanket
+  // bypass. The identical run in a .json file is content-sniffed and dropped.
+  const res = filterSnapshotSecrets({
+    baseDir: '/virtual',
+    files: ['config.json'],
+    readFileFn: () => `{"key":"${ENTROPY_RUN}"}`,
+  });
+  assert.deepStrictEqual(res.kept, [], 'config.json not kept');
+  assert.equal(res.dropped.length, 1, 'config.json dropped');
+  assert.equal(res.dropped[0].by, 'content', 'dropped by content');
+  assert.equal(res.dropped[0].kind, 'entropy', 'entropy leg still applies to non-prose');
+});
+
+test('U6/#10 a prose .md whose BASENAME matches a secret glob is STILL dropped by:name', () => {
+  // The prose exemption only suppresses the ENTROPY leg, not the name matcher.
+  // A `*-token*` basename still drops even with benign prose content.
+  const res = filterSnapshotSecrets({
+    baseDir: '/virtual',
+    files: ['skills/foo/refresh-token.md'],
+    readFileFn: () => PROSE_WITH_ENTROPY, // benign-by-content prose
+  });
+  assert.deepStrictEqual(res.kept, [], 'token-named .md not kept');
+  assert.equal(res.dropped.length, 1, 'token-named .md dropped');
+  assert.equal(res.dropped[0].by, 'name', 'dropped by name matcher, not entropy');
+});
+
 test('U6 a per-file read error degrades silently (keeps the file, never throws)', () => {
   // A benign-named file whose read throws must be KEPT (name matcher said keep,
   // content unavailable) — not dropped, not thrown.
