@@ -19,7 +19,7 @@
  */
 
 import { join, relative, sep } from 'node:path';
-import { readdirSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, lstatSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { assertWritable } from '../paths.mjs';
@@ -170,9 +170,23 @@ export function gatherTrackedState(opts) {
     if (h !== null) files[name] = h;
   }
 
-  // Recursively hash each tracked directory.
+  // Recursively hash each tracked directory. Guard the ROOT against symlinks
+  // BEFORE walking: collectDirFiles only checks dir ENTRIES, so a symlinked
+  // TRACKED_DIRS root (e.g. skills/ being a directory symlink pointing OUTSIDE the
+  // governed tree) would otherwise have its TARGET enumerated by readdirSync —
+  // hashing out-of-tree files into the drift fingerprint + lockfile. lstatSync
+  // reports the symlink itself without following it; a real dir is false, so normal
+  // roots are never over-rejected. Mirrors snapshot-walk.mjs's root guard
+  // (follow-up #7). (A Windows junction — not a symlink — is a separate vector the
+  // realpath-gated WRITE path covers; drift hashing here is read-only.)
   for (const name of TRACKED_DIRS) {
-    collectDirFiles(join(configDir, name), configDir, files, 0);
+    const abs = join(configDir, name);
+    try {
+      if (lstatSync(abs).isSymbolicLink()) continue; // never follow a symlinked root
+    } catch {
+      continue; // absent / unreadable root — benign, nothing to hash
+    }
+    collectDirFiles(abs, configDir, files, 0);
   }
 
   const fingerprint = sha256Hex(Buffer.from(stableStringify(files)));
