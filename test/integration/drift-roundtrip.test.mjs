@@ -14,7 +14,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gatherTrackedState, writeLockfile, readLockfile } from '../../src/discovery/probe-state.mjs';
@@ -163,5 +163,60 @@ test('added + removed detected: new file added and existing file deleted after b
     assert.equal(result.diagnostics[0].code, 'drift-detected');
   } finally {
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Test 4 (follow-up #7): a symlinked TRACKED_DIRS root is NOT followed/hashed
+// ---------------------------------------------------------------------------
+
+test('symlinked tracked-dir root (skills/ -> outside) is NOT followed — no out-of-tree hashing (#7)', () => {
+  const tmp = makeTempDir();
+  // An OUTSIDE dir (isolated under the OS tmp root) holding sentinels that must NEVER
+  // be hashed into the drift fingerprint by following a symlinked root.
+  const outside = mkdtempSync(join(tmpdir(), 'mgr-drift-outside-'));
+  try {
+    // A legitimate sibling dir provides a real file → proves the walk still works
+    // (the root guard must not over-reject a real directory).
+    mkdirSync(join(tmp, 'agents'), { recursive: true });
+    writeFileSync(join(tmp, 'agents', 'a.md'), '# real agent');
+
+    writeFileSync(join(outside, 'STOLEN-OUTSIDE.md'), 'must not be hashed');
+    writeFileSync(join(outside, 'id_rsa'), 'must not be hashed');
+
+    let symlinked = false;
+    try {
+      // skills/ ITSELF is a directory symlink (a TRACKED_DIRS root) pointing outside.
+      // 'dir' (NOT 'junction') so lstatSync().isSymbolicLink() is true — the exact
+      // case the root guard catches. May throw without Developer Mode → graceful skip.
+      symlinkSync(outside, join(tmp, 'skills'), 'dir');
+      symlinked = true;
+    } catch {
+      symlinked = false;
+    }
+
+    const { state, diagnostics } = gatherTrackedState({ configDir: tmp });
+    // A symlinked root degrades silently (module convention: walk failures emit no
+    // diagnostic; the only diagnostic is discover-bad-root for a bad configDir).
+    assert.equal(diagnostics.length, 0, 'a symlinked root must not raise a diagnostic');
+    // The real sibling file is still hashed → the guard does not over-reject real dirs.
+    assert.ok(Object.prototype.hasOwnProperty.call(state.files, 'agents/a.md'),
+      'a real tracked dir must still be walked + hashed');
+    // No out-of-tree content leaks into the fingerprint (regardless of symlink success).
+    const keys = Object.keys(state.files);
+    assert.equal(keys.some((k) => k.includes('STOLEN-OUTSIDE')), false,
+      'outside sentinel must not be hashed via a symlinked root');
+    assert.equal(keys.some((k) => k.endsWith('id_rsa')), false,
+      'outside SSH-key-named file must not be hashed via a symlinked root');
+    if (symlinked) {
+      // The symlinked root short-circuits before readdirSync → nothing under skills/.
+      // PRE-FIX this FAILS: readdirSync followed the symlink and hashed skills/id_rsa
+      // + skills/STOLEN-OUTSIDE.md into state.files.
+      assert.equal(keys.some((k) => k.startsWith('skills/')), false,
+        'a symlinked skills/ root must not be descended');
+    }
+  } finally {
+    try { rmSync(outside, { recursive: true, force: true }); } catch { /* best-effort */ }
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });
