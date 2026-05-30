@@ -178,3 +178,53 @@ test('snapshotCommand: tolerates a missing args object (dry-run, no throw)', asy
   assert.equal(calls[0].reason, '');
   assert.equal(calls[0].includeAuth, false);
 });
+
+// ── (g) D3 OUTPUT HONESTY: a FAILED --apply must NOT surface archive/manifest paths ─
+
+test('snapshotCommand D3: a failed --apply result nulls archivePath + manifestPath', async () => {
+  // createSnapshot returns ok:false but (defensively) still carries the partial-progress
+  // archivePath. summarizeSnapshot must NOT echo a path for a file that was never written
+  // (or was cleaned up by D2) — both paths must come back null.
+  const loadPaths = () => Promise.resolve({ assertWritable: (p) => p });
+  const createFn = () => Promise.resolve({
+    ok: false,
+    snapshotId: '2026-05-27T00-00-00Z',
+    snapshotDir: 'C:\\state\\snapshots\\2026-05-27T00-00-00Z',
+    archivePath: 'C:\\state\\snapshots\\2026-05-27T00-00-00Z\\files.tar',
+    manifestPath: 'C:\\state\\snapshots\\2026-05-27T00-00-00Z\\manifest.json',
+    kept: ['agents/a.md'], dropped: [], fileCount: 1,
+    diagnostics: [{ severity: 'error', code: 'snapshot-archive-failed', message: 'x', phase: 'snapshot' }],
+  });
+  const out = await snapshotCommand(
+    { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
+    { loadPaths, createFn },
+  );
+  const r = out.result;
+  assert.equal(r.mode, 'applied');
+  assert.equal(r.ok, false);
+  // The lie-guard: NO archive/manifest path on a failed apply, even though the result carried them.
+  assert.equal(r.archivePath, null, 'no archivePath surfaced for a failed apply');
+  assert.equal(r.manifestPath, null, 'no manifestPath surfaced for a failed apply');
+  // The honest fields (id + counts) are still reported.
+  assert.equal(r.snapshotId, '2026-05-27T00-00-00Z');
+  assert.equal(r.keptCount, 1);
+});
+
+test('snapshotCommand D3: a SUCCESSFUL --apply still surfaces both paths', async () => {
+  // Guardrail: the null-on-failure logic must not strip paths from a successful apply.
+  const loadPaths = () => Promise.resolve({ assertWritable: (p) => p });
+  const createFn = () => Promise.resolve({
+    ok: true,
+    snapshotId: '2026-05-27T00-00-00Z',
+    archivePath: 'C:\\state\\snapshots\\id\\files.tar',
+    manifestPath: 'C:\\state\\snapshots\\id\\manifest.json',
+    kept: ['agents/a.md'], dropped: [], fileCount: 1, diagnostics: [],
+  });
+  const out = await snapshotCommand(
+    { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
+    { loadPaths, createFn },
+  );
+  assert.equal(out.result.ok, true);
+  assert.ok(out.result.archivePath.endsWith('files.tar'));
+  assert.ok(out.result.manifestPath.endsWith('manifest.json'));
+});
