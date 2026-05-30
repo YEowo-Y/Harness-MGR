@@ -1,0 +1,304 @@
+/**
+ * P3.U8 — snapshot.test.mjs (orchestrator unit tests).
+ *
+ * Drives createSnapshot with a REAL temp tree (so the U5 walker + U6 secrets
+ * filter run against real files) but an INJECTED resolveFn + spawnFn, so NO real
+ * tar process is spawned. The assertions prove the WIRING:
+ *   - the kept/dropped partition flows from the secrets filter,
+ *   - a planted secret is DROPPED and NEVER appears in the file list handed to
+ *     the tar spawn (it can't enter the archive — the headline security property),
+ *   - the manifest records carry the correct sha256 of the kept file bytes,
+ *   - assertWritable is REQUIRED (absent → ok:false + diagnostic, no bypass),
+ *   - a tar failure / manifest-write failure each → ok:false + the right code,
+ *   - an unreadable kept file is skipped + warned, snapshot still succeeds,
+ *   - never-throws on garbage input.
+ *
+ * The real create→extract→byte-compare oracle lives in
+ * test/integration/snapshot-roundtrip.test.mjs.
+ */
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { createSnapshot } from '../src/ops/snapshot.mjs';
+
+const FIXED_NOW = () => new Date('2026-05-27T00:00:00.000Z');
+const FIXED_ID = '2026-05-27T00-00-00Z';
+const TARPATH = 'C:\\Windows\\System32\\tar.exe';
+const PASS_GATE = (p) => p; // passthrough write gate (returns canonical = input)
+
+/** sha256 hex over a Buffer (mirrors the module under test). */
+function sha256Hex(buf) {
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+/** A recording resolveTar seam returning a fixed tarPath + no diagnostics. */
+function makeResolve(tarPath = TARPATH) {
+  const calls = [];
+  const fn = () => { calls.push(true); return { tarPath, diagnostics: [] }; };
+  fn.calls = calls;
+  return fn;
+}
+
+/** A recording createSnapshotTar spawn seam. Records the spec; resolves/rejects. */
+function makeSpawn(outcome = {}) {
+  const calls = [];
+  const fn = (spec) => {
+    calls.push(spec);
+    if (outcome.throw) return Promise.reject(outcome.throw);
+    return Promise.resolve({ stdout: outcome.stdout ?? '', stderr: outcome.stderr ?? '' });
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+/** Make a temp .claude-like tree + a sibling .mgr-state dir; returns paths + cleanup. */
+function makeTree(plant) {
+  const root = mkdtempSync(join(tmpdir(), 'cmgr-snap-orch-'));
+  const claudeDir = join(root, '.claude');
+  const stateDir = join(claudeDir, '.mgr-state');
+  mkdirSync(claudeDir, { recursive: true });
+  mkdirSync(stateDir, { recursive: true });
+  if (typeof plant === 'function') plant(claudeDir);
+  return {
+    root, claudeDir, stateDir,
+    cleanup() { try { rmSync(root, { recursive: true, force: true }); } catch { /* ignore */ } },
+  };
+}
+
+/** Write a file at a POSIX-relative path under base, creating parent dirs. */
+function put(base, rel, bytes) {
+  const abs = join(base, ...rel.split('/'));
+  mkdirSync(join(abs, '..'), { recursive: true });
+  writeFileSync(abs, bytes);
+}
+
+// ── (1) happy-path wiring ───────────────────────────────────────────────────────
+
+test('createSnapshot: wires walk→filter→hash→tar→manifest and returns success', async () => {
+  const aBytes = Buffer.from('# agent a\n', 'utf8');
+  const sBytes = Buffer.from('# skill s\n', 'utf8');
+  const t = makeTree((cd) => {
+    put(cd, 'agents/a.md', aBytes);
+    put(cd, 'skills/s/SKILL.md', sBytes);
+    put(cd, 'settings.json', Buffer.from('{"model":"opus"}\n', 'utf8'));
+  });
+  const resolveFn = makeResolve();
+  const spawnFn = makeSpawn();
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, reason: 'unit',
+      assertWritable: PASS_GATE, now: FIXED_NOW, seams: { resolveFn, spawnFn },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    assert.equal(res.snapshotId, FIXED_ID);
+    assert.equal(res.snapshotDir, join(t.stateDir, 'snapshots', FIXED_ID));
+    assert.equal(res.archivePath, join(res.snapshotDir, 'files.tar'));
+    assert.equal(res.manifestPath, join(res.snapshotDir, 'manifest.json'));
+    // kept includes the 3 non-secret files (sorted); dropped is empty.
+    assert.deepEqual(res.kept, ['agents/a.md', 'settings.json', 'skills/s/SKILL.md']);
+    assert.deepEqual(res.dropped, []);
+    assert.equal(res.fileCount, 3);
+    // tar was spawned exactly once, with the kept files as direct argv positionals.
+    assert.equal(spawnFn.calls.length, 1);
+    const args = spawnFn.calls[0].args;
+    assert.deepEqual(args, ['-c', '-f', res.archivePath, '-C', t.claudeDir, 'agents/a.md', 'settings.json', 'skills/s/SKILL.md']);
+    // the manifest landed on disk + is valid JSON with the right hashes.
+    assert.ok(existsSync(res.manifestPath));
+    const manifest = JSON.parse(readFileSync(res.manifestPath, 'utf8'));
+    assert.equal(manifest.snapshotId, FIXED_ID);
+    assert.equal(manifest.reason, 'unit');
+    const byPath = Object.fromEntries(manifest.files.map((f) => [f.path, f]));
+    assert.equal(byPath['agents/a.md'].preSha256, sha256Hex(aBytes));
+    assert.equal(byPath['agents/a.md'].currentSha256, sha256Hex(aBytes));
+    assert.equal(byPath['skills/s/SKILL.md'].preSha256, sha256Hex(sBytes));
+  } finally { t.cleanup(); }
+});
+
+// ── (2) the security property: a secret is DROPPED + never reaches the archive ──
+
+test('createSnapshot: a planted secret is dropped and absent from the tar file list', async () => {
+  const t = makeTree((cd) => {
+    put(cd, 'agents/a.md', Buffer.from('clean\n', 'utf8'));
+    // id_rsa is an EXACT secret name → dropped by the name matcher (no content read needed).
+    put(cd, 'hooks/id_rsa', Buffer.from('-----BEGIN OPENSSH PRIVATE KEY-----\nx\n', 'utf8'));
+  });
+  const resolveFn = makeResolve();
+  const spawnFn = makeSpawn();
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir,
+      assertWritable: PASS_GATE, now: FIXED_NOW, seams: { resolveFn, spawnFn },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    // The secret is in `dropped`, NOT in `kept`.
+    assert.ok(res.dropped.some((d) => d.path === 'hooks/id_rsa'), 'id_rsa must be dropped');
+    assert.ok(!res.kept.includes('hooks/id_rsa'), 'id_rsa must not be kept');
+    // CRITICAL: the secret never reaches tar's argv → cannot enter the archive.
+    const args = spawnFn.calls[0].args;
+    assert.ok(!args.includes('hooks/id_rsa'), 'secret must be absent from the tar file list');
+    // And it is absent from the manifest files[].
+    const manifest = JSON.parse(readFileSync(res.manifestPath, 'utf8'));
+    assert.ok(!manifest.files.some((f) => f.path === 'hooks/id_rsa'), 'secret must be absent from the manifest');
+    // A per-drop INFO diagnostic surfaces the exclusion.
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-secret-excluded'));
+  } finally { t.cleanup(); }
+});
+
+// ── (3) assertWritable is REQUIRED (fail-safe, no bypass) ───────────────────────
+
+test('createSnapshot: a missing assertWritable refuses (ok:false + snapshot-bad-args)', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir,
+      // assertWritable intentionally omitted.
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: makeSpawn() },
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.diagnostics[0].code, 'snapshot-bad-args');
+    assert.match(res.diagnostics[0].message, /assertWritable/);
+  } finally { t.cleanup(); }
+});
+
+// ── (4) bad args ────────────────────────────────────────────────────────────────
+
+test('createSnapshot: empty targetClaudeDir / mgrStateDir → snapshot-bad-args', async () => {
+  const a = await createSnapshot({ targetClaudeDir: '', mgrStateDir: 'x', assertWritable: PASS_GATE });
+  assert.equal(a.ok, false);
+  assert.equal(a.diagnostics[0].code, 'snapshot-bad-args');
+  const b = await createSnapshot({ targetClaudeDir: 'x', mgrStateDir: '', assertWritable: PASS_GATE });
+  assert.equal(b.ok, false);
+  assert.equal(b.diagnostics[0].code, 'snapshot-bad-args');
+});
+
+// ── (5) tar unavailable / resolve throws ────────────────────────────────────────
+
+test('createSnapshot: tar unavailable (resolveFn → null) → snapshot-tar-unavailable, no spawn', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  const spawnFn = makeSpawn();
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: PASS_GATE,
+      now: FIXED_NOW, seams: { resolveFn: () => ({ tarPath: null, diagnostics: [{ severity: 'error', code: 'tar-not-found', message: 'x' }] }), spawnFn },
+    });
+    assert.equal(res.ok, false);
+    // the resolve diagnostic is aggregated, plus our own unavailable error.
+    assert.ok(res.diagnostics.some((d) => d.code === 'tar-not-found'));
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-tar-unavailable'));
+    assert.equal(spawnFn.calls.length, 0);
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot: a throwing resolveFn degrades to snapshot-tar-resolve-failed (never throws)', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: PASS_GATE,
+      now: FIXED_NOW, seams: { resolveFn: () => { throw new Error('boom'); } },
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.diagnostics[0].code, 'snapshot-tar-resolve-failed');
+  } finally { t.cleanup(); }
+});
+
+// ── (6) tar failure → snapshot-archive-failed ───────────────────────────────────
+
+test('createSnapshot: a tar spawn failure → ok:false + snapshot-archive-failed (with progress)', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  const spawnFn = makeSpawn({ throw: Object.assign(new Error('tar: exit 1'), { code: 1 }) });
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: PASS_GATE,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn },
+    });
+    assert.equal(res.ok, false);
+    assert.ok(res.diagnostics.some((d) => d.code === 'tar-create-failed'), 'aggregates the tar diagnostic');
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-archive-failed'), 'own step error');
+    // partial-progress result still surfaces the id + kept partition.
+    assert.equal(res.snapshotId, FIXED_ID);
+    assert.deepEqual(res.kept, ['agents/a.md']);
+  } finally { t.cleanup(); }
+});
+
+// ── (7) manifest-write failure → snapshot-manifest-write-failed ─────────────────
+
+test('createSnapshot: a manifest-write gate denial → snapshot-manifest-write-failed', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  // Gate allows the archive path but DENIES the manifest.json write.
+  const gate = (p) => {
+    if (String(p).endsWith('manifest.json')) throw new Error('manifest write forbidden');
+    return p;
+  };
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: gate,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: makeSpawn() },
+    });
+    assert.equal(res.ok, false);
+    // writeManifest surfaces manifest-write-error; our step adds the rollup code.
+    assert.ok(res.diagnostics.some((d) => d.code === 'manifest-write-error'));
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-manifest-write-failed'));
+  } finally { t.cleanup(); }
+});
+
+// ── (8) write-gate denial on the archive path → snapshot-write-denied ───────────
+
+test('createSnapshot: a write-gate denial on the archive path → snapshot-write-denied, no spawn', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  const spawnFn = makeSpawn();
+  const gate = () => { throw new Error('outside governed region'); };
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: gate,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn },
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.diagnostics.find((d) => d.code.startsWith('snapshot-')).code, 'snapshot-write-denied');
+    assert.equal(spawnFn.calls.length, 0, 'no archive spawn after a gate denial');
+  } finally { t.cleanup(); }
+});
+
+// ── (9) unreadable kept file → skipped + warned, snapshot still succeeds ─────────
+
+test('createSnapshot: an unreadable kept file is skipped + warned (snapshot still ok)', async () => {
+  const aBytes = Buffer.from('readable\n', 'utf8');
+  const t = makeTree((cd) => {
+    put(cd, 'agents/a.md', aBytes);
+    put(cd, 'agents/b.md', Buffer.from('will-fail-to-read\n', 'utf8'));
+  });
+  // Inject a readFileFn that throws for b.md only (the hashing seam).
+  const readFileFn = (p) => {
+    if (String(p).endsWith('b.md')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+    return aBytes;
+  };
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, assertWritable: PASS_GATE,
+      now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: makeSpawn(), readFileFn },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    // b.md is still KEPT (it passed the secrets filter) + still archived by tar,
+    // but it is NOT in the manifest (its hash failed) and a warn is emitted.
+    assert.ok(res.kept.includes('agents/b.md'));
+    assert.equal(res.fileCount, 1, 'only a.md hashed into the manifest');
+    assert.ok(res.diagnostics.some((d) => d.code === 'snapshot-file-unreadable' && d.path === 'agents/b.md'));
+  } finally { t.cleanup(); }
+});
+
+// ── (10) never-throws on garbage input ──────────────────────────────────────────
+
+test('createSnapshot: tolerates undefined / null opts without throwing', async () => {
+  const a = await createSnapshot();
+  assert.equal(a.ok, false);
+  assert.equal(a.diagnostics[0].code, 'snapshot-bad-args');
+  const b = await createSnapshot(null);
+  assert.equal(b.ok, false);
+  const c = await createSnapshot({});
+  assert.equal(c.ok, false);
+});
