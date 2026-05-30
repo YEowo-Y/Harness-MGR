@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { createSnapshot } from '../src/ops/snapshot.mjs';
+import { makeSnapshotId } from '../src/ops/snapshot-manifest.mjs';
 
 const FIXED_NOW = () => new Date('2026-05-27T00:00:00.000Z');
 const FIXED_ID = '2026-05-27T00-00-00Z';
@@ -536,5 +537,36 @@ test('createSnapshot #12: an EEXIST from mkdir → snapshot-id-collision, NO cle
     // ours to delete. A wrong cleanup here would destroy a valid prior snapshot.
     assert.deepEqual(spies.unlinked, [], 'collision must not unlink the existing snapshot');
     assert.deepEqual(spies.rmdired, [], 'collision must not rmdir the existing snapshot');
+  } finally { t.cleanup(); }
+});
+
+// ── (13) follow-up #9a: the clock is sampled ONCE (id second == createdAt second) ──
+
+test('createSnapshot #9a: the snapshot id and manifest createdAt share one instant', async () => {
+  // A clock that ADVANCES across a second boundary on successive calls. PRE-fix
+  // createSnapshot called now() TWICE (id from call 1, createdAt from call 2), so a
+  // straddle made the id second (00) disagree with createdAt (01). POST-fix the clock
+  // is sampled ONCE, so the id is exactly derivable from createdAt — the falsifiable
+  // oracle: under the old two-sample code these assertions fail.
+  let n = 0;
+  const straddlingNow = () => (n++ === 0
+    ? new Date('2026-05-27T00:00:00.900Z')    // call 1 → the single sample
+    : new Date('2026-05-27T00:00:01.100Z'));  // call 2 → never reached post-fix
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('x\n', 'utf8')));
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir, reason: '9a',
+      assertWritable: PASS_GATE, now: straddlingNow, seams: { resolveFn: makeResolve(), spawnFn: makeSpawn() },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    const manifest = JSON.parse(readFileSync(res.manifestPath, 'utf8'));
+    // The id is exactly what you'd derive from createdAt → SAME instant. Old code:
+    // id='2026-05-27T00-00-00Z' but createdAt='...01.100Z', so makeSnapshotId(createdAt)
+    // would be '...00-00-01Z' ≠ id → fails.
+    assert.equal(res.snapshotId, makeSnapshotId(new Date(manifest.createdAt)),
+      'id must be derivable from createdAt (clock sampled once)');
+    // Concretely both land on the FIRST-sample instant (…00.900Z, the …00 second).
+    assert.equal(res.snapshotId, '2026-05-27T00-00-00Z');
+    assert.equal(manifest.createdAt, '2026-05-27T00:00:00.900Z');
   } finally { t.cleanup(); }
 });
