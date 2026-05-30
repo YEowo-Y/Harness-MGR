@@ -32,6 +32,23 @@
  * without throwing. Input is capped at the first INPUT_CAP bytes before any
  * scanning to bound regex cost on large/untrusted files.
  *
+ * OPTION — `{ skipEntropy }` (follow-up #10, snapshot precision tuning):
+ *   `sniffSecretContent(text, { skipEntropy: true })` runs the PEM + token legs
+ *   but SKIPS the high-entropy run heuristic (leg 3), returning {match:false}
+ *   when neither PEM nor token matched. WHY: leg 3 is the documented false-
+ *   positive source — PROSE files (Markdown skill docs, READMEs) legitimately
+ *   embed high-entropy runs (long URLs/paths, base64 examples, embedded hashes)
+ *   that the entropy net cannot distinguish from a raw secret. The snapshot
+ *   filter passes `skipEntropy:true` for `.md`/`.markdown` files so a prose file
+ *   is dropped ONLY by a deterministic PEM/token shape (a real key pasted into a
+ *   .md is STILL caught) or by its basename, NEVER by entropy alone. This is a
+ *   deliberate recall/precision rebalance: dropping legit skill docs from a
+ *   backup is a real data-completeness loss, whereas the only secret it now
+ *   misses is a raw-base64-no-prefix credential in a .md — which is ALREADY the
+ *   documented entropy GAP (see below) and is caught by name/extension if the
+ *   file is named like a secret. Default `skipEntropy:false` is unchanged, so
+ *   every pre-existing caller behaves identically.
+ *
  * Zero npm dependencies. Pure; never throws on any input.
  */
 
@@ -216,6 +233,13 @@ function bufferToString(buf) {
 }
 
 /**
+ * @typedef {Object} SniffOptions
+ * @property {boolean} [skipEntropy=false]  when true, skip the high-entropy run
+ *   heuristic (leg 3); run only the deterministic PEM + token legs. Used by the
+ *   snapshot filter for PROSE files to avoid false-positive drops (follow-up #10).
+ */
+
+/**
  * Inspect the content of a file (string or Buffer) for secret material.
  *
  * Returns the FIRST match found. When no secret is detected, returns
@@ -227,9 +251,17 @@ function bufferToString(buf) {
  * Input is capped at the first INPUT_CAP bytes/chars before scanning.
  *
  * @param {string|Buffer|unknown} textOrBuffer
+ * @param {SniffOptions} [opts]   when `opts.skipEntropy` is true, leg 3 (the
+ *   high-entropy run heuristic) is skipped; PEM + token legs still run. Default
+ *   (absent opts or `skipEntropy:false`) is the original behaviour — backward
+ *   compatible, every existing caller is unaffected.
  * @returns {SecretMatch}
  */
-export function sniffSecretContent(textOrBuffer) {
+export function sniffSecretContent(textOrBuffer, opts) {
+  // skipEntropy must be EXACTLY true to opt out; any other value (absent, false,
+  // junk) keeps the original three-leg behaviour for backward compatibility.
+  const skipEntropy = opts != null && typeof opts === 'object' && opts.skipEntropy === true;
+
   // Normalise to string, cap, reject non-string/non-Buffer input.
   let text;
   if (Buffer.isBuffer(textOrBuffer)) {
@@ -252,7 +284,12 @@ export function sniffSecretContent(textOrBuffer) {
     }
   }
 
-  // 3. High-entropy run (last resort).
+  // 3. High-entropy run (last resort) — SKIPPED for prose files (follow-up #10).
+  //    Prose legitimately carries high-entropy runs (URLs, base64 examples,
+  //    embedded hashes); only PEM/token shapes above are reliable in prose.
+  if (skipEntropy) {
+    return { match: false };
+  }
   const run = findHighEntropyRun(text);
   if (run !== null) {
     return { match: true, kind: 'entropy', pattern: `entropy:${run.slice(0, 8)}…` };
