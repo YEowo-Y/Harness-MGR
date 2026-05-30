@@ -2,7 +2,8 @@
  * State probe gatherer (P2.U9) — hash-based drift detection I/O.
  *
  * Gathers a TrackedState fingerprint of the governed config surface (selected
- * top-level files + TRACKED_DIRS walked recursively) and persists it to
+ * top-level files + named plugin-registry files + TRACKED_DIRS walked recursively)
+ * and persists it to
  * <mgrStateDir>/lockfile.json. On a later run, readLockfile() retrieves the
  * prior state; analyzeDrift() (pure, in src/analysis/drift.mjs) then compares.
  *
@@ -35,7 +36,14 @@ const STATE_VERSION = 1;
 const LOCKFILE_NAME = 'lockfile.json';
 
 /** Top-level files in configDir to hash (only when present). */
-const TRACKED_FILES = ['CLAUDE.md', 'settings.json', 'settings.local.json'];
+const TRACKED_FILES = ['CLAUDE.md', 'settings.json', 'settings.local.json', '.mcp.json'];
+
+/** Named plugin-registry files (POSIX-relative) to hash BY NAME — plugins/ itself is
+ *  NEVER walked (its cache/ + marketplaces/ subtrees are machine-specific + huge); only
+ *  these two small registry files are governed surface, matching the snapshot walker's
+ *  PLUGIN_FILES. Tracking them means a plugin enable/disable or a marketplace change
+ *  shows up as drift. (#3) */
+const TRACKED_PLUGIN_FILES = ['plugins/installed_plugins.json', 'plugins/known_marketplaces.json'];
 
 /** Top-level dirs to walk recursively for hashing. */
 const TRACKED_DIRS = ['skills', 'agents', 'commands', 'hooks'];
@@ -142,7 +150,7 @@ function emptyState(configDir) {
 }
 
 /**
- * Gather the current TrackedState by hashing TRACKED_FILES and walking TRACKED_DIRS.
+ * Gather the current TrackedState by hashing TRACKED_FILES + TRACKED_PLUGIN_FILES and walking TRACKED_DIRS.
  *
  * Per-file hash failures and per-directory walk failures degrade SILENTLY (no
  * diagnostic) — mirroring probe-fs.mjs's "individual readdir/stat failures
@@ -164,9 +172,11 @@ export function gatherTrackedState(opts) {
 
   const files = {};
 
-  // Hash the top-level tracked files (skip when absent — null return from hashFileSync).
-  for (const name of TRACKED_FILES) {
-    const h = hashFileSync(join(configDir, name));
+  // Hash the top-level tracked files + the named plugin-registry files (skip when
+  // absent — null return from hashFileSync). A slashed name (plugins/...) is split so
+  // plugins/ is addressed BY NAME, never walked recursively. (#3)
+  for (const name of [...TRACKED_FILES, ...TRACKED_PLUGIN_FILES]) {
+    const h = hashFileSync(join(configDir, ...name.split('/')));
     if (h !== null) files[name] = h;
   }
 
