@@ -13,8 +13,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chunkByArgvBudget, hasNonAscii } from '../src/ops/snapshot-tar-chunk.mjs';
 
-/** Cost the chunker assigns one member: length + 1 (the join separator). */
-const cost = (s) => s.length + 1;
+/** Cost the chunker assigns one member: UTF-8 byte length + 1 (the join separator) (#11). */
+const cost = (s) => Buffer.byteLength(s, 'utf8') + 1;
 /** Sum of a chunk's fixed-overhead + member costs (what the chunker bounds). */
 function chunkArgv(overhead, members) {
   return overhead + members.reduce((n, m) => n + cost(m), 0);
@@ -93,8 +93,11 @@ test('chunkByArgvBudget: an empty files list yields zero chunks (no tooLong)', (
 test('chunkByArgvBudget: every non-ASCII member is placed in chunk 0 (the -c create chunk)', () => {
   // A small budget forces multiple chunks; the unicode members must NOT scatter into
   // append chunks — they all belong to chunk 0 so only -c ever writes a unicode name.
+  // Byte budgeting (#11): café-ñ.md=11 B (cost 12), 日本語.md=12 B (cost 13); the two
+  // unicode members use 10+12+13=35, so budget 40 holds both in chunk 0 yet still
+  // forces the ASCII members (cost 11 each) to spill into -r append chunks.
   const files = ['ascii-1.md', 'café-ñ.md', 'ascii-2.md', '日本語.md', 'ascii-3.md'];
-  const { chunks } = chunkByArgvBudget(files, 10, 30);
+  const { chunks } = chunkByArgvBudget(files, 10, 40);
   assert.ok(chunks.length > 1, `expected a split, got ${chunks.length}`);
   // chunk 0 contains BOTH unicode members.
   assert.ok(chunks[0].includes('café-ñ.md'), 'café-ñ.md must be in chunk 0');
@@ -110,9 +113,12 @@ test('chunkByArgvBudget: every non-ASCII member is placed in chunk 0 (the -c cre
 test('chunkByArgvBudget: non-ASCII members that together overflow a chunk → unicodeOverflow', () => {
   // Two unicode names whose combined cost exceeds the budget cannot both ride chunk 0,
   // and neither may be appended via -r → refuse rather than corrupt.
-  const u1 = 'café-'.repeat(4) + '.md'; // ~23 chars
+  // Byte costs (#11): u1='café-'×4+'.md' = 27 B (cost 28), u2='日本語-'×4+'.md' = 43 B
+  // (cost 44). Budget 60: each fits ALONE (10+28=38, 10+44=54 ≤ 60) so neither is
+  // single-too-long, but together 10+28+44=82 > 60 → aggregate unicodeOverflow.
+  const u1 = 'café-'.repeat(4) + '.md';
   const u2 = '日本語-'.repeat(4) + '.md';
-  const { chunks, unicodeOverflow, tooLong } = chunkByArgvBudget([u1, u2], 10, 35);
+  const { chunks, unicodeOverflow, tooLong } = chunkByArgvBudget([u1, u2], 10, 60);
   assert.equal(chunks, null);
   assert.equal(unicodeOverflow, true);
   assert.equal(tooLong, undefined);
@@ -125,4 +131,21 @@ test('chunkByArgvBudget: a single non-ASCII member too long for any chunk → to
   assert.equal(chunks, null);
   assert.equal(tooLong, big);
   assert.equal(unicodeOverflow, undefined);
+});
+
+// ── #11: budget is byte-accurate (UTF-8), not UTF-16 code units ────────────────────
+
+test('chunkByArgvBudget: budgets UTF-8 BYTES — a member fitting under .length but over byte budget → tooLong (#11)', () => {
+  // '日'×10 = 10 UTF-16 code units but 30 UTF-8 bytes. With overhead 0 + budget 20:
+  //   OLD .length budgeting: 0 + 10 + 1 = 11 <= 20 → WOULD fit one chunk (the bug)
+  //   byte budgeting:        0 + 30 + 1 = 31 >  20 → fits no chunk → tooLong
+  // This assertion FAILS under the old `.length` accounting and PASSES with memberBytes.
+  const wide = '日'.repeat(10);
+  const { chunks, tooLong } = chunkByArgvBudget([wide], 0, 20);
+  assert.equal(chunks, null, 'a 30-byte member cannot fit a 20-byte budget');
+  assert.equal(tooLong, wide);
+  // Sanity: the SAME member fits once the budget covers its 31-byte cost.
+  const ok = chunkByArgvBudget([wide], 0, 40);
+  assert.deepEqual(ok.chunks, [[wide]]);
+  assert.equal(ok.tooLong, undefined);
 });
