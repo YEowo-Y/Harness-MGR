@@ -32,13 +32,15 @@
  */
 
 import { join, basename } from 'node:path';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, unlinkSync, rmdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { walkSnapshotScope } from './snapshot-walk.mjs';
 import { filterSnapshotSecrets } from './snapshot-secrets-filter.mjs';
 import { resolveTar, createSnapshotTar } from './snapshot-tar.mjs';
-import { makeSnapshotId, snapshotDir, buildManifest } from './snapshot-manifest.mjs';
+import {
+  makeSnapshotId, snapshotDir, buildManifest, isValidSnapshotId, MANIFEST_NAME,
+} from './snapshot-manifest.mjs';
 import { writeManifest } from './snapshot-manifest-io.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
@@ -113,6 +115,50 @@ function errMsg(e) {
 }
 
 /**
+ * BOUNDED failure cleanup (P3.D2) — remove a half-written snapshot so a failed
+ * `--apply` leaves NO residue. SECURITY-CRITICAL: this only ever touches the ONE
+ * snapshot dir, and ONLY via targeted unlink of the two KNOWN file paths plus an
+ * `rmdir` that removes an EMPTY dir only. It NEVER recurses and NEVER does `rm -rf`,
+ * so it cannot delete anything the caller did not just create. The dir path is
+ * RECONSTRUCTED from `snapshotDir(mgrStateDir, id)` and the `id` is re-validated
+ * against SNAPSHOT_ID_RE here (defense-in-depth: a corrupted id refuses cleanup
+ * rather than touching an unexpected path). Never throws — a cleanup failure becomes
+ * a `warn` and does NOT mask the original error that triggered cleanup.
+ *
+ * @param {string} mgrStateDir @param {string} id  (must match SNAPSHOT_ID_RE)
+ * @param {{unlinkFn:(p:string)=>void, rmdirFn:(p:string)=>void}} seams
+ * @param {DiagnosticBag} bag
+ */
+function cleanupFailedSnapshot(mgrStateDir, id, seams, bag) {
+  if (!isValidSnapshotId(id)) {
+    bag.add({ severity: 'warn', code: 'snapshot-cleanup-skipped', phase: PHASE,
+      message: 'cleanup skipped: snapshot id failed re-validation (refusing to remove an unexpected path)' });
+    return;
+  }
+  const dir = snapshotDir(mgrStateDir, id);
+  // Targeted unlink of only the two files this unit ever writes into the dir. An
+  // ENOENT (the file never got created) is benign and silently ignored.
+  for (const name of [ARCHIVE_NAME, MANIFEST_NAME]) {
+    try { seams.unlinkFn(join(dir, name)); }
+    catch (e) {
+      if (!(e && e.code === 'ENOENT')) {
+        bag.add({ severity: 'warn', code: 'snapshot-cleanup-failed', phase: PHASE, path: `${id}/${name}`,
+          message: `could not remove partial snapshot file during cleanup: ${errMsg(e)}` });
+      }
+    }
+  }
+  // rmdir removes the dir ONLY if it is now empty (never recursive). A leftover
+  // (non-empty / busy) or absent dir degrades to a warn, never a throw.
+  try { seams.rmdirFn(dir); }
+  catch (e) {
+    if (!(e && e.code === 'ENOENT')) {
+      bag.add({ severity: 'warn', code: 'snapshot-cleanup-failed', phase: PHASE, path: id,
+        message: `could not remove empty snapshot dir during cleanup: ${errMsg(e)}` });
+    }
+  }
+}
+
+/**
  * Resolve the system tar for a snapshot, aggregating its diagnostics into `bag`.
  * For --apply a missing/unresolvable tar is a HARD failure (`{ hardFail }` set with
  * the code to return). For a dry-run it is advisory only — `hardFail` stays null and
@@ -166,7 +212,7 @@ function resolveTarOrFail(resolveFn, dryRun, bag) {
  * @param {boolean} [opts.dryRun=false]         preview only — walk+filter, write nothing
  * @param {(path:string, ctx:string)=>string} [opts.assertWritable]  governed-write gate (REQUIRED unless dryRun)
  * @param {() => Date} [opts.now]               clock injection (defaults to Date)
- * @param {object} [opts.seams]                 { resolveFn, spawnFn, readFileFn, mkdirFn }
+ * @param {object} [opts.seams]                 { resolveFn, spawnFn, readFileFn, mkdirFn, unlinkFn, rmdirFn }
  * @returns {Promise<SnapshotResult>}
  */
 export async function createSnapshot(opts) {
@@ -179,6 +225,9 @@ export async function createSnapshot(opts) {
   const spawnFn = seams.spawnFn; // undefined → createSnapshotTar uses safeSpawn
   const readFileFn = seams.readFileFn ?? readFileSync;
   const mkdirFn = seams.mkdirFn ?? ((p) => mkdirSync(p, { recursive: true }));
+  // D2 cleanup seams: targeted unlink + EMPTY-only rmdir (never recursive).
+  const unlinkFn = seams.unlinkFn ?? unlinkSync;
+  const rmdirFn = seams.rmdirFn ?? rmdirSync;
 
   /** @type {SnapshotResult} */
   const empty = {
@@ -231,8 +280,12 @@ export async function createSnapshot(opts) {
 
   // Partial-progress failure: id/dir/archivePath/filter are now known, so surface
   // them alongside the error instead of the bare `empty` shell. Closes over the
-  // bag so every step's diagnostics are still included. ok stays false.
-  const failProgress = (code, message) => {
+  // bag so every step's diagnostics are still included. ok stays false. When
+  // `cleanup` is true (a failure AFTER the dir was created), run the BOUNDED D2
+  // cleanup first so no half-written snapshot dir is left on disk — the cleanup's
+  // own warns are appended but never mask this error.
+  const failProgress = (code, message, cleanup = false) => {
+    if (cleanup) cleanupFailedSnapshot(mgrStateDir, id, { unlinkFn, rmdirFn }, bag);
     bag.add({ severity: 'error', code, message, phase: PHASE });
     return {
       ...empty, snapshotId: id, snapshotDir: dir, archivePath,
@@ -250,19 +303,20 @@ export async function createSnapshot(opts) {
   catch (e) { return failProgress('snapshot-mkdir-failed', `could not create snapshot dir: ${errMsg(e)}`); }
 
   // 8. Archive the kept files (relative POSIX paths, rooted at targetClaudeDir).
+  //    From here on, the dir exists → a failure runs the bounded cleanup (cleanup:true).
   const tar = await createSnapshotTar({ tarPath, archivePath, baseDir: targetClaudeDir, files: filter.kept, spawnFn });
   for (const d of tar.diagnostics) bag.add(d);
-  if (!tar.ok) return failProgress('snapshot-archive-failed', 'tar archive creation failed');
+  if (!tar.ok) return failProgress('snapshot-archive-failed', 'tar archive creation failed', true);
 
   // 9. Build the manifest from the hashed records.
   const built = buildManifest({ snapshotId: id, targetClaudeDir, files: records, reason, now });
   for (const d of built.diagnostics) bag.add(d);
-  if (!built.manifest) return failProgress('snapshot-manifest-failed', 'manifest build failed');
+  if (!built.manifest) return failProgress('snapshot-manifest-failed', 'manifest build failed', true);
 
   // 10. Write + verify the manifest through the same gate.
   const wm = writeManifest({ stateDir: mgrStateDir, snapshotId: id, manifest: built.manifest, assertWritable });
   for (const d of wm.diagnostics) bag.add(d);
-  if (!wm.written) return failProgress('snapshot-manifest-write-failed', 'manifest write failed');
+  if (!wm.written) return failProgress('snapshot-manifest-write-failed', 'manifest write failed', true);
 
   // 11. Success — every path + the kept/dropped partition + aggregated diagnostics.
   return {
