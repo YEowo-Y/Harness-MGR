@@ -220,3 +220,49 @@ test('symlinked tracked-dir root (skills/ -> outside) is NOT followed — no out
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Test 5 (follow-up #3): .mcp.json + plugin-registry files tracked; plugins/ NOT walked
+// ---------------------------------------------------------------------------
+
+test('#3: .mcp.json + plugin-registry files are tracked + drift-detected; plugins/ NOT walked', () => {
+  const tmp = makeTempDir();
+  try {
+    writeFileSync(join(tmp, 'CLAUDE.md'), '# base');
+    writeFileSync(join(tmp, '.mcp.json'), '{"mcpServers":{}}');
+    mkdirSync(join(tmp, 'plugins'), { recursive: true });
+    writeFileSync(join(tmp, 'plugins', 'installed_plugins.json'), '{"version":2,"plugins":[]}');
+    writeFileSync(join(tmp, 'plugins', 'known_marketplaces.json'), '{"marketplaces":[]}');
+    // A machine-specific plugins/cache file that must NEVER be walked/hashed.
+    mkdirSync(join(tmp, 'plugins', 'cache', 'somePlugin'), { recursive: true });
+    writeFileSync(join(tmp, 'plugins', 'cache', 'somePlugin', 'big.bin'), 'machine-specific cache');
+
+    const { state: s1 } = gatherTrackedState({ configDir: tmp });
+    // The three new surfaces ARE tracked (POSIX-relative keys).
+    assert.ok(Object.prototype.hasOwnProperty.call(s1.files, '.mcp.json'), '.mcp.json must be tracked');
+    assert.ok(Object.prototype.hasOwnProperty.call(s1.files, 'plugins/installed_plugins.json'),
+      'plugins/installed_plugins.json must be tracked');
+    assert.ok(Object.prototype.hasOwnProperty.call(s1.files, 'plugins/known_marketplaces.json'),
+      'plugins/known_marketplaces.json must be tracked');
+    // SAFETY: plugins/ is addressed BY NAME only — its cache/ subtree must NOT be walked.
+    const keys = Object.keys(s1.files);
+    assert.equal(keys.some((k) => k.startsWith('plugins/cache/')), false,
+      'plugins/ must NOT be walked recursively (no plugins/cache/... key)');
+
+    const stateDir = join(tmp, '.mgr-state');
+    writeLockfile(stateDir, s1, { assertWritableFn: (p) => p });
+    const { lockfile } = readLockfile(stateDir);
+    assert.ok(lockfile !== null);
+
+    // MUTATE .mcp.json → must be detected as drift. PRE-FIX .mcp.json was untracked,
+    // so this change went UNDETECTED (status would stay 'clean') — the #3 oracle.
+    writeFileSync(join(tmp, '.mcp.json'), '{"mcpServers":{"added":{"command":"x"}}}');
+    const { state: s2 } = gatherTrackedState({ configDir: tmp });
+    const result = analyzeDrift({ current: s2, previous: lockfile });
+    assert.equal(result.status, 'drifted', '.mcp.json change must be detected as drift');
+    const mcpChange = result.changes.find((c) => c.path === '.mcp.json');
+    assert.ok(mcpChange !== undefined && mcpChange.change === 'modified', '.mcp.json must show as modified');
+  } finally {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+});
