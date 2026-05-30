@@ -299,6 +299,39 @@ test('createSnapshotTar: a `..` traversal segment in a file entry is REJECTED, n
   assert.equal(spawnFn.calls.length, 0, 'no tar spawn when a traversal entry is present');
 });
 
+test('createSnapshotTar: a NON-RELATIVE member (absolute / UNC / drive / @) is REJECTED, no spawn', async () => {
+  // Follow-up #8(a): the EXPORTED contract must refuse a member that could make
+  // tar read a file OUTSIDE baseDir into the archive (info-disclosure). The U5
+  // walker never emits these; this hardens the contract for any future caller.
+  const spawnFn = makeSpawn({ stdout: '' });
+  const badMembers = [
+    'C:\\Windows\\System32\\config\\SAM', // Windows drive-absolute
+    'c:/Users/me/.ssh/id_rsa',            // lowercase drive, forward slashes
+    '\\\\host\\share\\secret',            // UNC path
+    '/etc/passwd',                        // POSIX absolute (leading /)
+    '@manifest.tar',                      // tar concatenate-archive sigil
+  ];
+  for (const bad of badMembers) {
+    const res = await createSnapshotTar({
+      tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files: ['ok.md', bad], cwd: CWD, spawnFn,
+    });
+    assert.equal(res.ok, false, `should reject ${bad}`);
+    assert.equal(res.diagnostics[0].code, 'tar-create-bad-args', `wrong code for ${bad}`);
+  }
+  assert.equal(spawnFn.calls.length, 0, 'no tar spawn when a non-relative member is present');
+});
+
+test('createSnapshotTar: a NON-LEADING @ in a member is allowed (only a leading @ is the concat sigil)', async () => {
+  // `agents/@weird.md` and `a@b.md` are literal filenames — bsdtar treats a
+  // non-leading @ as a normal character; only a LEADING @ is the concat sigil.
+  const spawnFn = makeSpawn({ stdout: '' });
+  const res = await createSnapshotTar({
+    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b',
+    files: ['agents/@weird.md', 'a@b.md', 'skills/x/@notes.md'], cwd: CWD, spawnFn,
+  });
+  assert.equal(res.ok, true);
+});
+
 test('createSnapshotTar: a filename that merely CONTAINS dots (not a `..` segment) is allowed', async () => {
   const spawnFn = makeSpawn({ stdout: '' });
   const res = await createSnapshotTar({
