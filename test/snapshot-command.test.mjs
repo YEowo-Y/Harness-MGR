@@ -24,6 +24,7 @@ import {
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { snapshotCommand } from '../src/cli/ops-commands.mjs';
+import { snapshotListCommand, snapshotGcCommand } from '../src/cli/snapshot-store-command.mjs';
 
 const TARPATH = 'C:\\Windows\\System32\\tar.exe';
 
@@ -227,4 +228,104 @@ test('snapshotCommand D3: a SUCCESSFUL --apply still surfaces both paths', async
   assert.equal(out.result.ok, true);
   assert.ok(out.result.archivePath.endsWith('files.tar'));
   assert.ok(out.result.manifestPath.endsWith('manifest.json'));
+});
+
+// ── snapshotListCommand (read-only) ───────────────────────────────────────────────
+
+test('snapshotListCommand: surfaces the store list + count (via injected listFn)', () => {
+  const listFn = ({ mgrStateDir }) => {
+    assert.equal(mgrStateDir, '/cfg/.mgr-state', 'mgrStateDir threaded to the store');
+    return {
+      snapshots: [
+        { id: '2026-05-25T10-00-00Z', createdAt: 'c2', reason: 'r2', fileCount: 5, complete: true },
+        { id: '2026-05-20T10-00-00Z', complete: false },
+      ],
+      diagnostics: [],
+    };
+  };
+  const out = snapshotListCommand({ mgrStateDir: '/cfg/.mgr-state', args: {} }, { listFn });
+  assert.equal(out.result.count, 2);
+  assert.equal(out.result.snapshots[0].id, '2026-05-25T10-00-00Z');
+  assert.equal(out.result.snapshots[1].complete, false);
+  assert.deepEqual(out.diagnostics, []);
+});
+
+test('snapshotListCommand: passes store diagnostics through; never throws on a junk ctx', () => {
+  const listFn = () => ({ snapshots: [], diagnostics: [{ severity: 'warn', code: 'snapshot-list-unreadable', message: 'x', phase: 'snapshot' }] });
+  const out = snapshotListCommand({}, { listFn });
+  assert.equal(out.result.count, 0);
+  assert.ok(out.diagnostics.some((d) => d.code === 'snapshot-list-unreadable'));
+});
+
+// ── snapshotGcCommand: dry-run vs --apply via the injected gcFn ───────────────────
+
+test('snapshotGcCommand: dry-run (default) → mode dry-run, wouldDelete surfaced, apply=false to store', () => {
+  const calls = [];
+  const gcFn = (o) => {
+    calls.push(o);
+    return { deleted: [], wouldDelete: ['2026-05-20T10-00-00Z'], retained: ['2026-05-25T10-00-00Z'], diagnostics: [] };
+  };
+  const out = snapshotGcCommand({ mgrStateDir: '/cfg/.mgr-state', args: { keep: '1' } }, { gcFn });
+  assert.equal(out.result.mode, 'dry-run');
+  assert.deepEqual(out.result.wouldDelete, ['2026-05-20T10-00-00Z']);
+  assert.deepEqual(out.result.deleted, []);
+  assert.equal(out.result.wouldDeleteCount, 1);
+  assert.equal(out.result.retainedCount, 1);
+  // store received apply:false + the coerced keep:1.
+  assert.equal(calls[0].apply, false);
+  assert.equal(calls[0].keep, 1);
+  assert.equal(calls[0].mgrStateDir, '/cfg/.mgr-state');
+});
+
+test('snapshotGcCommand: --apply → mode applied, deleted surfaced, apply=true to store', () => {
+  const calls = [];
+  const gcFn = (o) => {
+    calls.push(o);
+    return { deleted: ['2026-05-20T10-00-00Z'], wouldDelete: [], retained: ['2026-05-25T10-00-00Z'], diagnostics: [] };
+  };
+  const out = snapshotGcCommand({ mgrStateDir: '/cfg/.mgr-state', args: { keep: '1', apply: true } }, { gcFn });
+  assert.equal(out.result.mode, 'applied');
+  assert.deepEqual(out.result.deleted, ['2026-05-20T10-00-00Z']);
+  assert.equal(out.result.deletedCount, 1);
+  assert.equal(calls[0].apply, true);
+});
+
+test('snapshotGcCommand: --older-than is parsed via parseSince into olderThanMs', () => {
+  const calls = [];
+  const gcFn = (o) => { calls.push(o); return { deleted: [], wouldDelete: [], retained: [], diagnostics: [] }; };
+  snapshotGcCommand({ mgrStateDir: '/s', args: { 'older-than': '2d' } }, { gcFn });
+  assert.equal(calls[0].olderThanMs, 2 * 86400000); // 2 days in ms
+  assert.equal(calls[0].keep, undefined); // no --keep given
+});
+
+test('snapshotGcCommand: an invalid --older-than → gc-older-than-invalid warn, criterion dropped', () => {
+  const calls = [];
+  const gcFn = (o) => { calls.push(o); return { deleted: [], wouldDelete: [], retained: [], diagnostics: [] }; };
+  const out = snapshotGcCommand({ mgrStateDir: '/s', args: { 'older-than': 'nope' } }, { gcFn });
+  assert.ok(out.diagnostics.some((d) => d.code === 'gc-older-than-invalid' && d.severity === 'warn'));
+  assert.equal(calls[0].olderThanMs, undefined); // invalid → not passed
+});
+
+test('snapshotGcCommand: an invalid --keep → gc-keep-invalid warn, criterion dropped', () => {
+  const calls = [];
+  const gcFn = (o) => { calls.push(o); return { deleted: [], wouldDelete: [], retained: [], diagnostics: [] }; };
+  const out = snapshotGcCommand({ mgrStateDir: '/s', args: { keep: '-3' } }, { gcFn });
+  assert.ok(out.diagnostics.some((d) => d.code === 'gc-keep-invalid' && d.severity === 'warn'));
+  assert.equal(calls[0].keep, undefined);
+});
+
+test('snapshotGcCommand: both --keep and --older-than reach the store (intersection is the store\'s job)', () => {
+  const calls = [];
+  const gcFn = (o) => { calls.push(o); return { deleted: [], wouldDelete: [], retained: [], diagnostics: [] }; };
+  snapshotGcCommand({ mgrStateDir: '/s', args: { keep: '3', 'older-than': '1w' } }, { gcFn });
+  assert.equal(calls[0].keep, 3);
+  assert.equal(calls[0].olderThanMs, 7 * 86400000);
+});
+
+test('snapshotGcCommand: never throws on a missing args object', () => {
+  const gcFn = () => ({ deleted: [], wouldDelete: [], retained: [], diagnostics: [{ severity: 'warn', code: 'gc-no-criterion', message: 'x', phase: 'snapshot' }] });
+  assert.doesNotThrow(() => {
+    const out = snapshotGcCommand({ mgrStateDir: '/s' }, { gcFn });
+    assert.equal(out.result.mode, 'dry-run');
+  });
 });
