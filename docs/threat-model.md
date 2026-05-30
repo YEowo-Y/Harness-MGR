@@ -43,7 +43,7 @@ or simply deferred. It is deliberately **not exhaustive**; it is accurate.
 | Asset | Why it matters |
 |---|---|
 | The user's **`~/.claude` config** (CLAUDE.md, settings, skills/agents/commands/hooks, plugins, MCP config) | A large, precious, hand-curated harness. The whole reason the tool is read-mostly and dry-run-by-default is to inspect it **without risking it**. |
-| **Secrets referenced by that config** | MCP server `env` blocks may hold API keys/tokens; `mcp-needs-auth-cache.json` and similar files exist. These must never leak into inventory output, snapshots, or logs. |
+| **Secrets referenced by that config** | MCP server `env` blocks may hold API keys/tokens; `mcp-needs-auth-cache.json` and similar files exist. These must never leak into inventory output, snapshots, or logs — with ONE audited exception: `mcp-needs-auth-cache.json` is **default-excluded** from snapshots and captured only via the explicit `snapshot --include-auth` opt-in, which emits a per-capture `snapshot-auth-included` INFO notice (plan L420; enforced in `src/ops/snapshot-secrets-filter.mjs`). The secrets allowlist proper (keys/certs/`.env`/`id_rsa`/content-sniffed PEM+tokens) is **never** captured, even with `--include-auth`. |
 | **`claude-mgr`'s own state** — `~/.claude/.mgr-state/` | Holds the drift lockfile (Phase 2) and, in Phase 3, snapshots / apply-journal / audit log. Its integrity and confidentiality matter; it is deliberately *excluded* from the governed config surface and from snapshot capture (recursive-bloat guard). |
 | **Integrity & availability of the user's machine and config** | The tool must not corrupt the config, must not execute attacker-controlled content found in the config, and must remain usable even when its environment is partly broken. |
 
