@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { homedir, tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import {
   resolveRoots,
   targetClaudeDir,
@@ -360,6 +360,132 @@ test('assertWritable: the three governed settings files are writable in apply AN
     if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = saved;
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── security Low-1: file symlinks through settings.json that escape or redirect ──
+//
+// assertWritable must resolve symlinks (via realpathSync) BEFORE checking the
+// allowlist, so a settings.json that is itself a symlink cannot bypass the gate.
+
+test('assertWritable DENIES settings.json file-symlink pointing outside the config dir (Low-1a)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const cfg = mkdtempSync(join(tmpdir(), 'cmgr-sym-a-'));
+  const outside = mkdtempSync(join(tmpdir(), 'cmgr-sym-victim-'));
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  try {
+    // Create the victim file outside the config dir so the file symlink can be made.
+    const victimFile = join(outside, 'victim.txt');
+    writeFileSync(victimFile, 'secret');
+    const link = join(cfg, 'settings.json');
+    let made = false;
+    try {
+      symlinkSync(victimFile, link, 'file');
+      made = true;
+    } catch {
+      // No symlink privilege on this box — skip the assertion.
+    }
+    if (made) {
+      // canonical() resolves the symlink to victimFile (outside the config dir).
+      // isUnder(target, claudeDir) is false → write-outside-target.
+      assert.throws(
+        () => assertWritable(link, 'apply'),
+        (e) => e instanceof WriteForbiddenError && e.code === 'write-outside-target',
+        'a settings.json file-symlink pointing outside the config dir must be denied',
+      );
+    }
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(cfg, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable DENIES settings.json file-symlink pointing to CLAUDE.md → write-rollback-only (Low-1b)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const cfg = mkdtempSync(join(tmpdir(), 'cmgr-sym-b-'));
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  try {
+    // Create the target file so a file symlink can be made.
+    const claudeMd = join(cfg, 'CLAUDE.md');
+    writeFileSync(claudeMd, '# CLAUDE');
+    const link = join(cfg, 'settings.json');
+    let made = false;
+    try {
+      symlinkSync(claudeMd, link, 'file');
+      made = true;
+    } catch {
+      // No symlink privilege — skip.
+    }
+    if (made) {
+      // canonical() resolves the symlink to CLAUDE.md. basename is 'CLAUDE.md'
+      // which is not in APPLY_WRITABLE_FILES, so isApplyWritableFile is false.
+      // Then the rollbackOnly list matches CLAUDE.md → write-rollback-only.
+      assert.throws(
+        () => assertWritable(link, 'apply'),
+        (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+        'a settings.json symlink resolving to CLAUDE.md must be denied as rollback-only',
+      );
+    }
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(cfg, { recursive: true, force: true });
+  }
+});
+
+// ── security Low-2: Windows near-misses (NTFS ADS + trailing dot + case folding) ──
+//
+// On win32 the canonical() helper lowercases paths so case-insensitive NTFS
+// behaves correctly. NTFS ADS (`file:stream`) and trailing-dot filenames are
+// near-misses that must NOT be admitted as settings.json.
+
+test('assertWritable DENIES NTFS ADS and trailing-dot near-misses on win32 (Low-2c)', () => {
+  if (process.platform !== 'win32') return; // skip on non-Windows
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const cfg = mkdtempSync(join(tmpdir(), 'cmgr-win-c-'));
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  try {
+    // NTFS Alternate Data Stream: basename 'settings.json:evil' is not in APPLY_WRITABLE_FILES.
+    assert.throws(
+      () => assertWritable(join(cfg, 'settings.json:evil'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-not-allowed',
+      'settings.json:evil (NTFS ADS) must be denied',
+    );
+    // Trailing dot: 'settings.json.' — on NTFS the trailing dot is stripped by the
+    // kernel, but the path does not yet exist so canonical() uses the plain resolve
+    // fallback. basename 'settings.json.' is not an exact match → write-not-allowed.
+    assert.throws(
+      () => assertWritable(join(cfg, 'settings.json.'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-not-allowed',
+      'settings.json. (trailing dot) must be denied',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(cfg, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable ALLOWS Settings.JSON (case-insensitive NTFS) on win32 (Low-2d)', () => {
+  if (process.platform !== 'win32') return; // skip on non-Windows
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const cfg = mkdtempSync(join(tmpdir(), 'cmgr-win-d-'));
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  try {
+    // canonical() lowercases on win32: 'Settings.JSON' → 'settings.json'.
+    // dirname check: canonical(cfg)/settings.json is directly under canonical(cfg).
+    // APPLY_WRITABLE_FILES.includes('settings.json') → true → returns canonical path.
+    const result = assertWritable(join(cfg, 'Settings.JSON'), 'apply');
+    assert.ok(
+      typeof result === 'string' && result.length > 0,
+      'Settings.JSON should be allowed on case-insensitive NTFS and return a canonical path',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(cfg, { recursive: true, force: true });
   }
 });
 
