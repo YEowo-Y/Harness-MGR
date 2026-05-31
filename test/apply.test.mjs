@@ -21,6 +21,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyPlan } from '../src/ops/apply.mjs';
 import { transition, createJournal } from '../src/ops/apply-journal-writer.mjs';
+import { atomicApplyWrite } from '../src/ops/atomic-write.mjs';
 
 const FIXED_NOW = () => new Date('2026-05-30T00:00:00.000Z');
 const FIXED_ID = '2026-05-30T00-00-00Z';
@@ -548,4 +549,103 @@ test('applyPlan enableWrites: the REAL transition state machine accepts snapshot
   assert.equal(res.opsWritten, 1);
   const states = transitionFn.calls.map((c) => c.toState);
   assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+//  Reviewer regression tests — commit-incomplete contract (Medium M1) + gate denial (Low L2)
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── (M1-a) transitionFn refuses 'committed' → applied:true, ok:false, apply-commit-incomplete ──
+
+test('applyPlan enableWrites: a transitionFn that refuses committed → applied:true, ok:false, apply-commit-incomplete (M1-a)', async () => {
+  // Delegates to the real transition for every target state except 'committed',
+  // for which it injects a forced failure. This pins the commitApply partial-failure
+  // contract: the file was written (applied:true) but the journal could not advance
+  // to committed — the result is ok:false, state:'applying', opsWritten:1.
+  const transitionFn = (() => {
+    const calls = [];
+    const fn = (journal, toState, opts) => {
+      calls.push({ journal, toState });
+      if (toState === 'committed') {
+        return { ok: false, journal, diagnostics: [{ severity: 'error', code: 'forced', message: 'forced', phase: 'apply' }] };
+      }
+      return transition(journal, toState, opts);
+    };
+    fn.calls = calls;
+    return fn;
+  })();
+  const seams = happySeams({ transitionFn, createJournalFn: createJournal });
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([writeOp('create')]) }));
+  assert.equal(res.applied, true, 'the governed write landed, so applied must be true');
+  assert.equal(res.ok, false, 'the commit transition failed, so ok must be false');
+  assert.equal(res.state, 'applying', 'journal stays at applying when committed transition is refused');
+  assert.equal(res.opsWritten, 1, 'one op was written before the commit failure');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-commit-incomplete'),
+    'apply-commit-incomplete must be present: ' + JSON.stringify(res.diagnostics));
+});
+
+// ── (M1-b) writeJournalFn fails on 3rd call (committed persist) → applied:true, ok:false, apply-commit-incomplete ──
+
+test('applyPlan enableWrites: writeJournalFn fails on 3rd call (committed persist) → applied:true, ok:false, apply-commit-incomplete (M1-b)', async () => {
+  // The journal is persisted three times under enableWrites: at 'snapshotted' (call 1),
+  // at 'applying' (call 2), and at 'committed' (call 3). Failing only the 3rd persist
+  // pins the commitApply partial-failure path: the write already landed (applied:true)
+  // but the committed journal could not be saved.
+  const writeJournalFn = (() => {
+    const calls = [];
+    const fn = (opts) => {
+      calls.push(opts);
+      const callIndex = calls.length;
+      if (callIndex === 3) {
+        // 3rd call is the 'committed' persist — inject a failure.
+        return { written: false, path: null, diagnostics: [] };
+      }
+      return { written: true, path: `${STATE}\\snapshots\\${FIXED_ID}\\apply-journal.json`, diagnostics: [] };
+    };
+    fn.calls = calls;
+    return fn;
+  })();
+  const seams = happySeams({ writeJournalFn, createJournalFn: createJournal });
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([writeOp('create')]) }));
+  assert.equal(res.applied, true, 'the governed write landed, so applied must be true');
+  assert.equal(res.ok, false, 'the committed journal persist failed, so ok must be false');
+  assert.equal(res.state, 'applying', 'journal stays at applying when the committed persist fails');
+  assert.equal(res.opsWritten, 1, 'one op was written before the commit-persist failure');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-commit-incomplete'),
+    'apply-commit-incomplete must be present: ' + JSON.stringify(res.diagnostics));
+  // All three journal persists were attempted.
+  assert.equal(writeJournalFn.calls.length, 3, 'writeJournalFn called exactly three times');
+});
+
+// ── (L2) real atomicApplyWrite + assertWritable that throws for CLAUDE.md → state:failed, applied:false ──
+
+test('applyPlan enableWrites: real atomicApplyWrite + gate that denies CLAUDE.md → state:failed, applied:false, apply-op-failed (L2)', async () => {
+  // The REAL atomicApplyWrite is used as atomicWriteFn. The injected assertWritable
+  // throws a WriteForbiddenError for any target whose basename is CLAUDE.md. This
+  // exercises the end-to-end gate-denial path: atomicApplyWrite calls assertWritable
+  // first (before any fs touch), the gate throws, atomicApplyWrite returns ok:false,
+  // and applyPlan transitions the journal to 'failed' with apply-op-failed.
+  const deniedTarget = `${TARGET}\\CLAUDE.md`;
+  const fakeAssertWritable = (p) => {
+    // Deny only the CLAUDE.md target; allow everything else (stateDir writes from
+    // acquire/snapshot/journal seams do not call this injected gate — they are stubbed).
+    const base = p.split(/[\\/]/).pop();
+    if (base === 'CLAUDE.md') {
+      const err = new Error('write gate denied: CLAUDE.md is rollback-only');
+      err.code = 'write-rollback-only';
+      throw err;
+    }
+    return p;
+  };
+  const seams = happySeams({ atomicWriteFn: atomicApplyWrite, createJournalFn: createJournal });
+  const res = await applyPlan({
+    plan: planWith([{ kind: 'create', target: deniedTarget, summary: 'create CLAUDE.md', content: 'x' }]),
+    targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: fakeAssertWritable, now: FIXED_NOW,
+    enableWrites: true, seams,
+  });
+  assert.equal(res.state, 'failed', 'journal must reach failed when the gate denies the write');
+  assert.equal(res.applied, false, 'applied must be false when the gate denial prevented the write');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-failed'),
+    'apply-op-failed must be present: ' + JSON.stringify(res.diagnostics));
 });
