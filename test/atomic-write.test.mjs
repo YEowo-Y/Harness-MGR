@@ -20,7 +20,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicApplyWrite } from '../src/ops/atomic-write.mjs';
@@ -287,4 +287,66 @@ test('REAL fs: gate-denied writes NOTHING (no sidecar on disk)', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── P3.U17: Buffer content (binary-safe) + rollback context ───────────────────────
+
+test('REAL fs: Buffer content round-trips byte-identical (all bytes 0x00..0xFF)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-atomic-'));
+  try {
+    const target = join(dir, 'agents', 'a.md'); // a rollback-restorable governed path
+    // The atomic-write primitive does not mkdir; create the parent first (the
+    // rollback-restore caller mkdirs the parent before calling this).
+    mkdirSync(join(dir, 'agents'), { recursive: true });
+    const bytes = Buffer.from(Array.from({ length: 256 }, (_, i) => i)); // 0x00..0xFF
+    const r = await atomicApplyWrite({ target, content: bytes, assertWritable: PASS, context: 'rollback', retry: NO_SLEEP });
+    assert.equal(r.ok, true);
+    assert.equal(r.wrote, true);
+    const back = readFileSync(target); // no encoding → raw Buffer
+    assert.equal(Buffer.compare(back, bytes), 0); // byte-identical
+    assert.equal(existsSync(target + '.mgr-new'), false);
+    assert.equal(existsSync(target + '.mgr-old'), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('REAL fs: invalid-utf8 bytes survive (would be CORRUPTED by a utf8 write)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-atomic-'));
+  try {
+    const target = join(dir, 'CLAUDE.md');
+    // 0xff/0xfe/0x80 are not valid standalone utf8 — a string round-trip via 'utf8'
+    // would replace them with U+FFFD; writing the Buffer raw preserves them.
+    const bytes = Buffer.from([0xff, 0xfe, 0x00, 0x80]);
+    const r = await atomicApplyWrite({ target, content: bytes, assertWritable: PASS, context: 'rollback', retry: NO_SLEEP });
+    assert.equal(r.ok, true);
+    const back = readFileSync(target);
+    assert.equal(Buffer.compare(back, bytes), 0);
+    // Prove the corruption oracle is real: decoding-then-re-encoding would NOT match.
+    assert.notEqual(Buffer.compare(Buffer.from(back.toString('utf8'), 'utf8'), bytes), 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('context:rollback passes the rollback context to the injected gate (in-memory)', async () => {
+  const fs = makeFs();
+  const ctxSeen = [];
+  const gate = (p, ctx) => { ctxSeen.push(ctx); return p; }; // records the context arg
+  const r = await atomicApplyWrite({
+    target: TARGET, content: Buffer.from('hi'), assertWritable: gate, context: 'rollback', seams: fs.seams, retry: NO_SLEEP,
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(ctxSeen, ['rollback']); // the gate was called with 'rollback', not 'apply'
+  // The staged content is the Buffer we passed (binary-safe through the seam).
+  assert.equal(Buffer.isBuffer(fs.calls.write[0][1]), true);
+});
+
+test('default context stays apply when omitted (backward-compatible)', async () => {
+  const fs = makeFs();
+  const ctxSeen = [];
+  const gate = (p, ctx) => { ctxSeen.push(ctx); return p; };
+  const r = await atomicApplyWrite({ target: TARGET, content: 'x', assertWritable: gate, seams: fs.seams, retry: NO_SLEEP });
+  assert.equal(r.ok, true);
+  assert.deepEqual(ctxSeen, ['apply']); // unchanged default
 });
