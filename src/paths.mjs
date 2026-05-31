@@ -43,6 +43,15 @@ export { getClaudeConfigDir };
 const PROBE_NAME_RE = /^__mgr-probe-[0-9a-f-]+\.md$/i;
 
 /**
+ * The governed settings files writable in BOTH 'apply' and 'rollback' contexts,
+ * each ONLY when placed DIRECTLY under the governed config dir (NOT nested).
+ * Single source of truth — plan line 432 ("Forbidden vs Rollback-Writable",
+ * the "Always writable (with --apply)" row). Matched by EXACT basename.
+ * @type {ReadonlyArray<string>}
+ */
+export const APPLY_WRITABLE_FILES = Object.freeze(['settings.json', 'settings.local.json', '.mcp.json']);
+
+/**
  * Canonical dir name for claude-mgr's own state. SINGLE SOURCE OF TRUTH:
  * snapshot capture, the snapshot self-exclusion invariant, doctor #24 ACL check,
  * and the lockfile path all import this so the literal can never drift.
@@ -173,6 +182,20 @@ function isUnder(child, parent) {
 }
 
 /**
+ * True when `canonicalTarget` is one of the governed settings files placed
+ * DIRECTLY under the config dir. Matches by EXACT basename + direct parent
+ * (NOT isUnder / NOT a prefix), so `settings.jsonx`, a `settings.json/`
+ * directory subtree, and a nested `sub/settings.json` are all rejected.
+ * @param {string} canonicalTarget already-canonicalized target path
+ * @param {string} claudeDir governed config dir
+ * @returns {boolean}
+ */
+function isApplyWritableFile(canonicalTarget, claudeDir) {
+  return dirname(canonicalTarget) === canonical(claudeDir)
+    && APPLY_WRITABLE_FILES.includes(basename(canonicalTarget));
+}
+
+/**
  * Enforce the write-allowlist. Throws WriteForbiddenError when `target` is not
  * writable in the given context. Returns the canonical path on success.
  *
@@ -183,6 +206,9 @@ function isUnder(child, parent) {
  *   - Rollback-only writable: CLAUDE.md + agents/skills/commands/hooks under the
  *     target dir — writable ONLY when context === 'rollback'.
  *   - Normally writable: mgrStateDir/** (snapshots, journals, logs) in any context.
+ *   - Always-writable settings files (plan line 432, "Always writable with --apply"):
+ *     settings.json / settings.local.json / .mcp.json DIRECTLY under the config dir,
+ *     writable in BOTH 'apply' and 'rollback' (see APPLY_WRITABLE_FILES).
  *   - Probe-only: context === 'probe' permits ONLY agents/__mgr-probe-<uuid>.md
  *     (the transient loader-probe artifact, P2.U7c) — nothing else.
  *
@@ -240,6 +266,16 @@ export function assertWritable(target, context = 'apply') {
       `probe context permits only agents/__mgr-probe-*.md: ${target}`,
       'write-probe-only',
     );
+  }
+
+  // Always-writable governed settings files (plan line 432, "Forbidden vs
+  // Rollback-Writable" — the "Always writable (with --apply)" row): exactly
+  // settings.json / settings.local.json / .mcp.json, DIRECTLY under the config
+  // dir, in BOTH 'apply' and 'rollback'. After the forbidden/outside/probe
+  // checks above, so those denials always win; disjoint from rollbackOnly below.
+  const canonicalTarget = canonical(target);
+  if ((ctx === 'apply' || ctx === 'rollback') && isApplyWritableFile(canonicalTarget, claudeDir)) {
+    return canonicalTarget;
   }
 
   // Rollback-only-writable surfaces: governed content that normal apply must
