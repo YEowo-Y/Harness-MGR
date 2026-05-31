@@ -19,3 +19,4 @@
 {"ts":"2026-05-30T15:58:11.703Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"#3 fixed: drift now tracks .mcp.json + plugin registries (plugins/ never walked); 1539 tests, release-gate exit 0"}
 {"ts":"2026-05-31T04:22:44.548Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"P3.U12 apply.mjs planned->snapshotted (gate-safe: lock+snapshot+journal, zero governed write, refuses applying); 1555 tests, release-gate exit 0"}
 {"ts":"2026-05-31T05:08:52.266Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"P3.U14 recover.mjs --mark-failed (gate-safe: journal-only write + path-traversal defense); 1570 tests, release-gate exit 0"}
+{"ts":"2026-05-31T08:15:29.070Z","cc_version":"2.1.156","gate_pass":true,"error_diag_count":0,"note":"P3.U15 rollback-drift-check (READ-ONLY: manifest vs live-hash drift, ENOENT-as-deleted, per-file containment); 1591 tests, release-gate exit 0"}
