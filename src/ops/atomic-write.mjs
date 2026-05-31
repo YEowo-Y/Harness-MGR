@@ -1,6 +1,13 @@
 /**
  * Atomic single-file write primitive (P3.U13 sub-unit B) — the Windows-hardened
- * write-back used by the apply path to replace ONE governed config file safely.
+ * write-back used to replace ONE governed config file safely.
+ *
+ * SHARED BY apply AND rollback (P3.U17): the apply path passes `context:'apply'`
+ * (the default) and string content; the rollback restore path (rollback-restore.mjs)
+ * passes `context:'rollback'` and Buffer content (binary-safe). The `apply-write-*`
+ * diagnostic codes name the PRIMITIVE, not the calling command — a rollback that
+ * hits a staging failure still surfaces `apply-write-staging-failed` (the code is a
+ * stable identifier for "the atomic-write primitive failed at stage X").
  *
  * The classic atomic-replace dance, with `.mgr-new` / `.mgr-old` sidecar files so
  * a crash at any step leaves a recoverable state:
@@ -38,11 +45,16 @@
  *   - assertWritable is INJECTED + REQUIRED (fail-closed: refuse if absent or not a
  *     function — never silently bypass the governed-write gate). It is checked
  *     FIRST, before any filesystem touch, so a denied gate writes NOTHING. The gate
- *     approves `target`; the two sidecars (`target`+`.mgr-new`/`.mgr-old`) are its
- *     trusted siblings in the SAME gate-approved directory and are intentionally
- *     NOT re-gated (their basenames are not in APPLY_WRITABLE_FILES, so gating them
- *     would wrongly throw `write-not-allowed` and break the write). Do NOT "fix"
- *     this by routing the sidecars through the gate.
+ *     is called with `opts.context` (default 'apply'; rollback passes 'rollback'),
+ *     so a rollback restore is gated by paths.mjs's rollback-writable surface (which
+ *     ADDS CLAUDE.md + agents/skills/commands/hooks on top of the apply files) while
+ *     apply stays restricted to the apply-writable files — the gate, not this
+ *     primitive, decides what each context may write. The gate approves `target`;
+ *     the two sidecars (`.mgr-new`/`.mgr-old`) are its trusted siblings in the SAME
+ *     gate-approved directory and are intentionally NOT re-gated (their basenames
+ *     are not in APPLY_WRITABLE_FILES, so gating them would wrongly throw
+ *     `write-not-allowed` and break the write). Do NOT "fix" this by routing the
+ *     sidecars through the gate.
  *   - M2-SAFETY: imports ONLY node:fs + src/lib/retry.mjs + src/lib/diagnostic.mjs.
  *     NEVER src/paths.mjs or src/lib/reexport.mjs (both carry a top-level await
  *     that would poison this ops module's M2-safe graph).
@@ -81,13 +93,16 @@ const NO_LEFTOVERS = Object.freeze({ newPath: null, oldPath: null });
 
 /**
  * Production default seams. Overridable via `opts.seams` for hermetic tests.
- *   writeFn  — stage content to a path (utf8).
+ *   writeFn  — stage content to a path. No encoding arg: writeFileSync defaults to
+ *              utf8 for a string (byte-identical to the old explicit 'utf8') and
+ *              writes the RAW bytes for a Buffer (encoding is ignored for Buffers),
+ *              so the same primitive is binary-safe for the rollback restore path.
  *   renameFn — rename a→b (used for both backup and commit).
  *   existsFn — does a path exist?
  *   rmFn     — best-effort remove (force:true so an absent path is a no-op).
  */
 const DEFAULT_SEAMS = Object.freeze({
-  writeFn: (p, c) => writeFileSync(p, c, 'utf8'),
+  writeFn: (p, c) => writeFileSync(p, c),
   renameFn: (a, b) => renameSync(a, b),
   existsFn: (p) => existsSync(p),
   rmFn: (p) => rmSync(p, { force: true }),
@@ -100,8 +115,12 @@ const DEFAULT_SEAMS = Object.freeze({
  *
  * @param {object} opts
  * @param {string} opts.target                              absolute path to write
- * @param {string} opts.content                             the new file content
+ * @param {string|Buffer} opts.content                      the new file content
+ *           (a string is written utf8; a Buffer is written raw — binary-safe).
  * @param {(path: string, ctx: string) => string} opts.assertWritable  REQUIRED gate
+ * @param {'apply'|'rollback'|'probe'} [opts.context]        gate context (default
+ *           'apply'); the rollback restore path passes 'rollback'. Passed straight
+ *           to assertWritable — the gate coerces an unknown context to 'apply'.
  * @param {RetryOptions} [opts.retry]                        forwarded to withRetry
  * @param {{writeFn?:Function, renameFn?:Function, existsFn?:Function, rmFn?:Function}} [opts.seams]
  * @returns {Promise<AtomicWriteResult>}
@@ -112,13 +131,16 @@ export async function atomicApplyWrite(opts) {
   try {
     const o = opts && typeof opts === 'object' ? opts : {};
     const { target, content, assertWritable, retry } = o;
+    // Default the gate context to 'apply' when absent; pass it through verbatim
+    // otherwise (the gate itself coerces an unknown context to 'apply').
+    const context = o.context === undefined ? 'apply' : o.context;
 
     // 1. Validate — write NOTHING on bad input.
     if (typeof target !== 'string' || target.length === 0) {
       return fail('apply-write-bad-args', 'target must be a non-empty string');
     }
-    if (typeof content !== 'string') {
-      return fail('apply-write-bad-args', 'content must be a string');
+    if (typeof content !== 'string' && !Buffer.isBuffer(content)) {
+      return fail('apply-write-bad-args', 'content must be a string or Buffer');
     }
     if (typeof assertWritable !== 'function') {
       return fail('apply-write-bad-args', 'assertWritable (the governed-write gate) must be injected');
@@ -126,7 +148,7 @@ export async function atomicApplyWrite(opts) {
 
     // 2. Gate FIRST — a denied gate writes NOTHING.
     try {
-      assertWritable(target, 'apply');
+      assertWritable(target, context);
     } catch (e) {
       return fail('apply-write-gate-denied', `write gate denied: ${msg(e)}`, target);
     }
@@ -143,7 +165,7 @@ export async function atomicApplyWrite(opts) {
  * the gate has passed. Never throws (each fs step is try/caught). Extracted to
  * keep atomicApplyWrite under the SLOC limit.
  * @param {object} a
- * @param {string} a.target @param {string} a.content @param {RetryOptions|undefined} a.retry
+ * @param {string} a.target @param {string|Buffer} a.content @param {RetryOptions|undefined} a.retry
  * @param {{writeFn:Function, renameFn:Function, existsFn:Function, rmFn:Function}} a.seams
  * @param {DiagnosticBag} a.bag @param {(code:string,message:string,path?:string,extra?:object)=>AtomicWriteResult} a.fail
  * @returns {Promise<AtomicWriteResult>}
