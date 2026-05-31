@@ -1,36 +1,49 @@
 /**
- * Apply orchestrator (P3.U12) — the FIRST unit of the apply path. It wires the
- * three already-built apply primitives into the start of the apply lifecycle and
- * then DELIBERATELY STOPS:
+ * Apply orchestrator (P3.U12 preamble + P3.U13 sub-unit C governed write). It
+ * wires the apply primitives into the apply lifecycle:
  *
- *   acquire-lock  →  SNAPSHOTTED (createSnapshot)  →  journal planned→snapshotted
- *                                                     →  *** STOP (writes disabled) ***
+ *   acquire-lock → SNAPSHOTTED (createSnapshot) → journal planned→snapshotted
+ *      ├─ enableWrites !== true (DEFAULT):  *** STOP (writes disabled) ***
+ *      └─ enableWrites === true:  snapshotted → applying → committed (single op)
+ *                                              (or → failed on refusal / write fail)
  *
- * This unit drives the journal from `planned` to `snapshotted` only. It performs
- * NO governed-config write: the `applying` state (which writes the actual ops into
- * `~/.claude`) is the NEXT unit (P3.U13) and is intentionally absent here. The
- * value this unit ships is the safe, recoverable PREAMBLE every apply needs — a
- * lock so two applies can't race, a snapshot so a future apply can be rolled back,
- * and a persisted journal recording that we got that far — all proven to touch
- * nothing under the governed config.
+ * By DEFAULT (no `enableWrites`) this drives the journal `planned`→`snapshotted`
+ * only and performs NO governed-config write — the safe, recoverable PREAMBLE
+ * (a lock so two applies can't race, a snapshot so a future apply can be rolled
+ * back, a persisted journal recording that we got that far). That default path is
+ * byte-identical to P3.U12 and proven to touch nothing under the governed config.
+ *
+ * With `enableWrites === true` the lifecycle CONTINUES past `snapshotted`: a
+ * SINGLE create/overwrite op is written via the atomic-write primitive
+ * (sub-unit B), driving the journal `applying`→`committed` (or `→ failed`).
+ * Multi-op is deferred to P3.U19 — more than one op REFUSES (`failed`).
  *
  * SECURITY / SAFETY invariants (each mirrors the sibling ops modules):
- *   1. NO governed-config write. The only filesystem writes this unit causes are
- *      inside `.mgr-state` (the lock file, the snapshot dir, the journal) — all
- *      gated by the INJECTED assertWritable. There is NO transition to `applying`.
+ *   1. The ONLY governed-config write is the atomic write of the single op, and it
+ *      happens ONLY under `enableWrites === true`. Every governed write routes
+ *      through atomicApplyWrite, which calls assertWritable(target,'apply')
+ *      internally — there is NO local path allowlist; the gate is the single
+ *      source of truth (an op targeting CLAUDE.md / marketplaces is denied → the
+ *      write fails → the journal moves to `failed`). All .mgr-state writes (lock,
+ *      snapshot, journal) are likewise gated by the INJECTED assertWritable.
  *   2. assertWritable is INJECTED + REQUIRED (fail-safe: refuse if absent, never
  *      silently bypass), exactly like lock.mjs / snapshot.mjs / apply-journal-writer.
- *      It is threaded into acquireLock, createSnapshot, AND writeJournal.
+ *      It is threaded into acquireLock, createSnapshot, writeJournal, AND the
+ *      atomic write.
  *   3. The lock is acquired OUTSIDE any try/finally; the finally that releases it
  *      runs ONLY when we actually acquired it (we never release a lock we do not
- *      own — releaseLock is called with the SAME pid acquireLock used).
+ *      own — releaseLock is called with the SAME pid acquireLock used). The
+ *      governed write runs INSIDE that lock, so the single-writer assumption the
+ *      atomic primitive relies on holds.
  *   4. Redaction of sensitive plan ops is createJournal's job (it calls
  *      redactPatchOp internally); this unit does NOT duplicate it.
  *
  * PARTIAL FAILURE: if the snapshot succeeds but the journal transition/write then
  * fails, the (valid) snapshot dir is left in `.mgr-state` for inspection — `gc` /
- * `list` tolerate a snapshot dir without an apply-journal.json, so the P3.U13
- * author must not assume every snapshot dir has a journal.
+ * `list` tolerate a snapshot dir without an apply-journal.json. If the GOVERNED
+ * write succeeds but the final `committed` journal-persist fails, the on-disk file
+ * IS already changed: the result reports `applied:true` but `ok:false` and the
+ * journal stays at `applying` — a `recover --resume`/`--rollback` reconciles it.
  *
  * M2-SAFETY: this module never imports src/paths.mjs (which carries a top-level
  * await) — not statically, not via dynamic import(). It takes the governed-write
@@ -40,19 +53,24 @@
  * Ops-layer constraint: imports only node:* stdlib + src/lib/** + sibling
  * src/ops/*. NEVER THROWS — every failure (including a thrown seam) becomes a
  * Diagnostic + `{ ok:false }`. Injectable seams make every path hermetically
- * unit-testable without a real lock / snapshot / fs. Zero npm deps.
+ * unit-testable without a real lock / snapshot / fs / write. Zero npm deps.
  *
- * Spec: plan claude-mgr-v5.md, the apply lifecycle `planned`→`snapshotted` step
- * (lines 493-519).
+ * Spec: plan claude-mgr-v5.md, the apply lifecycle `planned`→`snapshotted`→
+ * `applying`→`committed` steps (lines 493-519).
  */
 
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
 import { createSnapshot } from './snapshot.mjs';
 import { createJournal, transition, writeJournal } from './apply-journal-writer.mjs';
+import { atomicApplyWrite } from './atomic-write.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('../lib/plan.mjs').Plan} Plan */
+/** @typedef {import('../lib/plan.mjs').PlanOp} PlanOp */
+
+/** The op kinds this unit can write (they carry `content`); multi-op is P3.U19. */
+const WRITABLE_KINDS = Object.freeze(['create', 'overwrite']);
 
 /** Stable diagnostic phase tag for this module's own findings. */
 const PHASE = 'apply';
@@ -66,10 +84,17 @@ const PHASE = 'apply';
 
 /**
  * @typedef {Object} ApplyResult
- * @property {boolean} ok            true ONLY when the snapshot succeeded AND the
- *                                   journal was written in state 'snapshotted'.
+ * @property {boolean} ok            true when the lifecycle completed cleanly: for
+ *                                   the default (writes-disabled) path, snapshot +
+ *                                   journal written at 'snapshotted'; for the
+ *                                   enableWrites path, journal reached 'committed'.
  * @property {string|null} state     the journal state reached (null before any).
- * @property {false} applied         ALWAYS false in U12 (governed writes disabled).
+ * @property {boolean} applied       true once a governed write committed (always
+ *                                   false on the default writes-disabled path).
+ * @property {number} [opsWritten]   count of governed ops written (0 for a no-op
+ *                                   apply; 1 for a committed single op).
+ * @property {{newPath:string|null, oldPath:string|null}} [leftovers]  sidecar files
+ *                                   stranded by a catastrophic atomic-write failure.
  * @property {string|null} snapshotId
  * @property {string|null} journalPath
  * @property {string|null} manifestPath
@@ -85,7 +110,9 @@ function isNonEmptyStr(v) {
 
 /**
  * Build an ApplyResult, defaulting every field so callers always get the full
- * shape. `applied` is hard-wired false (U12 never writes governed config).
+ * shape. `applied` defaults false; the commit path sets it true once a governed
+ * write lands. `applied` is overridable via `fields` (it spreads after the
+ * defaults), so a falsy default never clobbers an explicit true.
  * @param {Partial<ApplyResult>} fields
  * @param {DiagnosticBag} bag
  * @returns {ApplyResult}
@@ -101,10 +128,13 @@ function buildResult(fields, bag) {
 }
 
 /**
- * Create + transition + persist the journal for a successful snapshot. Drives
- * `planned`→`snapshotted` ONLY (never `applying`). Returns the success result on
- * a written journal, or a failure result on any sub-step failure. Extracted from
- * applyPlan to keep both functions under the SLOC limit. Never throws.
+ * Create + transition + persist the journal for a successful snapshot, driving
+ * `planned`→`snapshotted`. When `enableWrites` is true it then CONTINUES the
+ * lifecycle into the governed write (`snapshotted`→`applying`→`committed`) via
+ * performApply; otherwise it STOPS at 'snapshotted' with an apply-writes-disabled
+ * info (the U12 default). Returns the lifecycle result, or a failure result on any
+ * sub-step failure. Extracted from applyPlan to keep both functions under the SLOC
+ * limit. Never throws (performApply is itself async + never-throws).
  *
  * @param {object} args
  * @param {Plan}   args.plan
@@ -112,12 +142,14 @@ function buildResult(fields, bag) {
  * @param {string} args.mgrStateDir
  * @param {(path:string, ctx:string)=>string} args.assertWritable
  * @param {() => Date} [args.now]
+ * @param {boolean} [args.enableWrites]  continue past 'snapshotted' into the write
+ * @param {object}  [args.retry]         forwarded to the atomic write
  * @param {{snapshotId:string|null, manifestPath:string|null, archivePath:string|null, reclaimed?:boolean}} args.snap
- * @param {{createJournalFn:Function, transitionFn:Function, writeJournalFn:Function}} args.fns
+ * @param {{createJournalFn:Function, transitionFn:Function, writeJournalFn:Function, atomicWriteFn:Function}} args.fns
  * @param {DiagnosticBag} args.bag
- * @returns {ApplyResult}
+ * @returns {Promise<ApplyResult>}
  */
-function persistJournal(args) {
+async function persistJournal(args) {
   const { plan, targetClaudeDir, mgrStateDir, assertWritable, now, snap, fns, bag } = args;
   // Carry the snapshot's id/paths onto every (success OR failure) result.
   const base = {
@@ -148,11 +180,153 @@ function persistJournal(args) {
   if (!w.written) return fail('apply-journal-write-failed', 'could not persist the apply journal',
     { state: 'snapshotted' });
 
-  // STOP at 'snapshotted' — the DoD criterion. No 'applying' transition, no
-  // governed write. Surface an INFO so the caller knows why nothing was applied.
-  bag.add({ severity: 'info', code: 'apply-writes-disabled', phase: PHASE,
-    message: "apply reached 'snapshotted'; governed-config writes are not yet implemented (P3.U13) — no files were modified" });
-  return buildResult({ ...base, ok: true, state: 'snapshotted', journalPath: w.path }, bag);
+  // Default (writes-disabled) path: STOP at 'snapshotted'. No 'applying'
+  // transition, no governed write. Surface an INFO so the caller knows why nothing
+  // was applied. (P3.U12 behavior, preserved byte-identically.)
+  if (args.enableWrites !== true) {
+    bag.add({ severity: 'info', code: 'apply-writes-disabled', phase: PHASE,
+      message: "apply reached 'snapshotted'; governed-config writes are disabled (pass enableWrites) — no files were modified" });
+    return buildResult({ ...base, ok: true, state: 'snapshotted', journalPath: w.path }, bag);
+  }
+
+  // enableWrites: CONTINUE the lifecycle into the governed write.
+  return performApply({
+    plan, mgrStateDir, assertWritable, now, retry: args.retry, snap,
+    fns, bag, base, journal: t.journal, journalPath: w.path,
+  });
+}
+
+/**
+ * Validate the op set is a SINGLE writable op (P3.U13; multi-op is P3.U19), then
+ * drive the governed write: `snapshotted`→`applying`, atomic write, →`committed`.
+ * Any refusal (multi-op / bad kind / invalid op) marks the journal `failed`
+ * WITHOUT an 'applying' transition or a write. A failed atomic write marks the
+ * journal `failed` and surfaces res.leftovers. Never throws.
+ *
+ * @param {object} a  { plan, mgrStateDir, assertWritable, now, retry, snap, fns,
+ *                       bag, base, journal, journalPath }
+ * @returns {Promise<ApplyResult>}
+ */
+async function performApply(a) {
+  const { plan, mgrStateDir, assertWritable, snap, fns, bag, base, journal, journalPath } = a;
+  // Refuse before any 'applying' transition: persist a `failed` journal + return.
+  const refuse = (code, message, fields) => toFailed(a, journal, code, message, fields);
+
+  const ops = Array.isArray(plan.ops) ? plan.ops : [];
+  if (ops.length > 1) {
+    return refuse('apply-multi-op-unsupported', 'apply supports a single op in P3.U13; multi-op is P3.U19');
+  }
+  if (ops.length === 1) {
+    const bad = invalidOpReason(ops[0]);
+    if (bad) return refuse(bad.code, bad.message, {});
+  }
+
+  // snapshotted → applying, then persist. No governed write has happened yet.
+  const t = fns.transitionFn(journal, 'applying', { now: a.now });
+  for (const d of t.diagnostics) bag.add(d);
+  if (!t.ok) {
+    bag.add({ severity: 'error', code: 'apply-transition-failed', phase: PHASE,
+      message: "could not transition journal to 'applying'" });
+    return buildResult({ ...base, state: 'snapshotted', journalPath }, bag);
+  }
+  const wp = persistAt(a, t.journal);
+  if (!wp.written) {
+    bag.add({ severity: 'error', code: 'apply-journal-write-failed', phase: PHASE,
+      message: "could not persist the apply journal at 'applying'" });
+    return buildResult({ ...base, state: 'snapshotted', journalPath }, bag);
+  }
+
+  // The single governed write (or a clean no-op when ops.length === 0).
+  let opsWritten = 0;
+  if (ops.length === 1) {
+    const op = ops[0];
+    const res = await fns.atomicWriteFn({ target: op.target, content: op.content, assertWritable, retry: a.retry });
+    for (const d of res.diagnostics ?? []) bag.add(d);
+    if (!res.ok) {
+      return toFailed(a, t.journal, 'apply-op-failed',
+        'the governed write failed; the journal is marked failed (snapshot intact for rollback)',
+        { applied: false, leftovers: res.leftovers, journalPath: wp.path });
+    }
+    opsWritten = 1;
+  }
+  return commitApply({ ...a, journal: t.journal, journalPath: wp.path, opsWritten });
+}
+
+/**
+ * applying → committed + persist. The governed write has ALREADY landed, so on a
+ * commit-transition / persist failure we report `applied:true` but `ok:false`
+ * (the on-disk file changed; do not claim a clean commit — recover reconciles).
+ * @param {object} a  { mgrStateDir, assertWritable, now, fns, bag, base, journal,
+ *                       journalPath, opsWritten }
+ * @returns {ApplyResult}
+ */
+function commitApply(a) {
+  const { fns, bag, base, journal, journalPath, opsWritten } = a;
+  const t = fns.transitionFn(journal, 'committed', { now: a.now });
+  for (const d of t.diagnostics) bag.add(d);
+  if (!t.ok) {
+    bag.add({ severity: 'error', code: 'apply-commit-incomplete', phase: PHASE,
+      message: "the file was written but the journal could not reach 'committed' — recover --resume/--rollback to reconcile" });
+    return buildResult({ ...base, applied: true, opsWritten, state: 'applying', journalPath }, bag);
+  }
+  const w = persistAt(a, t.journal);
+  if (!w.written) {
+    bag.add({ severity: 'error', code: 'apply-commit-incomplete', phase: PHASE,
+      message: "the file was written but the committed journal could not be persisted — recover --resume/--rollback to reconcile" });
+    return buildResult({ ...base, applied: true, opsWritten, state: 'applying', journalPath }, bag);
+  }
+  return buildResult({ ...base, ok: true, applied: true, opsWritten, state: 'committed', journalPath: w.path }, bag);
+}
+
+/**
+ * Reason a single op is not a writable create/overwrite op, or null when it is
+ * valid. Kind errors and missing-field errors carry distinct codes. Pure.
+ * @param {unknown} op
+ * @returns {{code:string, message:string}|null}
+ */
+function invalidOpReason(op) {
+  if (!op || typeof op !== 'object' || !WRITABLE_KINDS.includes(op.kind)) {
+    return { code: 'apply-op-kind-unsupported',
+      message: `apply supports only ${WRITABLE_KINDS.join('/')} ops in P3.U13` };
+  }
+  if (!isNonEmptyStr(op.target) || typeof op.content !== 'string') {
+    return { code: 'apply-op-invalid', message: 'op must have a non-empty string target and a string content' };
+  }
+  return null;
+}
+
+/**
+ * Transition `journal` (in any active state) to 'failed', persist it, and return a
+ * `failed` ApplyResult carrying `code`/`message` + any extra `fields`. Used by the
+ * refusal paths and the write-failure path so a refused/failed apply always leaves
+ * a persisted `failed` journal. Never throws.
+ * @param {object} a   the performApply arg bundle (mgrStateDir/assertWritable/fns/bag/base)
+ * @param {object} journal    the journal to transition
+ * @param {string} code @param {string} message @param {object} fields  extra result fields
+ * @returns {ApplyResult}
+ */
+function toFailed(a, journal, code, message, fields) {
+  const { fns, bag, base } = a;
+  bag.add({ severity: 'error', code, message, phase: PHASE });
+  const t = fns.transitionFn(journal, 'failed', { now: a.now });
+  for (const d of t.diagnostics) bag.add(d);
+  if (t.ok) persistAt(a, t.journal);
+  return buildResult({ ...base, state: 'failed', ...fields }, bag);
+}
+
+/**
+ * Persist a journal into `.mgr-state` via the injected writeJournalFn + gate.
+ * Diagnostics are aggregated into the shared bag. Thin shared helper.
+ * @param {object} a  { mgrStateDir, assertWritable, snap, fns, bag }
+ * @param {object} journal
+ * @returns {{written:boolean, path:string|null}}
+ */
+function persistAt(a, journal) {
+  const w = a.fns.writeJournalFn({
+    stateDir: a.mgrStateDir, snapshotId: a.snap.snapshotId, journal, assertWritable: a.assertWritable,
+  });
+  for (const d of w.diagnostics ?? []) a.bag.add(d);
+  return { written: !!w.written, path: w.path ?? null };
 }
 
 /**
@@ -170,14 +344,19 @@ function persistJournal(args) {
  * @param {string}  [opts.reason='']                snapshot reason
  * @param {boolean} [opts.includeAuth=false]        opt in to capturing the auth-cache file
  * @param {number}  [opts.pid]                      lock pid (defaults to process.pid); SAME pid used to release
+ * @param {boolean} [opts.enableWrites=false]       continue past 'snapshotted' and
+ *                                                  perform the single governed write
+ *                                                  (otherwise stop at 'snapshotted')
+ * @param {object}  [opts.retry]                    retry schedule forwarded to the atomic write
  * @param {() => Date} [opts.now]                   clock injection (defaults to Date)
- * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn }
+ * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn }
  * @returns {Promise<ApplyResult>}
  */
 export async function applyPlan(opts) {
   const bag = new DiagnosticBag();
   const o = opts && typeof opts === 'object' ? opts : {};
   const { plan, targetClaudeDir, mgrStateDir, assertWritable, reason = '', includeAuth = false } = o;
+  const enableWrites = o.enableWrites === true;
   const now = typeof o.now === 'function' ? o.now : () => new Date();
   const seams = o.seams && typeof o.seams === 'object' ? o.seams : {};
   const acquireFn = seams.acquireFn ?? acquireLock;
@@ -187,6 +366,7 @@ export async function applyPlan(opts) {
     createJournalFn: seams.createJournalFn ?? createJournal,
     transitionFn: seams.transitionFn ?? transition,
     writeJournalFn: seams.writeJournalFn ?? writeJournal,
+    atomicWriteFn: seams.atomicWriteFn ?? atomicApplyWrite,
   };
 
   const fail = (code, message) => {
@@ -225,8 +405,8 @@ export async function applyPlan(opts) {
           message: 'could not capture a snapshot before applying; aborting (no changes made)' });
         return buildResult({ lock: { acquired: true, ...(acq.reclaimed ? { reclaimed: acq.reclaimed } : {}) } }, bag);
       }
-      return persistJournal({
-        plan, targetClaudeDir, mgrStateDir, assertWritable, now,
+      return await persistJournal({
+        plan, targetClaudeDir, mgrStateDir, assertWritable, now, enableWrites, retry: o.retry,
         snap: { snapshotId: snap.snapshotId, manifestPath: snap.manifestPath, archivePath: snap.archivePath, reclaimed: acq.reclaimed },
         fns, bag,
       });
