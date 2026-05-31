@@ -311,6 +311,58 @@ test('assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1
   }
 });
 
+// --- assertWritable: always-writable governed settings files (P3.U13-A) ---
+// Plan line 432 "Forbidden vs Rollback-Writable": settings.json /
+// settings.local.json / .mcp.json are "Always writable (with --apply)" — Yes in
+// BOTH 'apply' and 'rollback'. Matched by EXACT basename + directly-under config
+// dir, so near-misses (settings.jsonx, nested sub/settings.json) are refused.
+test('assertWritable: the three governed settings files are writable in apply AND rollback (P3.U13-A)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-aw-settings-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    for (const name of ['settings.json', 'settings.local.json', '.mcp.json']) {
+      // ALLOW in 'apply' (default) — and the canonical path is returned.
+      const applyResult = assertWritable(join(dir, name), 'apply');
+      assert.ok(
+        typeof applyResult === 'string' && applyResult.length > 0,
+        `${name} apply returns a canonical path string`,
+      );
+      assert.doesNotThrow(() => assertWritable(join(dir, name)), `${name} apply (default ctx) allowed`);
+      // ALLOW in 'rollback' too.
+      const rbResult = assertWritable(join(dir, name), 'rollback');
+      assert.ok(
+        typeof rbResult === 'string' && rbResult.length > 0,
+        `${name} rollback returns a canonical path string`,
+      );
+    }
+
+    // DENY near-miss: a longer basename (settings.jsonx) is NOT an exact match.
+    assert.throws(
+      () => assertWritable(join(dir, 'settings.jsonx'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-not-allowed',
+      'settings.jsonx must not be treated as settings.json',
+    );
+
+    // DENY near-miss: the right basename but NESTED (not directly under config dir).
+    assert.throws(
+      () => assertWritable(join(dir, 'sub', 'settings.json'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-not-allowed',
+      'a nested sub/settings.json must not be writable',
+    );
+
+    // The near-misses are rejected in 'rollback' too (no special-casing).
+    assert.throws(
+      () => assertWritable(join(dir, 'settings.jsonx'), 'rollback'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-not-allowed',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- security L1: a symlink/junction inside the allowed dir that resolves
 // OUTSIDE the allowlist must be DENIED (realpathSync-before-allowlist). ---
 test('assertWritable DENIES a junction that escapes the allowlist', () => {
