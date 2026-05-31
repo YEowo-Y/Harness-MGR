@@ -167,6 +167,21 @@ function buildAllowlistCases(targetClaudeDir, mgrStateDir) {
       target: join(targetClaudeDir, 'commands', 'greet.md'), context: 'rollback', expectAllow: true },
     { label: 'targetClaudeDir/hooks/pre.mjs rollback -> ALLOW',
       target: join(targetClaudeDir, 'hooks', 'pre.mjs'), context: 'rollback', expectAllow: true },
+    // Always-writable governed settings files (plan line 432) — apply + rollback.
+    { label: 'targetClaudeDir/settings.json apply -> ALLOW',
+      target: join(targetClaudeDir, 'settings.json'), context: 'apply', expectAllow: true },
+    { label: 'targetClaudeDir/settings.local.json apply -> ALLOW',
+      target: join(targetClaudeDir, 'settings.local.json'), context: 'apply', expectAllow: true },
+    { label: 'targetClaudeDir/.mcp.json apply -> ALLOW',
+      target: join(targetClaudeDir, '.mcp.json'), context: 'apply', expectAllow: true },
+    { label: 'targetClaudeDir/settings.json rollback -> ALLOW',
+      target: join(targetClaudeDir, 'settings.json'), context: 'rollback', expectAllow: true },
+    { label: 'near-miss targetClaudeDir/settings.jsonx apply -> THROW write-not-allowed',
+      target: join(targetClaudeDir, 'settings.jsonx'), context: 'apply',
+      expectAllow: false, expectedCode: 'write-not-allowed' },
+    { label: 'near-miss nested targetClaudeDir/sub/settings.json apply -> THROW write-not-allowed',
+      target: join(targetClaudeDir, 'sub', 'settings.json'), context: 'apply',
+      expectAllow: false, expectedCode: 'write-not-allowed' },
   ];
 }
 
