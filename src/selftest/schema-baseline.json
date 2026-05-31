@@ -66,6 +66,7 @@
     "mcpTransports": [],
     "pluginSchemaVersion": 2,
     "settingsKeys": [
+      "agentPushNotifEnabled",
       "attribution",
       "autoCompactEnabled",
       "effortLevel",
@@ -75,6 +76,7 @@
       "env",
       "extraKnownMarketplaces",
       "hooks",
+      "inputNeededNotifEnabled",
       "outputStyle",
       "permissions",
       "respectGitignore",
@@ -112,7 +114,7 @@
       "telemetry"
     ]
   },
-  "fingerprint": "f86cf4419a5e2fd0d98cbe8839b77c5b4200d29b72a8ed10b87f40d7f6b759a0",
-  "generatedAt": "2026-05-29T13:18:26.604Z",
+  "fingerprint": "006a0b51366db353105a1eccecf976fdb35d64d82995548ebf8ddbf0865f2631",
+  "generatedAt": "2026-05-31T10:52:34.012Z",
   "schemaCanaryVersion": 1
 }
