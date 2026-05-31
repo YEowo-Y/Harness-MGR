@@ -46,6 +46,7 @@ function isUnderFake(child, parent) {
 }
 
 const FAKE_PROBE_NAME_RE = /^__mgr-probe-[0-9a-f-]+\.md$/i;
+const FAKE_APPLY_WRITABLE_FILES = ['settings.json', 'settings.local.json', '.mcp.json'];
 
 /**
  * Correct fake that mirrors the real assertWritable rules.
@@ -90,6 +91,17 @@ function fakeAssertWritable(target, context = 'apply') {
       return target;
     }
     throw Object.assign(new Error('probe-only: ' + target), { code: 'write-probe-only' });
+  }
+
+  // Always-writable governed settings files (plan line 432): exact basename,
+  // DIRECTLY under the config dir, in BOTH 'apply' and 'rollback'. String-only
+  // match (consistent with this fake's design — see the probe note above).
+  if (ctx === 'apply' || ctx === 'rollback') {
+    const parentDir = target.slice(0, target.lastIndexOf(sep));
+    const filename = target.slice(target.lastIndexOf(sep) + 1);
+    if (parentDir === targetClaudeDir && FAKE_APPLY_WRITABLE_FILES.includes(filename)) {
+      return target;
+    }
   }
 
   // Rollback-only surfaces
