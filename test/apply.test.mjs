@@ -20,6 +20,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyPlan } from '../src/ops/apply.mjs';
+import { transition, createJournal } from '../src/ops/apply-journal-writer.mjs';
 
 const FIXED_NOW = () => new Date('2026-05-30T00:00:00.000Z');
 const FIXED_ID = '2026-05-30T00-00-00Z';
@@ -35,6 +36,16 @@ function makePlan() {
     ops: [{ kind: 'patch', target: `${TARGET}\\settings.json`, summary: 'set model', pointer: '/model', before: 'sonnet', after: 'opus' }],
     apply: true,
   };
+}
+
+/** A Plan with `ops` exactly as given (writable-kind matrix for enableWrites). */
+function planWith(ops) {
+  return { planVersion: 1, command: 'config set', ops, apply: true };
+}
+
+/** A single create/overwrite op writing CONTENT to a settings.json target. */
+function writeOp(kind, content = '{"model":"opus"}\n') {
+  return { kind, target: `${TARGET}\\settings.json`, summary: `${kind} settings`, content };
 }
 
 /** A recording acquireLock seam. */
@@ -108,6 +119,31 @@ function makeWriteJournal(result = {}) {
   return fn;
 }
 
+/** A recording atomicApplyWrite seam (async). Defaults to a clean successful write. */
+function makeAtomicWrite(result = {}) {
+  const calls = [];
+  const fn = (opts) => {
+    calls.push(opts);
+    if (result.throw) return Promise.reject(result.throw);
+    if (result.ok === false) {
+      return Promise.resolve({ ok: false, wrote: false,
+        leftovers: result.leftovers ?? { newPath: null, oldPath: null },
+        diagnostics: result.diagnostics ?? [] });
+    }
+    return Promise.resolve({ ok: true, wrote: true, leftovers: { newPath: null, oldPath: null }, diagnostics: [] });
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+/** A real-state-machine transition seam (delegates to the actual transition). */
+function realTransition() {
+  const calls = [];
+  const fn = (journal, toState, opts) => { calls.push({ journal, toState }); return transition(journal, toState, opts); };
+  fn.calls = calls;
+  return fn;
+}
+
 /** Bundle a full set of happy-path seams, allowing per-seam overrides. */
 function happySeams(over = {}) {
   return {
@@ -117,6 +153,7 @@ function happySeams(over = {}) {
     createJournalFn: over.createJournalFn ?? makeCreateJournal(),
     transitionFn: over.transitionFn ?? makeTransition(),
     writeJournalFn: over.writeJournalFn ?? makeWriteJournal(),
+    atomicWriteFn: over.atomicWriteFn ?? makeAtomicWrite(),
   };
 }
 
@@ -337,4 +374,178 @@ test('applyPlan: tolerates undefined / null / empty opts without throwing', asyn
     assert.equal(c.ok, false);
     assert.equal(c.diagnostics[0].code, 'apply-bad-args');
   });
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+//  P3.U13 sub-unit C — enableWrites: snapshotted → applying → committed
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── (C1) DEFAULT (no enableWrites) still stops at snapshotted ────────────────────
+
+test('applyPlan: WITHOUT enableWrites still stops at snapshotted, NEVER applying', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams)); // no enableWrites
+  assert.equal(res.ok, true);
+  assert.equal(res.state, 'snapshotted');
+  assert.equal(res.applied, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-writes-disabled'), 'writes-disabled info still present');
+  // the DoD pin holds: transition NEVER called with 'applying', atomic write never called.
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted']);
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'no governed write on the default path');
+});
+
+// ── (C2) enableWrites + single create op → committed, applied:true, opsWritten:1 ─
+
+test('applyPlan enableWrites: single create op reaches committed (applied, opsWritten:1)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([writeOp('create')]) }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 1);
+  // no writes-disabled info on the enableWrites path.
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-writes-disabled'));
+  // transitions are exactly the full lifecycle tail.
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
+  // atomicWriteFn called ONCE with the op's target+content and the injected gate.
+  assert.equal(seams.atomicWriteFn.calls.length, 1);
+  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.equal(seams.atomicWriteFn.calls[0].content, '{"model":"opus"}\n');
+  assert.equal(seams.atomicWriteFn.calls[0].assertWritable, PASS);
+  // journal persisted three times: snapshotted, applying, committed.
+  assert.equal(seams.writeJournalFn.calls.length, 3);
+  // lock released.
+  assert.equal(seams.releaseFn.calls.length, 1);
+});
+
+// ── (C3) enableWrites + single overwrite op → committed ──────────────────────────
+
+test('applyPlan enableWrites: single overwrite op reaches committed', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([writeOp('overwrite')]) }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 1);
+  assert.equal(seams.atomicWriteFn.calls.length, 1);
+  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}\\settings.json`);
+});
+
+// ── (C4) enableWrites + atomic write fails (with leftovers) → failed ─────────────
+
+test('applyPlan enableWrites: a failed atomic write → journal failed, applied:false, leftovers surfaced', async () => {
+  const leftovers = { newPath: `${TARGET}\\settings.json.mgr-new`, oldPath: `${TARGET}\\settings.json.mgr-old` };
+  const atomicWriteFn = makeAtomicWrite({ ok: false, leftovers,
+    diagnostics: [{ severity: 'error', code: 'apply-write-commit-unrecoverable', message: 'boom', phase: 'apply' }] });
+  const seams = happySeams({ atomicWriteFn });
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([writeOp('overwrite')]) }));
+  assert.equal(res.ok, false);
+  assert.equal(res.applied, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-failed'), 'own rollup code');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-write-commit-unrecoverable'), 'aggregates write diag');
+  assert.deepEqual(res.leftovers, leftovers, 'res.leftovers surfaced on the result');
+  // the write WAS attempted; transitions reached applying then failed (not committed).
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'failed']);
+  assert.equal(seams.releaseFn.calls.length, 1, 'lock released');
+});
+
+// ── (C5) enableWrites + 2 ops → multi-op refusal (atomicWriteFn NEVER called) ────
+
+test('applyPlan enableWrites: 2 ops → failed + apply-multi-op-unsupported, NO write, NO applying', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, plan: planWith([writeOp('create'), writeOp('overwrite')]),
+  }));
+  assert.equal(res.ok, false);
+  assert.equal(res.applied, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-multi-op-unsupported'));
+  // CRITICAL: no write, and no 'applying' transition (refused while snapshotted).
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'atomicWriteFn NEVER called for multi-op');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.ok(!states.includes('applying'), 'never transitions to applying on a multi-op refusal');
+  assert.deepEqual(states, ['snapshotted', 'failed']);
+});
+
+// ── (C6) enableWrites + unsupported kind (patch) → kind refusal, no write ────────
+
+test('applyPlan enableWrites: a single patch op → failed + apply-op-kind-unsupported, NO write, NO applying', async () => {
+  const seams = happySeams();
+  // makePlan() is a single patch op — unsupported for writing.
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: makePlan() }));
+  assert.equal(res.ok, false);
+  assert.equal(res.applied, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-kind-unsupported'));
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'atomicWriteFn NEVER called for an unsupported kind');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.ok(!states.includes('applying'), 'transition NEVER called with applying on a kind refusal');
+  assert.deepEqual(states, ['snapshotted', 'failed']);
+});
+
+// ── (C6b) enableWrites + create op missing content → apply-op-invalid ────────────
+
+test('applyPlan enableWrites: a create op with no content → failed + apply-op-invalid, no write', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true,
+    plan: planWith([{ kind: 'create', target: `${TARGET}\\settings.json`, summary: 'no content' }]),
+  }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'));
+  assert.equal(seams.atomicWriteFn.calls.length, 0);
+});
+
+// ── (C7) enableWrites + 0 ops → clean no-op commit (opsWritten:0, no write) ───────
+
+test('applyPlan enableWrites: 0 ops → committed no-op (applied:true, opsWritten:0, NO write)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([]) }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 0);
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'no governed write for a zero-op apply');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'committed'], 'still drives the full lifecycle');
+});
+
+// ── (C8) enableWrites but missing assertWritable still refuses BEFORE the lock ────
+
+test('applyPlan enableWrites: a missing assertWritable refuses before the lock (no acquire, no write)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan({
+    plan: planWith([writeOp('create')]), targetClaudeDir: TARGET, mgrStateDir: STATE,
+    now: FIXED_NOW, enableWrites: true, seams, // assertWritable omitted
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.applied, false);
+  assert.equal(res.lock.acquired, false);
+  assert.equal(res.diagnostics[0].code, 'apply-bad-args');
+  assert.match(res.diagnostics[0].message, /assertWritable/);
+  assert.equal(seams.acquireFn.calls.length, 0, 'no lock without a write gate');
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'no write without a write gate');
+});
+
+// ── (C9) enableWrites with the REAL state machine accepts the full lifecycle ─────
+
+test('applyPlan enableWrites: the REAL transition state machine accepts snapshotted→applying→committed', async () => {
+  // Use the REAL createJournal (so the journal carries a real lifecycle `state`)
+  // and the REAL transition (records calls but delegates to the actual TRANSITIONS
+  // table) — a regression guard proving the table admits the edges this unit drives
+  // even if the mocks ever drift from the real state machine.
+  const transitionFn = realTransition();
+  const seams = happySeams({ transitionFn, createJournalFn: createJournal });
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([writeOp('create')]) }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 1);
+  const states = transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
 });
