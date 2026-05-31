@@ -19,6 +19,16 @@
  *                       #21 / recover to find (`leftovers` carries both paths).
  *   - commit fails + no prior target → remove `.mgr-new`.
  *
+ * CRASH WINDOW (process death, NOT a thrown step): if the process dies AFTER the
+ * backup rename (target → `.mgr-old`) but BEFORE the commit rename, `target` is
+ * absent on disk while the ORIGINAL bytes sit safely in `.mgr-old` and the new
+ * content in `.mgr-new`. This is an inherent property of a rename-based two-phase
+ * replace, not a bug — doctor #21 detects both stranded sidecars and the absent
+ * `target` is reconcilable from `.mgr-old`. Automated restore is NOT yet built:
+ * `recover --mark-failed` (P3.U14) only marks the journal; the actual restore is
+ * `recover --rollback` (P3.U18), which MUST treat "target absent + `.mgr-old`
+ * present + journal at `applying`" as a first-class restore case.
+ *
  * The fs ops that can hit a transient Windows EBUSY / EPERM (AV scanners, the
  * indexer, another handle) are wrapped in withRetry; the caller's `retry` schedule
  * is forwarded so tests can disable backoff. "best-effort rm" swallows cleanup
@@ -27,7 +37,12 @@
  * SECURITY / SAFETY invariants (mirroring lock.mjs / apply.mjs):
  *   - assertWritable is INJECTED + REQUIRED (fail-closed: refuse if absent or not a
  *     function — never silently bypass the governed-write gate). It is checked
- *     FIRST, before any filesystem touch, so a denied gate writes NOTHING.
+ *     FIRST, before any filesystem touch, so a denied gate writes NOTHING. The gate
+ *     approves `target`; the two sidecars (`target`+`.mgr-new`/`.mgr-old`) are its
+ *     trusted siblings in the SAME gate-approved directory and are intentionally
+ *     NOT re-gated (their basenames are not in APPLY_WRITABLE_FILES, so gating them
+ *     would wrongly throw `write-not-allowed` and break the write). Do NOT "fix"
+ *     this by routing the sidecars through the gate.
  *   - M2-SAFETY: imports ONLY node:fs + src/lib/retry.mjs + src/lib/diagnostic.mjs.
  *     NEVER src/paths.mjs or src/lib/reexport.mjs (both carry a top-level await
  *     that would poison this ops module's M2-safe graph).
