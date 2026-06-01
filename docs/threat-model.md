@@ -144,6 +144,23 @@ is the opt-in loader probe (5.4); everything else writes only under `.mgr-state`
   never values" contract ([`src/discovery/mcp.mjs`](../src/discovery/mcp.mjs),
   `mcp.mjs:128`; see also the module header `mcp.mjs:13-16`). So inventory output
   and (future) snapshots cannot leak an MCP secret value.
+- **`config show-effective` redacts settings secret VALUES.** The merged
+  `settings.json` surface is NOT names-only — `settings.json` can carry an `env`
+  map (e.g. `ANTHROPIC_API_KEY`) and sensitive-keyed scalars (e.g.
+  `apiKeyHelper`). Before `configShowEffectiveCommand` returns, every value under
+  the top-level `env` map AND any value whose KEY matches the sensitive patterns
+  (`token`/`secret`/`key`/`password`/`credential`/`auth`) is replaced with the
+  project's standard `{redacted:true, sha256}` sentinel across BOTH value-bearing
+  surfaces (the merged `effective` object and the per-key `keys` map's
+  `value`/`perLayer[].value`). Redaction happens in the handler, so EVERY output
+  format (json, ndjson, table, quiet) is uniformly safe; key NAMES stay visible
+  for governance and the stable hash allows config-diffing without revealing the
+  secret. Single source: the patterns + hash come from
+  [`src/lib/plan.mjs`](../src/lib/plan.mjs) (`isSensitivePointer`,
+  `sha256OfValue`) and the walk lives in
+  [`src/analysis/redact-effective.mjs`](../src/analysis/redact-effective.mjs);
+  the wiring is [`src/cli/commands.mjs`](../src/cli/commands.mjs)
+  (`configShowEffectiveCommand`).
 - **The audit log is metadata-only.** The reader treats every line as an opaque
   JSONL object and examines **only `timestamp`** for sort/filter
   ([`src/ops/audit.mjs`](../src/ops/audit.mjs), `audit.mjs:117`, header
@@ -310,8 +327,9 @@ detective-only controls today, not a victory lap.
 - **Snapshot/journal secret redaction is not yet implemented.** The
   content-sniff secrets allowlist, the `--include-auth` gate, and apply-journal
   `before/after` redaction (plan **H1/H2/M2**, plan lines ~553-557) are
-  **Phase-3** mechanisms. Until then the only secret-bearing surface the tool
-  touches is MCP `env`, which is already names-only (5.3).
+  **Phase-3** mechanisms. The read-side secret-bearing surfaces the tool exposes
+  are MCP `env` (names-only, 5.3) and `config show-effective` settings values
+  (redacted to `{redacted, sha256}`, 5.3); both are covered.
 - **A transiently-unreadable tracked file can surface as spurious drift.** A
   locked/EACCES file is omitted from the drift fingerprint and reads as a
   `removed` change on the next diff (`probe-state.mjs:63-84`) — best-effort by
