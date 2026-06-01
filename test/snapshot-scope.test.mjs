@@ -212,6 +212,35 @@ test('depth guard: extremely deep nesting does not throw and is bounded', () => 
   }
 });
 
+test('a stranded .mgr-new / .mgr-old sidecar is NEVER captured into a snapshot', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    // A real governed file alongside a stranded atomic-write recovery sidecar
+    // (the catastrophic apply/rollback double-failure case).
+    writeFileAt(dir, 'agents/real.md');
+    writeFileAt(dir, 'agents/strand.md.mgr-old');
+    // Also a nested .mgr-new deeper under skills/ to prove the recursive walk skips it.
+    writeFileAt(dir, 'skills/my-skill/SKILL.md');
+    writeFileAt(dir, 'skills/my-skill/SKILL.md.mgr-new');
+
+    const { files } = walkSnapshotScope({ targetClaudeDir: dir });
+    const fileSet = new Set(files);
+    // The real files ARE captured (POSIX-relative).
+    assert.equal(fileSet.has('agents/real.md'), true, 'real governed file must be captured');
+    assert.equal(fileSet.has('skills/my-skill/SKILL.md'), true, 'real nested file must be captured');
+    // The sidecars are NEVER captured. PRE-FIX both ARE captured (the walk has no
+    // sidecar filter), so each of these assertions fails before the fix.
+    assert.equal(fileSet.has('agents/strand.md.mgr-old'), false, '.mgr-old sidecar must be excluded');
+    assert.equal(fileSet.has('skills/my-skill/SKILL.md.mgr-new'), false, '.mgr-new sidecar must be excluded');
+    // Belt: no captured path ends with a recovery-sidecar suffix.
+    for (const p of files) {
+      assert.equal(p.endsWith('.mgr-new') || p.endsWith('.mgr-old'), false, `${p} is a recovery sidecar`);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
 // ── COMPLETENESS drift-guard: all 19 KNOWN_TOP_DIRS explicitly accounted for ──
 
 test('every KNOWN_TOP_DIR is explicitly decided (allowlist | plugins | exclusion)', () => {
