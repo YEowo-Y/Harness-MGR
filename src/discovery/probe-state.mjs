@@ -26,6 +26,7 @@ import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { assertWritable } from '../paths.mjs';
 import { readJsonFile, isJsonObject } from './read-json.mjs';
 import { stableStringify } from '../output/json.mjs';
+import { isLeftoverSidecar } from '../lib/leftover-sidecars.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -126,6 +127,11 @@ function collectDirFiles(dir, configDir, files, depth = 0) {
     if (ent.isDirectory()) {
       collectDirFiles(abs, configDir, files, depth + 1);
     } else if (ent.isFile()) {
+      // Skip atomic-write recovery sidecars (<target>.mgr-new / .mgr-old): a
+      // catastrophic apply/rollback double-failure can strand these in a tracked
+      // content dir, but they are transient recovery artifacts — not governed
+      // config — and must never be hashed into the drift fingerprint/lockfile.
+      if (isLeftoverSidecar(ent.name)) continue;
       const rel = toPosixRel(configDir, abs);
       // Guard against prototype-poisoning keys.
       if (rel === '__proto__' || rel === 'constructor' || rel === 'prototype') continue;
