@@ -29,6 +29,7 @@ import { loaderConfidence } from '../analysis/load-order.mjs';
 import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
+import { redactEffective, redactKeysMap, redactMergeEntry, redactKeyedValue } from '../analysis/redact-effective.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
 import { selftestCommand } from './selftest-command.mjs';
@@ -238,6 +239,16 @@ export function orphansCommand(ctx) {
  * The merged effective settings (user < local). Flags: `args.key` (optional dotted
  * path) narrows to that key — `merge` is the top-level segment's KeyMerge, `value`
  * is the value navigated down the full path (undefined if absent; never throws).
+ *
+ * SECRET-SAFE: sensitive VALUES are redacted to `{redacted:true, sha256}` BEFORE
+ * the result is returned, so EVERY output format (json/ndjson/table/quiet) is
+ * uniformly safe — every value under the top-level `env` map plus any value whose
+ * KEY is sensitive (token/secret/key/password/credential/auth). Both value-bearing
+ * surfaces are covered: the merged `effective` AND the per-key `keys` map (whose
+ * KeyMerge `value`/`perLayer[].value` hold raw values — an unknown sensitive key
+ * like `apiKeyHelper` lives ONLY there). Key NAMES and the merge metadata stay
+ * visible; the originals are left untouched (redaction returns fresh copies).
+ * See analysis/redact-effective.mjs.
  * @type {CommandHandler}
  */
 export function configShowEffectiveCommand(ctx) {
@@ -248,11 +259,13 @@ export function configShowEffectiveCommand(ctx) {
   const key = ctx.args && ctx.args.key;
   if (typeof key === 'string' && key.length > 0) {
     const segments = key.split('.');
-    const result = { key, merge: m.keys[segments[0]] ?? null, value: navigate(m.effective, segments) };
+    const value = redactKeyedValue(segments, navigate(m.effective, segments));
+    const merge = redactMergeEntry(segments[0], m.keys[segments[0]] ?? null);
+    const result = { key, merge, value };
     return { result, diagnostics };
   }
 
-  return { result: { effective: m.effective, keys: m.keys }, diagnostics };
+  return { result: { effective: redactEffective(m.effective), keys: redactKeysMap(m.keys) }, diagnostics };
 }
 
 /**
