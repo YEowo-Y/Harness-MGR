@@ -266,9 +266,10 @@ test('U6/#10 a prose .md whose BASENAME matches a secret glob is STILL dropped b
   assert.equal(res.dropped[0].by, 'name', 'dropped by name matcher, not entropy');
 });
 
-test('U6 a per-file read error degrades silently (keeps the file, never throws)', () => {
+test('U6 a per-file read error keeps the file AND warns (never throws)', () => {
   // A benign-named file whose read throws must be KEPT (name matcher said keep,
-  // content unavailable) — not dropped, not thrown.
+  // content unavailable) — not dropped, not thrown — AND made visible via a warn
+  // so an unreadable-but-archived file is no longer a silent signal.
   const res = filterSnapshotSecrets({
     baseDir: '/virtual',
     files: ['notes.md'],
@@ -276,6 +277,42 @@ test('U6 a per-file read error degrades silently (keeps the file, never throws)'
   });
   assert.deepStrictEqual(res.kept, ['notes.md'], 'unreadable benign file kept');
   assert.deepStrictEqual(res.dropped, [], 'nothing dropped on read error');
+  // Falsifiable: pre-fix there was NO such warn. Now exactly one names the file.
+  const warns = res.diagnostics.filter((d) => d.code === 'snapshot-file-unreadable');
+  assert.equal(warns.length, 1, 'exactly one unreadable warn');
+  assert.equal(warns[0].severity, 'warn', 'unreadable diagnostic is warn severity');
+  assert.equal(warns[0].path, 'notes.md', 'warn names the unreadable file');
+  assert.equal(warns[0].phase, 'snapshot-secrets', 'warn phase tagged');
+});
+
+test('U6 a normal readable file emits NO unreadable warn', () => {
+  // Counterpart oracle: the warn fires ONLY on a read failure, not on every file.
+  const res = filterSnapshotSecrets({
+    baseDir: '/virtual',
+    files: ['notes.md'],
+    readFileFn: () => 'just some benign prose, nothing secret here',
+  });
+  assert.deepStrictEqual(res.kept, ['notes.md'], 'readable benign file kept');
+  const warns = res.diagnostics.filter((d) => d.code === 'snapshot-file-unreadable');
+  assert.equal(warns.length, 0, 'no unreadable warn for a readable file');
+});
+
+test('U6 one unreadable warn per failing file, none for the readable ones', () => {
+  // Two files throw, one reads fine → exactly two warns naming the two failures.
+  const res = filterSnapshotSecrets({
+    baseDir: '/virtual',
+    files: ['a.md', 'b.md', 'c.md'],
+    readFileFn: (p) => {
+      if (p.endsWith('c.md')) return 'benign prose';
+      throw new Error('EACCES');
+    },
+  });
+  assert.deepStrictEqual(res.kept, ['a.md', 'b.md', 'c.md'], 'all three kept');
+  const warned = res.diagnostics
+    .filter((d) => d.code === 'snapshot-file-unreadable')
+    .map((d) => d.path)
+    .sort();
+  assert.deepStrictEqual(warned, ['a.md', 'b.md'], 'only the two unreadable files warned');
 });
 
 test('U6 never throws on bad/empty input', () => {
