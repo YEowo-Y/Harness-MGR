@@ -26,12 +26,24 @@ const noChangedFiles = () => [];
 const oneChangedFile = () => ['src/selftest/release-gate.mjs'];
 
 /**
- * Make a coverage seam that returns a map where the changed file has the given pct.
+ * Make a coverage seam that returns a map where the changed file has the given
+ * line pct (branch pct defaults to 100 so only the line dimension is exercised).
  * @param {number} pct
  */
 function coverageAt(pct) {
   return () => ({
-    coverageMap: { '/repo/src/selftest/release-gate.mjs': pct },
+    coverageMap: { '/repo/src/selftest/release-gate.mjs': { lines: pct, branches: 100 } },
+    detail: 'ok',
+  });
+}
+
+/**
+ * Make a coverage seam with explicit line AND branch pct for the changed file.
+ * @param {number} lines @param {number} branches
+ */
+function coverageLinesBranches(lines, branches) {
+  return () => ({
+    coverageMap: { '/repo/src/selftest/release-gate.mjs': { lines, branches } },
     detail: 'ok',
   });
 }
@@ -138,6 +150,79 @@ describe('runReleaseGate', () => {
     assert.equal(s2.pass, true);
   });
 
+  it('step 2 line 100% but branch 50%: code 2, BRANCH-coverage diagnostic (distinct from line)', async () => {
+    // The headline new behavior: a file with full line coverage but weak branch
+    // coverage MUST fail. Pre-fix (line-only) this passed; post-fix it fails with a
+    // branch-specific diagnostic, NOT a line-coverage one.
+    const r = await runReleaseGate(makeOpts({
+      changedSrcFiles: oneChangedFile,
+      runCoverage: coverageLinesBranches(100, 50),
+    }));
+    assert.equal(r.code, 2);
+    assert.equal(r.pass, false);
+    const s2 = r.steps.find((s) => s.step === 2);
+    assert.ok(s2);
+    assert.equal(s2.pass, false);
+    const branchDiag = r.diagnostics.find((d) => d.code === 'release-gate-coverage-branch-low');
+    assert.ok(branchDiag, 'expected release-gate-coverage-branch-low diagnostic');
+    assert.equal(branchDiag.severity, 'error');
+    assert.ok(branchDiag.message.includes('50.0%'));
+    assert.ok(branchDiag.message.includes('branch'), 'message should distinguish branch coverage');
+    // A line-coverage diagnostic must NOT fire (line is at 100%).
+    assert.ok(!r.diagnostics.some((d) => d.code === 'release-gate-coverage-low'),
+      'no line-coverage diagnostic when line is 100%');
+  });
+
+  it('step 2 line 100% branch 75%: pass (above the 70 branch bar)', async () => {
+    const r = await runReleaseGate(makeOpts({
+      changedSrcFiles: oneChangedFile,
+      runCoverage: coverageLinesBranches(100, 75),
+    }));
+    assert.equal(r.code, 0);
+    const s2 = r.steps.find((s) => s.step === 2);
+    assert.ok(s2);
+    assert.equal(s2.pass, true, `step 2 should pass at branch 75%: ${s2.detail}`);
+    assert.ok(!r.diagnostics.some((d) => d.code === 'release-gate-coverage-branch-low'));
+  });
+
+  it('step 2 branch exactly 70%: pass (boundary, ≥70 ok)', async () => {
+    const r = await runReleaseGate(makeOpts({
+      changedSrcFiles: oneChangedFile,
+      runCoverage: coverageLinesBranches(100, 70),
+    }));
+    const s2 = r.steps.find((s) => s.step === 2);
+    assert.ok(s2);
+    assert.equal(s2.pass, true);
+  });
+
+  it('step 2 line 70% (branch ok): still fails on LINE coverage (existing behavior intact)', async () => {
+    const r = await runReleaseGate(makeOpts({
+      changedSrcFiles: oneChangedFile,
+      runCoverage: coverageLinesBranches(70, 100),
+    }));
+    assert.equal(r.code, 2);
+    const lineDiag = r.diagnostics.find((d) => d.code === 'release-gate-coverage-low');
+    assert.ok(lineDiag, 'expected line-coverage diagnostic');
+    assert.ok(lineDiag.message.includes('line coverage'));
+    // Branch is fine → no branch diagnostic.
+    assert.ok(!r.diagnostics.some((d) => d.code === 'release-gate-coverage-branch-low'));
+  });
+
+  it('step 2 both line 50% and branch 40% low: file counted once, both diagnostics present', async () => {
+    const r = await runReleaseGate(makeOpts({
+      changedSrcFiles: oneChangedFile,
+      runCoverage: coverageLinesBranches(50, 40),
+    }));
+    assert.equal(r.code, 2);
+    const s2 = r.steps.find((s) => s.step === 2);
+    assert.ok(s2);
+    assert.equal(s2.pass, false);
+    assert.ok(r.diagnostics.some((d) => d.code === 'release-gate-coverage-low'), 'line diag present');
+    assert.ok(r.diagnostics.some((d) => d.code === 'release-gate-coverage-branch-low'), 'branch diag present');
+    // Detail reports a single failing file (not double-counted across dimensions).
+    assert.ok(s2.detail.includes('1 file(s)'), `detail should count 1 file: ${s2.detail}`);
+  });
+
   it('step 2 coverage unavailable: code 2, coverage-unavailable diagnostic', async () => {
     const r = await runReleaseGate(makeOpts({
       changedSrcFiles: oneChangedFile,
@@ -155,7 +240,7 @@ describe('runReleaseGate', () => {
     const r = await runReleaseGate(makeOpts({
       changedSrcFiles: () => ['src/some/new-file.mjs'],
       // summary has no entry for that file
-      runCoverage: () => ({ coverageMap: { '/other/file.mjs': 95 }, detail: 'ok' }),
+      runCoverage: () => ({ coverageMap: { '/other/file.mjs': { lines: 95, branches: 95 } }, detail: 'ok' }),
     }));
     assert.equal(r.code, 2);
     const d = r.diagnostics.find((d) => d.code === 'release-gate-coverage-low');
@@ -282,8 +367,8 @@ describe('runReleaseGate', () => {
       changedSrcFiles: () => ['src/cli/selftest-command.mjs'],
       runCoverage: () => ({
         coverageMap: {
-          'C:/Dev/Projects/claude-mgr/src/cli/selftest-command.mjs': 90,
-          '/home/user/proj/src/cli/selftest-command.mjs': 90,
+          'C:/Dev/Projects/claude-mgr/src/cli/selftest-command.mjs': { lines: 90, branches: 90 },
+          '/home/user/proj/src/cli/selftest-command.mjs': { lines: 90, branches: 90 },
         },
         detail: 'ok',
       }),
