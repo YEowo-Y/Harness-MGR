@@ -13,8 +13,12 @@
  *   (b) CORRUPT archive: overwrite files.tar with garbage → ok:true (it RAN) but
  *       verified:false (extract fails OR hashes mismatch) — and it does NOT throw.
  *   (c) NO live-tree write: a {relpath → sha256} map of the temp claudeDir is
- *       deepEqual before/after; AND NO 'cmgr-rollback-verify-*' dir created by this
- *       test remains under os.tmpdir() (the finally cleanup removed it).
+ *       deepEqual before/after; AND the EXACT temp extraction dir each verify call
+ *       reports (result.tempDir) no longer exists after the call (its finally cleaned
+ *       it up). We assert against the SPECIFIC dir THIS call owned — never a
+ *       tmpdir-wide glob over the shared 'cmgr-rollback-verify-*' prefix, which would
+ *       race a CONCURRENT test file's in-flight extraction dir (node --test runs test
+ *       FILES in parallel) and both false-positive AND clobber its tar extraction.
  *
  * GRACEFUL-SKIP when the system tar is unavailable (mirrors the other
  * test/integration/ probes). assertWritable is injected as a passthrough for the
@@ -25,7 +29,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
@@ -62,13 +66,6 @@ function hashTree(dir) {
   return out;
 }
 
-/** Count the cmgr-rollback-verify-* temp dirs currently under os.tmpdir(). */
-function verifyTempDirs() {
-  return readdirSync(tmpdir(), { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name.startsWith('cmgr-rollback-verify-'))
-    .map((e) => e.name);
-}
-
 const keptFixtures = () => [
   { rel: 'agents/a.md', bytes: Buffer.from('# agent a\nline2\n', 'utf8') },
   { rel: 'skills/s/SKILL.md', bytes: Buffer.from('# 技能 — unicode body café\nx\n', 'utf8') },
@@ -99,8 +96,11 @@ test('integration: verifyRollbackArchive passes a sound archive, fails a corrupt
     return out;
   };
 
-  // Snapshot existing temp dirs so we only assert about ones THIS test creates.
-  const preExistingTemp = new Set(verifyTempDirs());
+  // Track the EXACT temp extraction dirs each verify call reports, so we can prove
+  // each was cleaned up WITHOUT scanning the shared tmpdir prefix (which races a
+  // concurrent test file's in-flight dir).
+  /** @type {string[]} */
+  const usedTempDirs = [];
 
   try {
     for (const f of keptFixtures()) put(claudeDir, f.rel, f.bytes);
@@ -117,15 +117,21 @@ test('integration: verifyRollbackArchive passes a sound archive, fails a corrupt
 
     // (a) GOOD archive → ok + verified + every file verified.
     const good = await verifyRollbackArchive({ mgrStateDir: stateDir, snapshotId });
+    if (good.tempDir) usedTempDirs.push(good.tempDir);
     assert.equal(good.ok, true, `good verify should run: ${JSON.stringify(good.diagnostics)}`);
     assert.equal(good.verified, true, `good archive should verify: ${JSON.stringify(good.mismatches)}`);
     assert.equal(good.verifiedCount, good.fileCount);
     assert.equal(good.fileCount, keptFixtures().length);
     assert.deepEqual(good.mismatches, []);
+    // A verified run extracted into a throwaway temp dir; it must report THAT dir (so
+    // we can prove cleanup against the exact path, not a shared-prefix glob).
+    assert.equal(typeof good.tempDir, 'string', 'a verified run reports its temp extraction dir');
+    assert.ok(good.tempDir.startsWith(tmpdir()), 'the temp dir is under os.tmpdir()');
     // Cross-target refusal still works end-to-end.
     const wrong = await verifyRollbackArchive({
       mgrStateDir: stateDir, snapshotId, expectedTarget: join(root, 'OTHER'),
     });
+    if (wrong.tempDir) usedTempDirs.push(wrong.tempDir);
     assert.equal(wrong.ok, false);
     assert.ok(wrong.diagnostics.some((d) => d.code === 'manifest-target-mismatch'));
 
@@ -136,6 +142,7 @@ test('integration: verifyRollbackArchive passes a sound archive, fails a corrupt
     //     false and nothing throws.)
     writeFileSync(snap.archivePath, Buffer.from('THIS IS NOT A TAR ARCHIVE — GARBAGE BYTES\n', 'utf8'));
     const bad = await verifyRollbackArchive({ mgrStateDir: stateDir, snapshotId });
+    if (bad.tempDir) usedTempDirs.push(bad.tempDir);
     assert.equal(bad.verified, false, 'a corrupt archive must not verify');
     assert.ok(
       bad.diagnostics.some((d) => d.code === 'verify-extract-failed' || d.code === 'rollback-archive-corrupt'),
@@ -146,16 +153,21 @@ test('integration: verifyRollbackArchive passes a sound archive, fails a corrupt
     const liveAfter = liveHashIgnoringState(claudeDir);
     assert.deepEqual(liveAfter, liveBefore, 'verifyRollbackArchive must never write the live tree');
 
-    // (c) NO temp residue: no NEW cmgr-rollback-verify-* dir remains (finally cleaned up).
-    const leftover = verifyTempDirs().filter((n) => !preExistingTemp.has(n));
-    assert.deepEqual(leftover, [], `verify left temp residue: ${leftover.join(', ')}`);
+    // (c) NO temp residue: each verify call's OWN reported temp extraction dir is gone
+    //     (its finally cleaned it up). Scoped to the EXACT dirs THIS test's calls used
+    //     — never a tmpdir-wide glob over the shared prefix, which would race a
+    //     concurrent test file's in-flight extraction dir.
+    assert.ok(usedTempDirs.length >= 1, 'at least one verify call should have created a temp dir');
+    for (const dir of usedTempDirs) {
+      assert.equal(existsSync(dir), false, `verify left temp residue: ${dir}`);
+    }
   } finally {
     try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ }
-    // Defensive: remove any temp dir this test may have leaked (should be none).
-    for (const n of verifyTempDirs()) {
-      if (!preExistingTemp.has(n)) {
-        try { rmSync(join(tmpdir(), n), { recursive: true, force: true }); } catch { /* best-effort */ }
-      }
+    // Defensive: remove any temp dir THIS test's calls reported (should already be gone
+    // — verifyRollbackArchive's finally removes it). Scoped to our own dirs only, so we
+    // never touch a concurrent test file's temp dir.
+    for (const dir of usedTempDirs) {
+      try { rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
     }
   }
 });
