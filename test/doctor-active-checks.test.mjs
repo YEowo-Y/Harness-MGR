@@ -84,6 +84,16 @@ test('active mode → probeLevel is active and doctor-active-probes notice is em
   assert.equal(notice[0].severity, 'info');
 });
 
+test('active-probes notice discloses the transient agents/ probe-file write', () => {
+  const r = runDoctor({}, { activeProbes: true });
+  const msg = byCode(r.diagnostics, 'doctor-active-probes')[0].message;
+  assert.ok(msg.includes('agents'), 'notice must name the agents/ directory');
+  assert.ok(
+    /write|probe|temporary/.test(msg),
+    'notice must disclose the write/probe/temporary file',
+  );
+});
+
 test('active mode → check #4 summary has ran===true', () => {
   const r = runDoctor(
     { hookSyntax: [mkSyntaxFact()] },
