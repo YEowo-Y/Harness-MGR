@@ -103,7 +103,8 @@ test('snapshotCommand: --apply (fake gate via loadPaths) writes files.tar + mani
   try {
     const out = await snapshotCommand(
       { configDir: t.claudeDir, mgrStateDir: t.stateDir, args: { apply: true, reason: 'apply-test' } },
-      { loadPaths, createFn },
+      // env factor present so the two-factor gate opens and the real apply path runs.
+      { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
     );
     const r = out.result;
     assert.equal(r.mode, 'applied');
@@ -130,12 +131,51 @@ test('snapshotCommand: --apply with an unloadable hooks lib degrades (no throw)'
   try {
     const out = await snapshotCommand(
       { configDir: t.claudeDir, mgrStateDir: t.stateDir, args: { apply: true } },
-      { loadPaths, createFn },
+      // env factor present → the gate opens, so loadPaths IS reached (and rejects → degrade).
+      { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
     );
     assert.equal(out.result.mode, 'applied');
     assert.equal(out.result.status, 'write-unavailable');
     assert.ok(out.diagnostics.some((d) => d.code === 'snapshot-write-unavailable' && d.severity === 'warn'), JSON.stringify(out.diagnostics));
   } finally { t.cleanup(); }
+});
+
+// ── (c2) TWO-FACTOR GATE: --apply with the env factor CLOSED → refuse, no write ────
+
+test('snapshotCommand: --apply + env CLOSED → code 3 writes-disabled-env, createFn + loadPaths NEVER called', async () => {
+  // The load-bearing new oracle: the env factor (CLAUDE_MGR_ENABLE_WRITES) is the
+  // second gate. With it closed, --apply must REFUSE up front — the write gate is
+  // never loaded and no snapshot is created.
+  const loadPathsCalls = [];
+  const loadPaths = () => { loadPathsCalls.push(1); return Promise.resolve({ assertWritable: (p) => p }); };
+  const createFn = () => { throw new Error('createFn must NOT run when the env gate is closed'); };
+  const out = await snapshotCommand(
+    { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
+    { loadPaths, createFn, env: {} }, // env factor absent → gate closed
+  );
+  assert.equal(out.code, 3, 'a closed gate refuses with code 3');
+  assert.equal(out.result.mode, 'applied');
+  assert.equal(out.result.status, 'writes-disabled-env');
+  assert.ok(
+    out.diagnostics.some((d) => d.code === 'writes-disabled-env' && d.severity === 'error'),
+    JSON.stringify(out.diagnostics),
+  );
+  assert.equal(loadPathsCalls.length, 0, 'paths.mjs must NOT be loaded when the gate is closed');
+});
+
+test('snapshotCommand: dry-run (no --apply) is UNAFFECTED by a closed env gate', async () => {
+  // No --apply → the env factor is irrelevant; the dry-run preview still runs and
+  // never refuses, even with the env gate explicitly closed.
+  const calls = [];
+  const createFn = (o) => { calls.push(o); return Promise.resolve({ ok: true, dryRun: true, snapshotId: 'id', kept: [], dropped: [], fileCount: 0, diagnostics: [] }); };
+  const out = await snapshotCommand(
+    { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: {} }, // no apply
+    { createFn, env: {} },
+  );
+  assert.equal(out.result.mode, 'dry-run');
+  assert.equal(calls.length, 1, 'the dry-run createFn still runs with a closed env gate');
+  assert.equal(calls[0].dryRun, true);
+  assert.ok(!out.diagnostics.some((d) => d.code === 'writes-disabled-env'), 'no env refusal on a dry-run');
 });
 
 // ── (d) FLAG PLUMBING: reason + include-auth reach createFn ───────────────────────
@@ -198,7 +238,8 @@ test('snapshotCommand D3: a failed --apply result nulls archivePath + manifestPa
   });
   const out = await snapshotCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
-    { loadPaths, createFn },
+    // env factor present so the gate opens and createFn (returning ok:false) is reached.
+    { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
   );
   const r = out.result;
   assert.equal(r.mode, 'applied');
@@ -223,7 +264,8 @@ test('snapshotCommand D3: a SUCCESSFUL --apply still surfaces both paths', async
   });
   const out = await snapshotCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
-    { loadPaths, createFn },
+    // env factor present so the gate opens and the successful createFn is reached.
+    { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.result.ok, true);
   assert.ok(out.result.archivePath.endsWith('files.tar'));
@@ -283,11 +325,61 @@ test('snapshotGcCommand: --apply → mode applied, deleted surfaced, apply=true 
     calls.push(o);
     return { deleted: ['2026-05-20T10-00-00Z'], wouldDelete: [], retained: ['2026-05-25T10-00-00Z'], diagnostics: [] };
   };
-  const out = snapshotGcCommand({ mgrStateDir: '/cfg/.mgr-state', args: { keep: '1', apply: true } }, { gcFn });
+  // env factor present so the two-factor gate opens and gcFn (the real delete) runs.
+  const out = snapshotGcCommand(
+    { mgrStateDir: '/cfg/.mgr-state', args: { keep: '1', apply: true } },
+    { gcFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+  );
   assert.equal(out.result.mode, 'applied');
   assert.deepEqual(out.result.deleted, ['2026-05-20T10-00-00Z']);
   assert.equal(out.result.deletedCount, 1);
   assert.equal(calls[0].apply, true);
+});
+
+test('snapshotGcCommand: --apply + env CLOSED → code 3 writes-disabled-env, gcFn NEVER called', () => {
+  // The load-bearing new oracle for gc: --apply alone is not enough; the env factor
+  // is required. With it closed, the BOUNDED delete (gcFn) must never run.
+  const calls = [];
+  const gcFn = (o) => { calls.push(o); return { deleted: ['x'], wouldDelete: [], retained: [], diagnostics: [] }; };
+  const out = snapshotGcCommand(
+    { mgrStateDir: '/cfg/.mgr-state', args: { keep: '1', apply: true } },
+    { gcFn, env: {} }, // env factor absent → gate closed
+  );
+  assert.equal(out.code, 3, 'a closed gate refuses with code 3');
+  assert.equal(out.result.mode, 'applied');
+  assert.deepEqual(out.result.deleted, [], 'nothing deleted when the gate is closed');
+  assert.equal(out.result.deletedCount, 0);
+  assert.ok(
+    out.diagnostics.some((d) => d.code === 'writes-disabled-env' && d.severity === 'error'),
+    JSON.stringify(out.diagnostics),
+  );
+  assert.equal(calls.length, 0, 'gcFn must NOT run when the env gate is closed');
+});
+
+test('snapshotGcCommand: --apply + env CLOSED still surfaces a keep/older-than coercion warn', () => {
+  // The env refusal must NOT swallow a flag-coercion warn (preDiags are preserved).
+  const gcFn = () => { throw new Error('gcFn must NOT run when the env gate is closed'); };
+  const out = snapshotGcCommand(
+    { mgrStateDir: '/s', args: { keep: 'abc', apply: true } }, // invalid --keep + closed gate
+    { gcFn, env: {} },
+  );
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'gc-keep-invalid' && d.severity === 'warn'), 'the coercion warn survives the refusal');
+  assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env' && d.severity === 'error'));
+});
+
+test('snapshotGcCommand: dry-run (no --apply) is UNAFFECTED by a closed env gate', () => {
+  // No --apply → the env factor is irrelevant; the dry-run preview still runs.
+  const calls = [];
+  const gcFn = (o) => { calls.push(o); return { deleted: [], wouldDelete: ['2026-05-20T10-00-00Z'], retained: [], diagnostics: [] }; };
+  const out = snapshotGcCommand(
+    { mgrStateDir: '/s', args: { keep: '1' } }, // no apply
+    { gcFn, env: {} },
+  );
+  assert.equal(out.result.mode, 'dry-run');
+  assert.equal(calls.length, 1, 'the dry-run gc still runs with a closed env gate');
+  assert.equal(calls[0].apply, false);
+  assert.ok(!out.diagnostics.some((d) => d.code === 'writes-disabled-env'), 'no env refusal on a dry-run');
 });
 
 test('snapshotGcCommand: --older-than is parsed via parseSince into olderThanMs', () => {
