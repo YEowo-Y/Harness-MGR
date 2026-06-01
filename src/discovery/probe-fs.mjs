@@ -19,6 +19,7 @@
 import { join } from 'node:path';
 import { readdirSync, statSync, lstatSync } from 'node:fs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
+import { isLeftoverSidecar } from '../lib/leftover-sidecars.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -82,13 +83,8 @@ function safeDirSize(dir, depth = 0) {
   return total;
 }
 
-/** Sidecar suffixes left by the atomic-write primitive (atomic-write.mjs). */
-const LEFTOVER_SUFFIXES = ['.mgr-new', '.mgr-old'];
-
-/** Is `name` a `.mgr-new` / `.mgr-old` atomic-write sidecar? */
-function isLeftover(name) {
-  return LEFTOVER_SUFFIXES.some((s) => name.endsWith(s));
-}
+/** Is `name` a `.mgr-new` / `.mgr-old` atomic-write sidecar? (single source: leftover-sidecars.mjs) */
+const isLeftover = isLeftoverSidecar;
 
 /**
  * Rollback-writable content subdirs (paths.mjs rollback-only surface) where a
