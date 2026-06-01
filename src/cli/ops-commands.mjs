@@ -17,6 +17,7 @@
 import { readAuditLog } from '../ops/audit.mjs';
 import { analyzeDrift } from '../analysis/drift.mjs';
 import { createSnapshot } from '../ops/snapshot.mjs';
+import { resolveWriteIntent } from './write-gate.mjs';
 
 /** @typedef {import('./commands.mjs').CommandHandler} CommandHandler */
 
@@ -116,6 +117,13 @@ export async function driftCommand(ctx) {
  *   `args.reason`        (string)  user-supplied reason recorded in the manifest.
  *   `args['include-auth']` (boolean) opt in to capturing the mcp auth-cache file.
  *
+ * TWO-FACTOR WRITE GATE (P3.U22): `--apply` is the FIRST factor; the env var
+ * `CLAUDE_MGR_ENABLE_WRITES=1` is the second. On the `--apply` path, BEFORE the
+ * write gate is loaded or anything is created, `resolveWriteIntent` is consulted: a
+ * closed gate (`--apply` without the env factor) REFUSES with code 3 +
+ * `writes-disabled-env` and NEVER loads paths.mjs / creates the snapshot. Dry-run
+ * (no `--apply`) is unaffected — the env factor is irrelevant there.
+ *
  * `createSnapshot` statically imports only ops/lib (no paths.mjs), so it is safe to
  * import here. The WRITE GATE (`assertWritable`) lives in paths.mjs, which top-level-
  * awaits and rejects when `~/.claude/hooks/lib` is absent (the M2 constraint), so it
@@ -128,7 +136,7 @@ export async function driftCommand(ctx) {
  *
  * Never throws — createSnapshot is ops-pure/never-throws and the import is guarded.
  * @param {import('./commands.mjs').CommandContext} ctx
- * @param {{loadPaths?: () => Promise<{assertWritable: Function}>, createFn?: typeof createSnapshot}} [deps]
+ * @param {{loadPaths?: () => Promise<{assertWritable: Function}>, createFn?: typeof createSnapshot, env?: Record<string, string|undefined>}} [deps]
  * @returns {Promise<import('./commands.mjs').CommandOutput>}
  */
 export async function snapshotCommand(ctx, deps = {}) {
@@ -142,6 +150,18 @@ export async function snapshotCommand(ctx, deps = {}) {
   if (!apply) {
     const r = await createFn({ ...base, dryRun: true });
     return { result: summarizeSnapshot(r, false), diagnostics: r.diagnostics.slice() };
+  }
+
+  // Two-factor gate: --apply is necessary but NOT sufficient. CLAUDE_MGR_ENABLE_WRITES=1
+  // is the second factor. A closed gate REFUSES here (code 3) — paths.mjs is never
+  // loaded and createFn is never called, so no snapshot dir is written.
+  const intent = resolveWriteIntent({ apply: true, env: deps.env ?? process.env });
+  if (intent.refusal) {
+    return {
+      result: { mode: 'applied', status: 'writes-disabled-env' },
+      diagnostics: [intent.refusal],
+      code: intent.code,
+    };
   }
 
   let paths;
