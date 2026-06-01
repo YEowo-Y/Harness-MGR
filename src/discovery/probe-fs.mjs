@@ -17,7 +17,7 @@
  */
 
 import { join } from 'node:path';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, lstatSync } from 'node:fs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 
 /**
@@ -80,6 +80,49 @@ function safeDirSize(dir, depth = 0) {
     else if (ent.isFile()) { try { const s = statSync(p).size; if (Number.isFinite(s)) total += s; } catch { /* skip */ } }
   }
   return total;
+}
+
+/** Sidecar suffixes left by the atomic-write primitive (atomic-write.mjs). */
+const LEFTOVER_SUFFIXES = ['.mgr-new', '.mgr-old'];
+
+/** Is `name` a `.mgr-new` / `.mgr-old` atomic-write sidecar? */
+function isLeftover(name) {
+  return LEFTOVER_SUFFIXES.some((s) => name.endsWith(s));
+}
+
+/**
+ * Rollback-writable content subdirs (paths.mjs rollback-only surface) where a
+ * catastrophic atomicApplyWrite double-failure can strand NESTED
+ * `<target>.mgr-new` / `<target>.mgr-old` sidecars (e.g. agents/foo.md.mgr-old).
+ */
+const ROLLBACK_CONTENT_DIRS = ['agents', 'skills', 'commands', 'hooks'];
+
+/**
+ * Recursively collect `.mgr-new` / `.mgr-old` sidecar paths under a directory
+ * tree, never following symlinks. Depth-guarded at 64 like safeDirSize.
+ * Any I/O error on a single dir is silently skipped (degrade-gracefully);
+ * never throws — a bad subdir contributes nothing.
+ * @param {string} dir
+ * @param {number} [depth]
+ * @returns {string[]}
+ */
+function collectNestedLeftovers(dir, depth = 0) {
+  if (depth >= 64) return [];
+  // Never follow a symlinked dir — INCLUDING a symlinked content-dir ROOT
+  // (agents/skills/commands/hooks itself a symlink). Entry-level symlinks are
+  // skipped in the loop below; this guards the root the caller hands us, the
+  // same defect class that was a BLOCKER in snapshot-walk (P3.U5).
+  try { if (lstatSync(dir).isSymbolicLink()) return []; } catch { return []; }
+  let entries;
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+  const found = [];
+  for (const ent of entries) {
+    if (ent.isSymbolicLink()) continue;            // never follow/descend symlinks
+    const p = join(dir, ent.name);
+    if (ent.isDirectory()) found.push(...collectNestedLeftovers(p, depth + 1));
+    else if (ent.isFile() && isLeftover(ent.name)) found.push(p);
+  }
+  return found;
 }
 
 /**
@@ -146,15 +189,18 @@ export function gatherFsProbes(opts) {
     ...agentEntries.filter((name) => name.startsWith(probePrefix)).map((name) => join(agentsDir, name)),
   ];
 
-  // #21: *.mgr-new / *.mgr-old leftovers in configDir and mgrStateDir (non-recursive)
+  // #21: *.mgr-new / *.mgr-old leftovers. Root-level configDir + mgrStateDir scans
+  // (non-recursive), PLUS a recursive walk of the rollback-writable content subdirs
+  // (agents/skills/commands/hooks) where rollback restore strands NESTED sidecars
+  // such as agents/foo.md.mgr-old (symlink-never-follow, depth-guarded, never-throws).
   const mgrStateEntries = safeReaddir(mgrStateDir);
+  const nestedLeftovers = ROLLBACK_CONTENT_DIRS.flatMap(
+    (sub) => collectNestedLeftovers(join(configDir, sub)),
+  );
   const applyLeftovers = [
-    ...configEntries
-      .filter((name) => name.endsWith('.mgr-new') || name.endsWith('.mgr-old'))
-      .map((name) => join(configDir, name)),
-    ...mgrStateEntries
-      .filter((name) => name.endsWith('.mgr-new') || name.endsWith('.mgr-old'))
-      .map((name) => join(mgrStateDir, name)),
+    ...configEntries.filter(isLeftover).map((name) => join(configDir, name)),
+    ...mgrStateEntries.filter(isLeftover).map((name) => join(mgrStateDir, name)),
+    ...nestedLeftovers,
   ];
 
   // #25: mtime of rulesDocPath
