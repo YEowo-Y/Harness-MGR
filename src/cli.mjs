@@ -235,7 +235,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\ncommands:\n${commandList()}`;
+  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\ncommands:\n${commandList()}`;
 }
 
 /**
