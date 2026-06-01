@@ -290,3 +290,40 @@ export function breakLock(opts) {
     message: `force-removed apply lock held by ${desc}` });
   return { broken: true, holder, holderAlive, diagnostics: bag.all() };
 }
+
+// ── inspectLock ───────────────────────────────────────────────────────────────
+
+/**
+ * READ-ONLY status of the apply lock (the `lock` CLI status command). Reports
+ * whether a lock file is present, its holder, and whether that holder is alive —
+ * WITHOUT ever writing or unlinking (unlike breakLock). An absent lock is benign
+ * (no diagnostic); a present-but-corrupt lock is surfaced as a warn so the user
+ * knows to investigate / `--break-lock`.
+ *
+ * @param {{ stateDir?: string, readFn?: (p: string, enc: string) => string, killFn?: Function }} [opts]
+ * @returns {{ present: boolean, holder: LockHolder|null, alive: boolean|null, diagnostics: Diagnostic[] }}
+ */
+export function inspectLock(opts) {
+  const { stateDir, readFn = readFileSync, killFn = process.kill } = opts ?? {};
+  const bag = new DiagnosticBag();
+  if (typeof stateDir !== 'string' || !stateDir) {
+    bag.add({ severity: 'error', code: 'apply-lock-error', phase: 'lock',
+      message: 'stateDir must be a non-empty string' });
+    return { present: false, holder: null, alive: null, diagnostics: bag.all() };
+  }
+  const lockFile = lp(stateDir);
+  const { holder, err: readErr } = readHolder(lockFile, readFn);
+  // ENOENT → no lock at all (benign, no diagnostic).
+  if (readErr && readErr.includes('ENOENT')) {
+    return { present: false, holder: null, alive: null, diagnostics: bag.all() };
+  }
+  // Present but unreadable/corrupt (holder null, non-ENOENT err) → warn, no liveness.
+  if (!holder) {
+    bag.add({ severity: 'warn', code: 'apply-lock-unreadable', phase: 'lock', path: lockFile,
+      message: `apply lock file is present but unreadable or corrupt: ${readErr ?? 'unknown'}`,
+      fix: 'investigate the lock file manually and use --break-lock to remove it' });
+    return { present: true, holder: null, alive: null, diagnostics: bag.all() };
+  }
+  // Present + readable → report liveness.
+  return { present: true, holder, alive: isPidAlive(holder.pid, killFn), diagnostics: bag.all() };
+}
