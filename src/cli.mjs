@@ -16,7 +16,7 @@
  * honouring the plan's "never a bare stack trace" rule.
  *
  * --- exit codes ---
- *   2  usage error (no/unknown subcommand) OR an internal throw
+ *   2  usage error (no/unknown subcommand, unknown long flag) OR an internal throw
  *   1  ran, but the merged diagnostics contain a severity:'error' entry
  *   0  ran cleanly (no error-severity diagnostics)
  *
@@ -41,7 +41,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
 const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason', '--keep', '--older-than']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth', '--break-lock']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
@@ -55,8 +55,13 @@ const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
  */
 export async function run(argv) {
   try {
-    const { canonical, args } = parseArgs(Array.isArray(argv) ? argv : []);
+    const { canonical, args, unknownFlag } = parseArgs(Array.isArray(argv) ? argv : []);
 
+    // An unrecognized long flag is a hard usage error (exit 2) — mirror the
+    // unknown-command path so a typo like `--configdir` can NEVER be silently
+    // dropped (which would leave configDir undefined and misdirect a write to the
+    // real ~/.claude once apply/rollback are CLI-wired).
+    if (unknownFlag) return { code: 2, stdout: unknownFlagUsage(unknownFlag) };
     if (!canonical) return { code: 2, stdout: usage() };
     if (!Object.prototype.hasOwnProperty.call(COMMANDS, canonical)) {
       return { code: 2, stdout: unknownCommand(canonical) };
@@ -64,7 +69,7 @@ export async function run(argv) {
 
     const cfg = await resolveConfigDir({ configDir: args.configDir });
     const out = await COMMANDS[canonical]({ configDir: cfg.configDir, mgrStateDir: cfg.mgrStateDir, args });
-    const diagnostics = [...cfg.diagnostics, ...out.diagnostics];
+    const diagnostics = [...cfg.diagnostics, ...out.diagnostics, ...formatDiagnostics(args.format)];
 
     // Honor an explicit numeric code from the handler (e.g. release-gate uses 0/1/2);
     // backward-compatible: existing handlers don't set code, so we fall back to the
@@ -81,15 +86,22 @@ export async function run(argv) {
  * Hand-rolled, zero-dep argv parse. The first positional is the subcommand —
  * with one SPECIAL CASE: `config show-effective` collapses to the canonical
  * `'config:show-effective'` (both tokens consumed). Value flags consume the next
- * token; boolean flags are presence-only; unknown `--flags` are ignored (lenient).
+ * token; boolean flags are presence-only.
+ *
+ * STRICT-FLAG POLICY (P2.1): an unrecognized long `--flag` is NOT silently dropped
+ * — the FIRST one is captured as `unknownFlag` and run() turns it into a hard exit-2
+ * usage error. This stops a typo (`--configdir` vs `--config-dir`) from being
+ * discarded, leaving its key unset and its value token leaking into the positionals.
  *
  * @param {string[]} argv
- * @returns {{canonical: string|null, args: {format?:string, configDir?:string, name?:string, key?:string, type?:string, explain?:boolean, order?:boolean, detail?:boolean}}}
+ * @returns {{canonical: string|null, args: {format?:string, configDir?:string, name?:string, key?:string, type?:string, explain?:boolean, order?:boolean, detail?:boolean}, unknownFlag: string|null}}
  */
 function parseArgs(argv) {
   const args = Object.create(null); // null-proto: a `--constructor`-style flag can never reach a prototype key
   /** @type {string[]} */
   const positionals = [];
+  /** @type {string|null} the first unrecognized long flag (drives the exit-2 usage error) */
+  let unknownFlag = null;
 
   for (let i = 0; i < argv.length; i += 1) {
     const tok = argv[i];
@@ -100,13 +112,13 @@ function parseArgs(argv) {
     } else if (BOOLEAN_FLAGS.includes(tok)) {
       args[flagKey(tok)] = true;
     } else if (tok.startsWith('--')) {
-      continue; // unknown long flag → ignore (lenient)
+      if (unknownFlag === null) unknownFlag = tok; // strict: capture the first, error in run()
     } else {
       positionals.push(tok);
     }
   }
 
-  return { canonical: canonicalize(positionals), args };
+  return { canonical: canonicalize(positionals), args, unknownFlag };
 }
 
 /**
@@ -143,10 +155,28 @@ function flagKey(flag) {
 }
 
 /**
+ * One warn diagnostic when `--format` was given an unrecognized value. The render
+ * still falls back to 'table' and the exit code is unchanged (a typo is advisory,
+ * not fatal) — but the bad value is surfaced instead of silently ignored. A missing
+ * or valid format yields no diagnostic.
+ *
+ * @param {unknown} format
+ * @returns {Diagnostic[]}
+ */
+function formatDiagnostics(format) {
+  if (format === undefined || FORMATS.includes(format)) return [];
+  return [{
+    severity: 'warn',
+    code: 'unknown-format',
+    message: `unknown --format ${String(format)}; falling back to table (valid: ${FORMATS.join(', ')})`,
+  }];
+}
+
+/**
  * Render the chosen output format. `format` is the requested format if it is one
- * of FORMATS, else 'table' (an unrecognized --format silently defaults — never an
- * error). json is the versioned envelope; quiet is a one-line summary; table is a
- * human block plus a diagnostics footer.
+ * of FORMATS, else 'table' (an unrecognized --format falls back to table — see
+ * formatDiagnostics() for the warn it raises). json is the versioned envelope;
+ * quiet is a one-line summary; table is a human block plus a diagnostics footer.
  *
  * @param {string} canonical
  * @param {unknown} result
@@ -215,6 +245,21 @@ function usage() {
  */
 function unknownCommand(canonical) {
   return `unknown command: ${canonical}\n\nvalid commands:\n${commandList()}`;
+}
+
+/**
+ * The message for an unrecognized long flag: name the offending flag and list the
+ * known flags so a typo (e.g. `--configdir`) is caught instead of silently dropped.
+ * @param {string} flag
+ * @returns {string}
+ */
+function unknownFlagUsage(flag) {
+  return `unknown flag: ${flag}\n\nknown flags:\n${flagList()}`;
+}
+
+/** The known flag names (value + boolean), one indented line each. @returns {string} */
+function flagList() {
+  return [...VALUE_FLAGS, ...BOOLEAN_FLAGS].map((f) => `  ${f}`).join('\n');
 }
 
 /** The valid command names, one indented line each. @returns {string} */
