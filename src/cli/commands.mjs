@@ -158,6 +158,11 @@ function trimMcpServer(m) {
 /**
  * Optional `--type` narrowing: return the matching list, or null when `type` is
  * absent/unrecognised (the caller then falls back to the count summary).
+ *
+ * SECRET-SAFE: the `mcp` list is mapped through `trimMcpServer` (the SAME
+ * redaction the `--detail` path applies) so it drops `url` + `envKeys` and is NO
+ * LEAKIER than `--detail` under every output format (json/ndjson). command + args
+ * are intentionally kept. The other lists carry no secrets and pass through raw.
  * @param {import('../discovery/scan.mjs').ScanResult} s
  * @param {unknown} type
  * @returns {{type: string, items: unknown[]}|null}
@@ -168,7 +173,7 @@ function narrowInventory(s, type) {
       return { type, items: s.components.filter((c) => c.kind === type) };
     case 'plugin': return { type, items: s.plugins };
     case 'marketplace': return { type, items: s.marketplaces };
-    case 'mcp': return { type, items: s.mcpServers };
+    case 'mcp': return { type, items: s.mcpServers.map(trimMcpServer) };
     default: return null;
   }
 }
