@@ -154,10 +154,15 @@ export function redactPatchOp(op) {
  * unserializable inputs (undefined, function, symbol, cyclic) use a
  * sentinel-tagged fallback so e.g. the value `undefined` cannot hash-collide
  * with the string "undefined".
+ *
+ * Exported so other redaction sites (e.g. config:show-effective via
+ * redact-effective.mjs) hash secret values through this SAME single source
+ * rather than re-deriving the scheme. Produces the identical {redacted, sha256}
+ * shape across the tool.
  * @param {unknown} value
  * @returns {string}
  */
-function sha256OfValue(value) {
+export function sha256OfValue(value) {
   let serialized;
   if (typeof value === 'string') {
     serialized = value;
