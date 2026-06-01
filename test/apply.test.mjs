@@ -454,22 +454,104 @@ test('applyPlan enableWrites: a failed atomic write → journal failed, applied:
   assert.equal(seams.releaseFn.calls.length, 1, 'lock released');
 });
 
-// ── (C5) enableWrites + 2 ops → multi-op refusal (atomicWriteFn NEVER called) ────
+// ════════════════════════════════════════════════════════════════════════════════
+//  P3.U19 — multi-op apply (the C5 single-op refusal is now SUPPORTED multi-op)
+// ════════════════════════════════════════════════════════════════════════════════
 
-test('applyPlan enableWrites: 2 ops → failed + apply-multi-op-unsupported, NO write, NO applying', async () => {
+// ── (C5a) enableWrites + 2 ops → committed, both written, opsWritten:2 ───────────
+
+test('applyPlan enableWrites: 2 ops → committed, both written, opsWritten:2 (C5a)', async () => {
   const seams = happySeams();
   const res = await applyPlan(baseOpts(seams, {
     enableWrites: true, plan: planWith([writeOp('create'), writeOp('overwrite')]),
   }));
-  assert.equal(res.ok, false);
-  assert.equal(res.applied, false);
-  assert.equal(res.state, 'failed');
-  assert.ok(res.diagnostics.some((d) => d.code === 'apply-multi-op-unsupported'));
-  // CRITICAL: no write, and no 'applying' transition (refused while snapshotted).
-  assert.equal(seams.atomicWriteFn.calls.length, 0, 'atomicWriteFn NEVER called for multi-op');
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 2);
+  // both ops written, in order; the full lifecycle tail ran.
+  assert.equal(seams.atomicWriteFn.calls.length, 2, 'both ops written');
   const states = seams.transitionFn.calls.map((c) => c.toState);
-  assert.ok(!states.includes('applying'), 'never transitions to applying on a multi-op refusal');
+  assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
+  // journal persisted three times: snapshotted, applying, committed.
+  assert.equal(seams.writeJournalFn.calls.length, 3);
+});
+
+// ── (C5b) enableWrites + 3 ops, 2nd write fails → failed, opsWritten:1, 3rd never tried ──
+
+test('applyPlan enableWrites: a mid-sequence write failure stops the loop (opsWritten:1, 3rd op never attempted) (C5b)', async () => {
+  const leftovers = { newPath: `${TARGET}\\settings.json.mgr-new`, oldPath: `${TARGET}\\settings.json.mgr-old` };
+  // A per-call seam: succeed on call 1, fail (with leftovers) on call 2.
+  const atomicWriteFn = (() => {
+    const calls = [];
+    const fn = (opts) => {
+      calls.push(opts);
+      if (calls.length === 2) {
+        return Promise.resolve({ ok: false, wrote: false, leftovers,
+          diagnostics: [{ severity: 'error', code: 'apply-write-commit-unrecoverable', message: 'boom', phase: 'apply' }] });
+      }
+      return Promise.resolve({ ok: true, wrote: true, leftovers: { newPath: null, oldPath: null }, diagnostics: [] });
+    };
+    fn.calls = calls;
+    return fn;
+  })();
+  const seams = happySeams({ atomicWriteFn });
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, plan: planWith([writeOp('create'), writeOp('overwrite'), writeOp('create')]),
+  }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.equal(res.applied, true, 'one op landed before the failure → applied:true');
+  assert.equal(res.opsWritten, 1, 'only the first op was written');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-failed'), 'own rollup code');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-write-commit-unrecoverable'), 'aggregates write diag');
+  assert.deepEqual(res.leftovers, leftovers, 'the failed (2nd) op leftovers surfaced');
+  // CRITICAL: the 3rd op was NEVER attempted.
+  assert.equal(atomicWriteFn.calls.length, 2, '3rd op NEVER attempted after the 2nd failed');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'failed']);
+  assert.equal(seams.releaseFn.calls.length, 1, 'lock released');
+});
+
+// ── (C5c) enableWrites + one INVALID op among valid ones → refuse BEFORE applying ──
+
+test('applyPlan enableWrites: one INVALID op among valid → refused before applying, NO write (C5c)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true,
+    plan: planWith([
+      writeOp('create'),
+      { kind: 'patch', target: `${TARGET}\\settings.json`, summary: 'patch', pointer: '/x' },
+    ]),
+  }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-kind-unsupported'));
+  // CRITICAL: no write, and no 'applying' transition (refused while snapshotted).
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'atomicWriteFn NEVER called when any op is invalid');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.ok(!states.includes('applying'), 'never transitions to applying on an invalid-op refusal');
   assert.deepEqual(states, ['snapshotted', 'failed']);
+});
+
+// ── (C5d) two ops on the SAME target → both written in plan order, committed ──────
+
+test('applyPlan enableWrites: two ops on the SAME target → both written in order, opsWritten:2 (C5d)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true,
+    plan: planWith([writeOp('overwrite', '{"a":1}\n'), writeOp('overwrite', '{"a":2}\n')]),
+  }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 2);
+  // both writes targeted the SAME settings.json, in plan order (1 then 2) — a legit
+  // plan shape; the snapshot still captured the pre-apply bytes, so rollback is whole.
+  assert.equal(seams.atomicWriteFn.calls.length, 2);
+  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.equal(seams.atomicWriteFn.calls[1].target, `${TARGET}\\settings.json`);
+  assert.equal(seams.atomicWriteFn.calls[0].content, '{"a":1}\n');
+  assert.equal(seams.atomicWriteFn.calls[1].content, '{"a":2}\n');
 });
 
 // ── (C6) enableWrites + unsupported kind (patch) → kind refusal, no write ────────
@@ -648,4 +730,112 @@ test('applyPlan enableWrites: real atomicApplyWrite + gate that denies CLAUDE.md
   assert.equal(res.applied, false, 'applied must be false when the gate denial prevented the write');
   assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-failed'),
     'apply-op-failed must be present: ' + JSON.stringify(res.diagnostics));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+//  P3.U19 — --paranoid: re-read + re-parse each written *.json target from disk
+// ════════════════════════════════════════════════════════════════════════════════
+
+/** A recording readFileFn seam returning `content` (or throwing `err`). Records targets. */
+function makeReadFile(content, err) {
+  const calls = [];
+  const fn = (p) => { calls.push(p); if (err) throw err; return content; };
+  fn.calls = calls;
+  return fn;
+}
+
+// ── (P1) paranoid PASSES on valid JSON → committed, readFileFn called once ───────
+
+test('applyPlan paranoid: a valid-JSON write passes the re-parse → committed, opsWritten:1 (P1)', async () => {
+  const readFileFn = makeReadFile('{"model":"opus"}\n');
+  const seams = { ...happySeams(), readFileFn };
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, paranoid: true, plan: planWith([writeOp('create')]),
+  }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  // the paranoid re-read happened exactly once, for the op's (.json) target.
+  assert.equal(readFileFn.calls.length, 1, 'paranoid re-read the written file once');
+  assert.equal(readFileFn.calls[0], `${TARGET}\\settings.json`);
+});
+
+// ── (P2) paranoid CATCHES a broken file (DoD headline) → failed, applied:true ────
+
+test('applyPlan paranoid: a broken-JSON write fails the re-parse → failed, applied:true (P2)', async () => {
+  const readFileFn = makeReadFile('{ this is not json');
+  const seams = { ...happySeams(), readFileFn };
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, paranoid: true, plan: planWith([writeOp('overwrite')]),
+  }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.equal(res.applied, true, 'the op WAS written before the paranoid check failed');
+  assert.equal(res.opsWritten, 1);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'),
+    'apply-paranoid-failed must be present: ' + JSON.stringify(res.diagnostics));
+  // the specific root-cause code (parse-failed, distinct from -unreadable) is surfaced too.
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-paranoid-parse-failed'),
+    'the specific apply-paranoid-parse-failed root cause must be present');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'failed']);
+});
+
+// ── (P3) paranoid OFF (default) never re-reads ───────────────────────────────────
+
+test('applyPlan paranoid OFF: a (mocked-broken) write is NOT re-read → committed, readFileFn never called (P3)', async () => {
+  // The default atomicWriteFn reports a clean success without touching disk; with no
+  // paranoid flag, paranoidVerify is never invoked, so readFileFn is never called.
+  const readFileFn = makeReadFile('{ this is not json');
+  const seams = { ...happySeams(), readFileFn };
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, plan: planWith([writeOp('overwrite')]), // NO paranoid flag
+  }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called when paranoid is off');
+});
+
+// ── (P4) paranoid SKIPS a non-JSON target ────────────────────────────────────────
+
+test('applyPlan paranoid: a non-JSON target is NOT re-read (isJsonTarget false) → committed (P4)', async () => {
+  const readFileFn = makeReadFile('whatever');
+  const seams = { ...happySeams(), readFileFn };
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, paranoid: true,
+    plan: planWith([{ kind: 'overwrite', target: `${TARGET}\\agents\\a.md`, summary: 'write md', content: '# a\n' }]),
+  }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  assert.equal(readFileFn.calls.length, 0, 'a non-.json target must NOT be re-read under paranoid');
+});
+
+// ── (P5) paranoid re-read THROWS after a landed write → failed + apply-paranoid-unreadable ──
+
+test('applyPlan paranoid: an unreadable re-read after a landed write → failed, applied:true, apply-paranoid-unreadable (P5)', async () => {
+  // The atomic write SUCCEEDS (default seam), but the paranoid re-read THROWS (e.g. a
+  // Windows EBUSY from an AV scanner holding the just-written file). The op's bytes
+  // landed (applied:true), so we cannot claim a clean commit — the journal is `failed`
+  // and recover --rollback is the recovery path. The read-throw must NOT escape.
+  const err = Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' });
+  const readFileFn = makeReadFile('', err);
+  const seams = { ...happySeams(), readFileFn };
+  let res;
+  await assert.doesNotReject(async () => {
+    res = await applyPlan(baseOpts(seams, {
+      enableWrites: true, paranoid: true, plan: planWith([writeOp('overwrite')]),
+    }));
+  });
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.equal(res.applied, true, 'the op WAS written before the paranoid re-read threw');
+  assert.equal(res.opsWritten, 1);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-paranoid-unreadable'),
+    'apply-paranoid-unreadable must be present: ' + JSON.stringify(res.diagnostics));
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'),
+    'the rollup apply-paranoid-failed must also be present');
+  assert.equal(readFileFn.calls.length, 1, 'paranoid attempted the re-read exactly once');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'failed']);
 });
