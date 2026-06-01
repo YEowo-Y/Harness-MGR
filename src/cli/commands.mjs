@@ -30,6 +30,7 @@ import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
 import { redactEffective, redactKeysMap, redactMergeEntry, redactKeyedValue } from '../analysis/redact-effective.mjs';
+import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
 import { selftestCommand } from './selftest-command.mjs';
@@ -146,13 +147,18 @@ function trimMarketplace(m) {
 /**
  * Trim an McpServerRecord to the UI fields. SECRET-SAFE: copies ONLY name,
  * transport, scope, command, and args — never `envKeys`/`url` and never any env
- * VALUE (the record already holds no secret values). Pure and total — never throws.
+ * VALUE (the record already holds no secret values). The `args` are additionally
+ * passed through `redactMcpArgs`, which replaces a secret VALUE embedded in argv
+ * (an inline `--token=xxx`, a separate `--api-key xxx`, or a URL query token) with
+ * `<redacted>` while leaving benign args (package names, paths, ports, non-sensitive
+ * flags) untouched — so this single chokepoint covers both `--type mcp` AND
+ * `--detail`. Pure and total — never throws.
  * @param {import('../discovery/mcp.mjs').McpServerRecord} m
  * @returns {{name: unknown, transport: unknown, scope: unknown, command: unknown, args: unknown}}
  */
 function trimMcpServer(m) {
   const r = m || {};
-  return { name: r.name, transport: r.transport, scope: r.scope, command: r.command, args: r.args };
+  return { name: r.name, transport: r.transport, scope: r.scope, command: r.command, args: redactMcpArgs(r.args) };
 }
 
 /**
