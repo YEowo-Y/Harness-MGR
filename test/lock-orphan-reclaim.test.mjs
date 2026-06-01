@@ -19,6 +19,7 @@ import {
   acquireLock,
   releaseLock,
   breakLock,
+  inspectLock,
 } from '../src/ops/lock.mjs';
 
 // ── shared helpers ────────────────────────────────────────────────────────────
@@ -317,6 +318,106 @@ test('breakLock: absent lock → broken:false, info diag apply-lock-absent, no t
     assert.equal(infos.length, 1);
     assert.equal(infos[0].severity, 'info');
   } finally { cleanup(); }
+});
+
+// ── inspectLock (read-only status) ──────────────────────────────────────────────
+
+test('inspectLock: absent lock → present:false, holder:null, alive:null, no diagnostics, writes nothing', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const result = inspectLock({ stateDir: dir });
+    assert.equal(result.present, false);
+    assert.equal(result.holder, null);
+    assert.equal(result.alive, null);
+    assert.equal(result.diagnostics.length, 0, 'an absent lock is benign — no diagnostic');
+    assert.ok(!existsSync(lockPath(dir)), 'inspectLock must NOT create a lock file');
+  } finally { cleanup(); }
+});
+
+test('inspectLock: present + readable + live holder → present:true, alive:true, file untouched', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const holderPid = 4242;
+    setupLockFile(dir, { pid: holderPid, startTime: FIXED_ISO, hostname: 'host-x' });
+    const result = inspectLock({ stateDir: dir, killFn: aliveFor(holderPid) });
+    assert.equal(result.present, true);
+    assert.equal(result.alive, true);
+    assert.deepEqual(result.holder, { pid: holderPid, startTime: FIXED_ISO, hostname: 'host-x' });
+    assert.equal(result.diagnostics.length, 0);
+    // READ-ONLY: the lock file must still be there with its original payload.
+    assert.ok(existsSync(lockPath(dir)), 'lock file must remain after inspect');
+    assert.equal(JSON.parse(readFileSync(lockPath(dir), 'utf8')).pid, holderPid);
+  } finally { cleanup(); }
+});
+
+test('inspectLock: present + readable + dead holder → present:true, alive:false', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const holderPid = 4242;
+    setupLockFile(dir, { pid: holderPid, startTime: FIXED_ISO, hostname: 'old-host' });
+    const deadKill = () => { throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' }); };
+    const result = inspectLock({ stateDir: dir, killFn: deadKill });
+    assert.equal(result.present, true);
+    assert.equal(result.alive, false);
+    assert.equal(result.holder.pid, holderPid);
+  } finally { cleanup(); }
+});
+
+test('inspectLock: present but corrupt JSON → present:true, holder:null, alive:null, unreadable warn', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const lp = lockPath(dir);
+    mkdirSync(dirname(lp), { recursive: true });
+    writeFileSync(lp, '{ broken json');
+    const result = inspectLock({ stateDir: dir });
+    assert.equal(result.present, true, 'a corrupt-but-existing lock is present');
+    assert.equal(result.holder, null);
+    assert.equal(result.alive, null);
+    const warns = result.diagnostics.filter((d) => d.code === 'apply-lock-unreadable');
+    assert.equal(warns.length, 1);
+    assert.equal(warns[0].severity, 'warn');
+    // file unchanged (read-only).
+    assert.equal(readFileSync(lp, 'utf8'), '{ broken json');
+  } finally { cleanup(); }
+});
+
+test('inspectLock: present with non-integer pid → present:true, unreadable warn (corrupt)', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    setupLockFile(dir, { pid: 'nope', startTime: FIXED_ISO, hostname: 'h' });
+    const result = inspectLock({ stateDir: dir });
+    assert.equal(result.present, true);
+    assert.equal(result.holder, null);
+    assert.ok(result.diagnostics.some((d) => d.code === 'apply-lock-unreadable' && d.severity === 'warn'));
+  } finally { cleanup(); }
+});
+
+test('inspectLock: injected readFn returning a holder is honoured (alive via injected killFn)', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const readFn = () => JSON.stringify({ pid: 9999, startTime: FIXED_ISO, hostname: 'injected' });
+    const result = inspectLock({ stateDir: dir, readFn, killFn: aliveFor(9999) });
+    assert.equal(result.present, true);
+    assert.equal(result.holder.pid, 9999);
+    assert.equal(result.alive, true);
+  } finally { cleanup(); }
+});
+
+test('inspectLock: empty stateDir → present:false, error diag, never throws', () => {
+  assert.doesNotThrow(() => {
+    const r = inspectLock({ stateDir: '' });
+    assert.equal(r.present, false);
+    assert.equal(r.holder, null);
+    assert.equal(r.alive, null);
+    assert.ok(r.diagnostics.some((d) => d.code === 'apply-lock-error' && d.severity === 'error'));
+  });
+});
+
+test('inspectLock: undefined opts → never throws, present:false', () => {
+  assert.doesNotThrow(() => {
+    const r = inspectLock(undefined);
+    assert.equal(r.present, false);
+  });
 });
 
 // ── never-throws robustness ───────────────────────────────────────────────────
