@@ -36,23 +36,47 @@ function mkTemp(prefix) {
 
 // ── readCoverageSummary ──────────────────────────────────────────────────────
 
-test('readCoverageSummary: valid summary → {absPath: linePct} map', () => {
+test('readCoverageSummary: valid summary → {absPath: {lines, branches}} map', () => {
   const dir = mkTemp('mgr-cov-ok-');
   try {
     const p = join(dir, 'coverage-summary.json');
     writeFileSync(p, JSON.stringify({
-      total: { lines: { pct: 100 } },
-      '/abs/src/a.mjs': { lines: { pct: 91.5 } },
-      '/abs/src/b.mjs': { lines: { pct: 42 } },
+      total: { lines: { pct: 100 }, branches: { pct: 88 } },
+      '/abs/src/a.mjs': { lines: { pct: 91.5 }, branches: { pct: 73.2 } },
+      '/abs/src/b.mjs': { lines: { pct: 42 }, branches: { pct: 10 } },
       '/abs/src/no-lines.mjs': { statements: { pct: 50 } }, // no .lines.pct → skipped
     }), 'utf8');
     const { coverageMap, detail } = readCoverageSummary(p);
     assert.ok(coverageMap && typeof coverageMap === 'object');
-    assert.equal(coverageMap['/abs/src/a.mjs'], 91.5);
-    assert.equal(coverageMap['/abs/src/b.mjs'], 42);
-    assert.equal(coverageMap['total'], 100);
+    // Both line AND branch pct are now captured per file.
+    assert.equal(coverageMap['/abs/src/a.mjs'].lines, 91.5);
+    assert.equal(coverageMap['/abs/src/a.mjs'].branches, 73.2,
+      'branches.pct must be captured (the new branch dimension)');
+    assert.equal(coverageMap['/abs/src/b.mjs'].lines, 42);
+    assert.equal(coverageMap['/abs/src/b.mjs'].branches, 10);
+    assert.equal(coverageMap['total'].lines, 100);
+    assert.equal(coverageMap['total'].branches, 88);
     assert.ok(!('/abs/src/no-lines.mjs' in coverageMap), 'entries without lines.pct are skipped');
     assert.ok(detail.includes('parsed'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('readCoverageSummary: missing branches.pct defaults to 100 (never blocks)', () => {
+  const dir = mkTemp('mgr-cov-nobranch-');
+  try {
+    const p = join(dir, 'coverage-summary.json');
+    writeFileSync(p, JSON.stringify({
+      '/abs/src/a.mjs': { lines: { pct: 95 } },                       // no branches field
+      '/abs/src/b.mjs': { lines: { pct: 95 }, branches: { pct: 'x' } }, // non-numeric branches.pct
+    }), 'utf8');
+    const { coverageMap } = readCoverageSummary(p);
+    assert.equal(coverageMap['/abs/src/a.mjs'].lines, 95);
+    assert.equal(coverageMap['/abs/src/a.mjs'].branches, 100,
+      'absent branches.pct must default to 100 so it never blocks');
+    assert.equal(coverageMap['/abs/src/b.mjs'].branches, 100,
+      'non-numeric branches.pct must default to 100');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
