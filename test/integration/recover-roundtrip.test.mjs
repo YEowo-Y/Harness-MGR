@@ -42,7 +42,7 @@ function seedSnapshottedJournal(stateDir, snapshotId, targetClaudeDir) {
   return w.path;
 }
 
-test('recover-roundtrip: marks the on-disk journal failed and touches NOTHING else', () => {
+test('recover-roundtrip: marks the on-disk journal failed and touches NOTHING else', async () => {
   const root = mkdtempSync(join(tmpdir(), 'cmgr-recover-rt-'));
   const claudeDir = join(root, '.claude');
   const stateDir = join(claudeDir, '.mgr-state');
@@ -66,7 +66,7 @@ test('recover-roundtrip: marks the on-disk journal failed and touches NOTHING el
     const pre = readJournal({ stateDir, snapshotId: VALID_ID });
     assert.equal(pre.journal && pre.journal.state, 'snapshotted');
 
-    const res = recover({
+    const res = await recover({
       snapshotId: VALID_ID, mgrStateDir: stateDir, mode: 'mark-failed', assertWritable: PASS_GATE,
     });
 
@@ -95,7 +95,7 @@ test('recover-roundtrip: marks the on-disk journal failed and touches NOTHING el
   }
 });
 
-test('recover-roundtrip: a traversal id is refused and creates NOTHING outside snapshots/', () => {
+test('recover-roundtrip: a traversal id is refused and creates NOTHING outside snapshots/', async () => {
   const root = mkdtempSync(join(tmpdir(), 'cmgr-recover-rt-esc-'));
   const stateDir = join(root, '.mgr-state');
   mkdirSync(join(stateDir, 'snapshots'), { recursive: true });
@@ -105,7 +105,7 @@ test('recover-roundtrip: a traversal id is refused and creates NOTHING outside s
     const beforeRoot = readdirSync(root).sort();
     const beforeSnapshots = readdirSync(join(stateDir, 'snapshots')).sort();
 
-    const res = recover({
+    const res = await recover({
       snapshotId: '../../evil', mgrStateDir: stateDir, mode: 'mark-failed', assertWritable: PASS_GATE,
     });
 
