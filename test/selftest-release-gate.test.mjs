@@ -23,6 +23,8 @@ const failTests = () => ({ pass: false, detail: 'node --test exited 1' });
 
 const passCoverage = () => ({ coverageMap: {}, detail: 'ok' });
 const noChangedFiles = () => [];
+// The cannot-determine sentinel: the default seam returns null when git fails.
+const cannotDetermineChangedFiles = () => null;
 const oneChangedFile = () => ['src/selftest/release-gate.mjs'];
 
 /**
@@ -115,13 +117,36 @@ describe('runReleaseGate', () => {
     assert.equal(r.steps[0].pass, false);
   });
 
-  it('step 2 no-changed-files: pass, detail says no changed files', async () => {
+  it('step 2 genuinely-empty diff ([]): pass, detail says no changed files', async () => {
+    // ORACLE (c): a real empty array (git ran, nothing under src/ changed) must
+    // STILL pass — the cannot-determine fix must not regress the empty-diff case.
     const r = await runReleaseGate(makeOpts({ changedSrcFiles: noChangedFiles }));
     assert.equal(r.code, 0);
     const s2 = r.steps.find((s) => s.step === 2);
     assert.ok(s2);
     assert.equal(s2.pass, true);
     assert.ok(s2.detail.includes('no changed src files'));
+    // A genuinely-empty diff must NOT emit the cannot-determine diagnostic.
+    assert.ok(!r.diagnostics.some((d) => d.code === 'release-gate-changed-files-unknown'),
+      'empty diff must not be treated as cannot-determine');
+  });
+
+  it('step 2 cannot-determine changed files (null): code 2, distinct diagnostic, no vacuous pass', async () => {
+    // ORACLE (b): the default seam returns null when git fails (no HEAD / unavailable
+    // / timeout). coverageStep must FAIL — pre-fix [] passed vacuously; the null
+    // sentinel routes to a distinct release-gate-changed-files-unknown error.
+    const r = await runReleaseGate(makeOpts({ changedSrcFiles: cannotDetermineChangedFiles }));
+    assert.equal(r.code, 2, 'cannot-determine must fail the gate (code 2), not pass vacuously');
+    assert.equal(r.pass, false);
+    const s2 = r.steps.find((s) => s.step === 2);
+    assert.ok(s2);
+    assert.equal(s2.pass, false, 'step 2 must not pass when the changed set is unknown');
+    const d = r.diagnostics.find((x) => x.code === 'release-gate-changed-files-unknown');
+    assert.ok(d, 'expected release-gate-changed-files-unknown diagnostic');
+    assert.equal(d.severity, 'error');
+    // It must be the cannot-determine code, NOT the c8-unavailable one.
+    assert.ok(!r.diagnostics.some((x) => x.code === 'release-gate-coverage-unavailable'),
+      'cannot-determine is distinct from coverage-unavailable');
   });
 
   it('step 2 below-threshold (70%): code 2, per-file diagnostic', async () => {
@@ -352,9 +377,9 @@ describe('runReleaseGate', () => {
 
   it('never-throws on empty opts {}', async () => {
     // With empty opts the seams default to the REAL spawners, but srcDir='' makes
-    // lint/invariants/boundary return empty results; changedSrcFiles with repoRoot=''
-    // git-fails → [] → coverage passes vacuously; runTests with repoRoot='' fails →
-    // step 1 fails. What matters here: it never throws and returns a shaped result.
+    // lint/invariants/boundary return empty results; runTests with repoRoot='' fails
+    // → step 1 fails and the run aborts before the coverage step. What matters here:
+    // it never throws and returns a shaped result.
     const r = await runReleaseGate({});
     assert.ok(typeof r === 'object');
     assert.ok(typeof r.code === 'number');
