@@ -45,6 +45,16 @@ import {
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
 /**
+ * Coverage thresholds for a changed src file. A file fails the coverage step when
+ * its line% is below LINE_THRESHOLD OR its branch% is below BRANCH_THRESHOLD.
+ * BRANCH_THRESHOLD is deliberately lenient (70): this codebase is never-throws +
+ * defensive, so a few unreachable guard arms should not block, while egregious
+ * branch under-testing is still caught. LINE_THRESHOLD stays the original 80.
+ */
+const LINE_THRESHOLD = 80;
+const BRANCH_THRESHOLD = 70;
+
+/**
  * @typedef {Object} GateStep
  * @property {number} step
  * @property {string} name
@@ -181,7 +191,9 @@ async function runGate(opts) {
 
 /**
  * Run the coverage step: collect changed files, run c8, find under-threshold files.
- * Pushes per-file Diagnostics into the outer diagnostics array.
+ * A file fails when line% < LINE_THRESHOLD OR branch% < BRANCH_THRESHOLD.
+ * Pushes per-file Diagnostics (distinct line- vs branch-coverage codes) into the
+ * outer diagnostics array.
  *
  * @param {{ repoRoot: string, base?: string, changedSrcFiles: Function, runCoverage: Function, diagnostics: Diagnostic[] }} opts
  * @returns {Promise<{pass: boolean, detail: string}>}
@@ -197,24 +209,48 @@ async function coverageStep({ repoRoot, base, changedSrcFiles, runCoverage, diag
       message: covDetail, phase: 'release-gate' });
     return { pass: false, detail: covDetail };
   }
-  const low = [];
+  const low = new Set();
   for (const relPath of changed) {
-    const pct = lookupCoverage(coverageMap, relPath);
-    if (pct === null) {
-      diagnostics.push({ severity: 'error', code: 'release-gate-coverage-low',
-        message: `${relPath}: not in coverage summary (treating as 0%)`,
-        phase: 'release-gate', path: relPath });
-      low.push(relPath);
-    } else if (pct < 80) {
-      diagnostics.push({ severity: 'error', code: 'release-gate-coverage-low',
-        message: `${relPath}: line coverage ${pct.toFixed(1)}% < 80%`,
-        phase: 'release-gate', path: relPath });
-      low.push(relPath);
+    if (evaluateCoverage(lookupCoverage(coverageMap, relPath), relPath, diagnostics)) {
+      low.add(relPath);
     }
   }
-  return low.length === 0
-    ? { pass: true, detail: `${changed.length} changed file(s) all ≥80% line coverage` }
-    : { pass: false, detail: `${low.length} file(s) below 80% line coverage` };
+  return low.size === 0
+    ? { pass: true, detail: `${changed.length} changed file(s) meet line ≥${LINE_THRESHOLD}% / branch ≥${BRANCH_THRESHOLD}%` }
+    : { pass: false, detail: `${low.size} file(s) below line ${LINE_THRESHOLD}% or branch ${BRANCH_THRESHOLD}% coverage` };
+}
+
+/**
+ * Judge one changed file's coverage entry against both thresholds, pushing a
+ * line-coverage AND/OR branch-coverage Diagnostic (distinct codes) as needed.
+ * A missing entry (not in summary) is treated as a line failure.
+ *
+ * @param {{lines:number, branches:number}|null} entry
+ * @param {string} relPath
+ * @param {Diagnostic[]} diagnostics
+ * @returns {boolean} true when the file is below at least one threshold
+ */
+function evaluateCoverage(entry, relPath, diagnostics) {
+  if (entry === null) {
+    diagnostics.push({ severity: 'error', code: 'release-gate-coverage-low',
+      message: `${relPath}: not in coverage summary (treating as 0%)`,
+      phase: 'release-gate', path: relPath });
+    return true;
+  }
+  let below = false;
+  if (entry.lines < LINE_THRESHOLD) {
+    diagnostics.push({ severity: 'error', code: 'release-gate-coverage-low',
+      message: `${relPath}: line coverage ${entry.lines.toFixed(1)}% < ${LINE_THRESHOLD}%`,
+      phase: 'release-gate', path: relPath });
+    below = true;
+  }
+  if (entry.branches < BRANCH_THRESHOLD) {
+    diagnostics.push({ severity: 'error', code: 'release-gate-coverage-branch-low',
+      message: `${relPath}: branch coverage ${entry.branches.toFixed(1)}% < ${BRANCH_THRESHOLD}%`,
+      phase: 'release-gate', path: relPath });
+    below = true;
+  }
+  return below;
 }
 
 /**
@@ -235,13 +271,13 @@ async function safeStep(step, name, fn) {
 }
 
 /**
- * Find the line coverage pct for a relative path in the coverage map.
+ * Find the coverage entry ({lines, branches}) for a relative path in the map.
  * c8 summary keys are ABSOLUTE; git diff output is relative to repo root.
  * Match by checking if the absolute key ends with '/' + normalised relPath.
  *
- * @param {Record<string, number>} coverageMap
+ * @param {Record<string, {lines:number, branches:number}>} coverageMap
  * @param {string} relPath
- * @returns {number|null}
+ * @returns {{lines:number, branches:number}|null}
  */
 function lookupCoverage(coverageMap, relPath) {
   if (coverageMap === null || typeof coverageMap !== 'object') return null;
@@ -249,7 +285,10 @@ function lookupCoverage(coverageMap, relPath) {
   const norm = relPath.replace(/\\/g, '/');
   for (const key of Object.keys(coverageMap)) {
     const kn = key.replace(/\\/g, '/');
-    if (kn.endsWith('/' + norm) || kn === norm) return coverageMap[key];
+    if (kn.endsWith('/' + norm) || kn === norm) {
+      const entry = coverageMap[key];
+      return entry && typeof entry === 'object' ? entry : null;
+    }
   }
   return null;
 }
