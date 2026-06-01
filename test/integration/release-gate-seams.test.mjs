@@ -5,7 +5,7 @@
  * These spawn `node --test` / a doctor gather, but ONLY over tiny TEMP dirs or a
  * clean fixture — NEVER the repo's own ~1100-test suite (no reentrancy). Coverage:
  *   - readCoverageSummary: valid map / non-object JSON / missing file.
- *   - defaultChangedSrcFiles: real repo root → .mjs paths; bad root → [] (never throws).
+ *   - defaultChangedSrcFiles: real repo root → .mjs paths; bad root → null (never throws).
  *   - defaultRunDoctorPassive: clean fixture → {pass:true, detail}.
  *   - defaultRunTests: temp 1-file passing dir → {pass:true}; failing dir → {pass:false}.
  *   - defaultRunCoverage: temp dir without node_modules/c8 → {coverageMap:null, 'c8 not found'}.
@@ -23,6 +23,7 @@ import {
   defaultRunDoctorPassive,
   defaultRunTests,
   defaultRunCoverage,
+  defaultRunSchemaCanary,
 } from '../../src/selftest/release-gate-seams.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -117,10 +118,19 @@ test('defaultChangedSrcFiles: real repo root → array of .mjs paths', () => {
   }
 });
 
-test('defaultChangedSrcFiles: bad repoRoot → [] (never throws)', () => {
-  let out;
-  assert.doesNotThrow(() => { out = defaultChangedSrcFiles({ repoRoot: join(tmpdir(), 'definitely-not-a-git-repo-xyz') }); });
-  assert.deepEqual(out, []);
+test('defaultChangedSrcFiles: bad repoRoot → null cannot-determine sentinel (never throws)', () => {
+  // A fresh non-git temp dir makes `git diff HEAD` throw ("not a git repository").
+  // The catch must return the cannot-determine sentinel `null` (NOT [] — that would
+  // be indistinguishable from a clean zero-change diff and would let coverageStep
+  // pass vacuously).
+  const dir = mkTemp('mgr-not-a-git-repo-');
+  try {
+    let out;
+    assert.doesNotThrow(() => { out = defaultChangedSrcFiles({ repoRoot: dir }); });
+    assert.equal(out, null, 'git-failure must yield null, not []');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('defaultChangedSrcFiles: base starting with "-" is ignored (no flag injection), still an array', () => {
@@ -205,4 +215,47 @@ test('defaultRunDoctorPassive (default): configDir-independent — bogus configD
 test('defaultRunDoctorPassive (default): no-args call → pass:true (fixture path resolved from module URL)', async () => {
   const r = await defaultRunDoctorPassive();
   assert.equal(r.pass, true, `expected pass true with no args, detail: ${r.detail}`);
+});
+
+// ── defaultRunSchemaCanary (crash visibility — non-blocking but diagnosed) ────
+
+test('defaultRunSchemaCanary: thrown canary → pass:true AND one warn schema-canary-unavailable naming the error', async () => {
+  // A canary that ROTS into throwing every run (e.g. probe-schema regresses) used to
+  // be indistinguishable from a clean run: pass:true, diagnostics:[]. The outer catch
+  // must now emit exactly one WARN naming the error, while KEEPING pass:true (drift &
+  // crash both stay non-blocking; the crash is just no longer silent).
+  const boom = 'probe-schema exploded';
+  const r = await defaultRunSchemaCanary({
+    configDir: '/no/such/path',
+    seams: { load: async () => { throw new Error(boom); } },
+  });
+  assert.equal(r.pass, true, 'canary crash stays non-blocking (pass:true)');
+  assert.ok(Array.isArray(r.diagnostics), 'diagnostics is an array');
+  const warns = r.diagnostics.filter((d) => d.code === 'schema-canary-unavailable');
+  assert.equal(warns.length, 1, 'exactly one schema-canary-unavailable diagnostic');
+  assert.equal(warns[0].severity, 'warn', 'severity is warn (non-blocking visibility)');
+  assert.ok(warns[0].message.includes(boom), `message names the error: ${warns[0].message}`);
+  assert.ok(r.detail.includes(boom), `detail names the error: ${r.detail}`);
+});
+
+test('defaultRunSchemaCanary: non-Error throw is still surfaced (never-throws, String coercion)', async () => {
+  const r = await defaultRunSchemaCanary({
+    configDir: '/no/such/path',
+    seams: { load: async () => { throw 'string-rejection'; } }, // eslint-disable-line no-throw-literal
+  });
+  assert.equal(r.pass, true);
+  const warns = r.diagnostics.filter((d) => d.code === 'schema-canary-unavailable');
+  assert.equal(warns.length, 1);
+  assert.ok(warns[0].message.includes('string-rejection'));
+});
+
+test('defaultRunSchemaCanary: clean run (real loader) → pass:true, NO schema-canary-unavailable', async () => {
+  // The success path is unchanged: a real canary run emits no -unavailable diagnostic.
+  const here2 = dirname(fileURLToPath(import.meta.url));
+  const fixtureCfg = resolve(here2, '..', 'fixtures', 'real-snapshot');
+  const r = await defaultRunSchemaCanary({ configDir: fixtureCfg });
+  assert.equal(r.pass, true, `expected pass true, detail: ${r.detail}`);
+  assert.ok(Array.isArray(r.diagnostics), 'diagnostics is an array');
+  const warns = r.diagnostics.filter((d) => d.code === 'schema-canary-unavailable');
+  assert.equal(warns.length, 0, 'a clean canary run must NOT emit schema-canary-unavailable');
 });
