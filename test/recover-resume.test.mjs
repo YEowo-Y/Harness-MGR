@@ -120,15 +120,40 @@ test('resume out-of-target op path: refuses and NEVER reads the escaping path', 
   assert.equal(transitionFn.calls.length, 0);
 });
 
-test('resume multi-op: refused (multi-op verification is P3.U19)', async () => {
+test('resume multi-op ALL match: every op target re-hashes clean → committed', async () => {
+  // Both ops share the SAME content so the default recorder readFileFn (one canned
+  // value for every call) matches BOTH targets — a landed multi-op write.
   const ops = [
-    { kind: 'overwrite', target: TARGET, content: 'a' },
-    { kind: 'overwrite', target: `${CLAUDE_DIR}/.mcp.json`, content: 'b' },
+    { kind: 'overwrite', target: TARGET, content: 'X\n' },
+    { kind: 'create', target: `${CLAUDE_DIR}/.mcp.json`, content: 'X\n' },
   ];
-  const { res, transitionFn } = await runResume({ ops });
+  const { res, transitionFn, writeJournalFn, readFileFn } = await runResume({
+    ops, fileBytes: Buffer.from('X\n', 'utf8'),
+  });
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'recover-resumed' && d.severity === 'info'));
+  assert.equal(transitionFn.calls.length, 1, 'a fully-verified multi-op apply transitions once');
+  assert.equal(writeJournalFn.calls.length, 1, 'committed journal persisted');
+  assert.equal(readFileFn.calls.length, 2, 'both op targets are re-hashed');
+});
+
+test('resume multi-op ONE mismatch: any unverified op → refuse, never transition', async () => {
+  // op1 (settings.json) matches; op2 (.mcp.json) reads DIFFERENT bytes → unverified.
+  const ops = [
+    { kind: 'overwrite', target: TARGET, content: 'X\n' },
+    { kind: 'create', target: `${CLAUDE_DIR}/.mcp.json`, content: 'X\n' },
+  ];
+  const perTargetRead = (p) =>
+    p.endsWith('.mcp.json') ? Buffer.from('WRONG\n', 'utf8') : Buffer.from('X\n', 'utf8');
+  const { res, transitionFn, writeJournalFn } = await runResume({
+    ops, seamsOverride: { readFileFn: perTargetRead },
+  });
   assert.equal(res.ok, false);
+  assert.equal(res.state, 'applying', 'journal left at applying');
   assert.ok(res.diagnostics.some((d) => d.code === 'recover-resume-unverified'));
-  assert.equal(transitionFn.calls.length, 0);
+  assert.equal(transitionFn.calls.length, 0, 'NEVER transitions when any op is unverified');
+  assert.equal(writeJournalFn.calls.length, 0, 'NEVER writes the journal on an unverified resume');
 });
 
 test('resume missing targetClaudeDir: refuses with recover-bad-args', async () => {
