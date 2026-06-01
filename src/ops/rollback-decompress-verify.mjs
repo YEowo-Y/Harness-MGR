@@ -95,6 +95,14 @@ const TEMP_PREFIX = 'cmgr-rollback-verify-';
  * @property {number} fileCount         number of manifest file records.
  * @property {number} verifiedCount     number that extracted AND matched their hash.
  * @property {VerifyMismatch[]} mismatches  missing/corrupt files (empty when verified).
+ * @property {string|null} tempDir      the throwaway mkdtemp'd extraction dir THIS call
+ *                                      created (null when none was made, e.g. a bad id or
+ *                                      missing tar). Exposed ONLY so a caller/test can
+ *                                      assert residue against the EXACT dir this call
+ *                                      owned — NOT a tmpdir-wide glob over the shared
+ *                                      prefix (concurrent callers share os.tmpdir()). The
+ *                                      dir is ALWAYS removed in the finally before return;
+ *                                      this is the path that WAS used, for verification.
  * @property {Diagnostic[]} diagnostics  aggregated across every step.
  */
 
@@ -122,6 +130,7 @@ function sha256Hex(buf) {
 function buildResult(fields, bag) {
   return {
     ok: false, verified: false, snapshotId: null, fileCount: 0, verifiedCount: 0, mismatches: [],
+    tempDir: null,
     ...fields,
     diagnostics: bag.all(),
   };
@@ -320,7 +329,9 @@ export async function verifyRollbackArchive(opts) {
     const fields = await extractAndVerify({
       tarPath, archivePath, destDir, snapshotId, manifest, extractFn, readFileFn, bag,
     });
-    return buildResult(fields, bag);
+    // Expose the temp dir THIS call used so a caller/test can assert residue against
+    // the EXACT dir (never a tmpdir-wide glob). It is still removed in the finally.
+    return buildResult({ ...fields, tempDir: destDir }, bag);
   } catch (e) {
     // Absolute backstop: a thrown seam / unexpected error becomes a diagnostic.
     return fail('verify-unexpected-error',
