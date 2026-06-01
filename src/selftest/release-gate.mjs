@@ -200,7 +200,17 @@ async function runGate(opts) {
  */
 async function coverageStep({ repoRoot, base, changedSrcFiles, runCoverage, diagnostics }) {
   const changed = changedSrcFiles({ repoRoot, base });
-  if (!Array.isArray(changed) || changed.length === 0) {
+  // null (or any non-array) = the seam could NOT determine the changed set (git
+  // unavailable / no HEAD / timeout). Fail closed: a vacuous pass here would let a
+  // broken git invocation slip an uncovered change through the gate.
+  if (!Array.isArray(changed)) {
+    diagnostics.push({ severity: 'error', code: 'release-gate-changed-files-unknown',
+      message: 'cannot determine changed src files (git unavailable or failed); '
+        + 'coverage cannot be verified', phase: 'release-gate' });
+    return { pass: false, detail: 'cannot determine changed src files' };
+  }
+  // A genuinely-empty diff (git ran, nothing under src/ changed) still passes.
+  if (changed.length === 0) {
     return { pass: true, detail: 'no changed src files to gate' };
   }
   const { coverageMap, detail: covDetail } = await Promise.resolve(runCoverage({ repoRoot }));
