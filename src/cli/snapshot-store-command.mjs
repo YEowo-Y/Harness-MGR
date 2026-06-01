@@ -21,6 +21,7 @@
 
 import { listSnapshots, gcSnapshots } from '../ops/snapshot-store.mjs';
 import { parseSince } from '../ops/audit.mjs';
+import { resolveWriteIntent } from './write-gate.mjs';
 
 /** @typedef {import('./commands.mjs').CommandHandler} CommandHandler */
 
@@ -65,11 +66,17 @@ export function snapshotListCommand(ctx, seams = {}) {
  * REQUIRING a criterion is enforced inside `gcSnapshots` (no `keep`/`older-than`
  * → a `gc-no-criterion` warn + nothing deleted), so a bare `snapshot gc` is safe.
  *
+ * TWO-FACTOR WRITE GATE (P3.U22): on the `--apply` path the env var
+ * `CLAUDE_MGR_ENABLE_WRITES=1` is the second factor. A closed gate REFUSES (code 3 +
+ * `writes-disabled-env`) BEFORE `gcFn` runs, so nothing is deleted. A dry-run gc
+ * (no `--apply`) is unaffected — the env factor is irrelevant there.
+ *
  * `seams` is an injectable test seam: a fake `gcFn` makes dry-run-vs-apply and the
- * flag plumbing unit-testable without touching the filesystem. Never throws.
+ * flag plumbing unit-testable without touching the filesystem (a fake `env` makes
+ * the gate hermetic). Never throws.
  *
  * @param {import('./commands.mjs').CommandContext} ctx
- * @param {{ gcFn?: typeof gcSnapshots }} [seams]
+ * @param {{ gcFn?: typeof gcSnapshots, env?: Record<string, string|undefined> }} [seams]
  * @returns {import('./commands.mjs').CommandOutput}
  */
 export function snapshotGcCommand(ctx, seams = {}) {
@@ -81,6 +88,23 @@ export function snapshotGcCommand(ctx, seams = {}) {
   const preDiags = [];
   const keep = coerceKeep(args.keep, preDiags);
   const olderThanMs = coerceOlderThan(args['older-than'], preDiags);
+
+  // Two-factor gate (apply path only): a closed gate refuses before gcFn runs, so
+  // no snapshot is deleted. preDiags (any keep/older-than coercion warns) are kept
+  // so a typo isn't swallowed by the refusal.
+  if (apply) {
+    const intent = resolveWriteIntent({ apply: true, env: seams.env ?? process.env });
+    if (intent.refusal) {
+      return {
+        result: {
+          mode: 'applied', deleted: [], wouldDelete: [], retained: [],
+          deletedCount: 0, wouldDeleteCount: 0, retainedCount: 0,
+        },
+        diagnostics: [...preDiags, intent.refusal],
+        code: intent.code,
+      };
+    }
+  }
 
   const gc = gcFn({ mgrStateDir: ctx && ctx.mgrStateDir, keep, olderThanMs, apply });
 
