@@ -31,6 +31,7 @@
 import { join, relative, sep } from 'node:path';
 import { readdirSync, lstatSync } from 'node:fs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
+import { isLeftoverSidecar } from '../lib/leftover-sidecars.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -171,6 +172,11 @@ function collectDirFiles(dir, configDir, out, excludeSet, depth = 0) {
     if (ent.isDirectory()) {
       collectDirFiles(abs, configDir, out, excludeSet, depth + 1);
     } else if (ent.isFile()) {
+      // Skip atomic-write recovery sidecars (<target>.mgr-new / .mgr-old): a
+      // catastrophic apply/rollback double-failure can strand these in the
+      // content dirs, but they are transient recovery artifacts — not governed
+      // config — and must never enter a snapshot archive.
+      if (isLeftoverSidecar(ent.name)) continue;
       const rel = toPosixRel(configDir, abs);
       if (isExcluded(rel, excludeSet)) continue; // second belt: never emit excluded
       out.push(rel);
