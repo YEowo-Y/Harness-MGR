@@ -41,7 +41,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
 const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason', '--keep', '--older-than']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth', '--break-lock']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth', '--break-lock', '--force', '--mark-failed', '--resume', '--rollback', '--from-manifest']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
@@ -118,28 +118,36 @@ function parseArgs(argv) {
     }
   }
 
-  return { canonical: canonicalize(positionals), args, unknownFlag };
+  // Resolve the canonical command AND how many positional tokens it consumed; the
+  // REST become args.positionals so a handler can read its `<id>` (e.g. rollback <id>).
+  const { canonical, consumed } = canonicalize(positionals);
+  args.positionals = positionals.slice(consumed);
+  return { canonical, args, unknownFlag };
 }
 
 /**
- * Resolve the canonical command name from the positionals. No positional → null.
- * Two-word commands collapse to one canonical key (both tokens consumed):
- *   `config show-effective` → `config:show-effective`
- *   `snapshot list`         → `snapshot:list`
- *   `snapshot gc`           → `snapshot:gc`
- * A bare `snapshot` (no sub-verb) stays `snapshot` (the create command). Otherwise
- * the first positional is the canonical name verbatim (membership checked later).
+ * Resolve the canonical command name from the positionals AND how many positional
+ * tokens that command consumed (so the caller can slice the REST into
+ * `args.positionals` — e.g. the `<id>` in `rollback <id>`). No first positional →
+ * `{ canonical: null, consumed: 0 }`. Two-word commands collapse to one canonical
+ * key (TWO tokens consumed):
+ *   `config show-effective` → `config:show-effective` (consumed 2)
+ *   `snapshot list`         → `snapshot:list`          (consumed 2)
+ *   `snapshot gc`           → `snapshot:gc`            (consumed 2)
+ * A bare `snapshot` (no sub-verb) stays `snapshot` (consumed 1, the create command).
+ * Otherwise the first positional is the canonical name verbatim (consumed 1;
+ * membership checked later).
  *
  * @param {string[]} positionals
- * @returns {string|null}
+ * @returns {{canonical: string|null, consumed: number}}
  */
 function canonicalize(positionals) {
   const first = positionals[0];
-  if (typeof first !== 'string' || first.length === 0) return null;
-  if (first === 'config' && positionals[1] === 'show-effective') return 'config:show-effective';
-  if (first === 'snapshot' && positionals[1] === 'list') return 'snapshot:list';
-  if (first === 'snapshot' && positionals[1] === 'gc') return 'snapshot:gc';
-  return first;
+  if (typeof first !== 'string' || first.length === 0) return { canonical: null, consumed: 0 };
+  if (first === 'config' && positionals[1] === 'show-effective') return { canonical: 'config:show-effective', consumed: 2 };
+  if (first === 'snapshot' && positionals[1] === 'list') return { canonical: 'snapshot:list', consumed: 2 };
+  if (first === 'snapshot' && positionals[1] === 'gc') return { canonical: 'snapshot:gc', consumed: 2 };
+  return { canonical: first, consumed: 1 };
 }
 
 /**
@@ -235,7 +243,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\ncommands:\n${commandList()}`;
+  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\nwrite commands (DRY-RUN by default; require BOTH --apply AND the env var\nCLAUDE_MGR_ENABLE_WRITES=1 to touch governed config):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n\ncommands:\n${commandList()}`;
 }
 
 /**
