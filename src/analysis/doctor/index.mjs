@@ -385,7 +385,7 @@ export function runDoctor(input, opts) {
   // Side-effect notice: opting into active probes may invoke external tools. Recorded
   // even before any active check exists so the opt-in is always visible in output.
   if (activeProbes) {
-    bag.add({ severity: 'info', code: 'doctor-active-probes', message: 'active probes enabled: checks may invoke external tools (never hook command strings)', phase: 'doctor' });
+    bag.add({ severity: 'info', code: 'doctor-active-probes', message: 'active probes enabled: checks may spawn external tools (never hook command strings); the loader probe may briefly create and then remove a temporary probe file in the real agents/ directory (gated, symlink-guarded, and removed after the check — residue is reported if removal fails)', phase: 'doctor' });
   }
 
   /** @type {CheckSummary[]} */
