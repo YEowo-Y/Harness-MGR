@@ -55,10 +55,11 @@ export function defaultRunTests({ repoRoot }) {
 /**
  * DEFAULT runCoverage seam: invoke c8 via `node node_modules/c8/bin/c8.js` with
  * --reporter=json-summary, which writes coverage/coverage-summary.json. Returns a
- * map from absolute file path → line coverage pct, or null when unavailable.
+ * map from absolute file path → {lines, branches} coverage pct, or null when
+ * unavailable.
  *
  * @param {{repoRoot: string}} opts
- * @returns {{coverageMap: Record<string, number>|null, detail: string}}
+ * @returns {{coverageMap: Record<string, CoverageEntry>|null, detail: string}}
  */
 export function defaultRunCoverage({ repoRoot }) {
   const c8Bin = join(repoRoot, 'node_modules', 'c8', 'bin', 'c8.js');
@@ -82,14 +83,24 @@ export function defaultRunCoverage({ repoRoot }) {
 }
 
 /**
- * Parse coverage-summary.json into a {absolutePath → linePct} map.
+ * @typedef {Object} CoverageEntry
+ * @property {number} lines     line coverage pct
+ * @property {number} branches  branch coverage pct (defaults to 100 when c8 omits it)
+ */
+
+/**
+ * Parse coverage-summary.json into a {absolutePath → {lines, branches}} map.
  * Returns {coverageMap: null, detail} on any read/parse failure.
+ *
+ * Both line AND branch pct are captured (c8 json-summary emits both). A missing or
+ * non-numeric `branches.pct` defaults to 100 so absence NEVER blocks a file — the
+ * branch dimension only fails on a present, genuinely-low value.
  *
  * Exported so it can be unit-tested directly against a temp summary file
  * (covers the parse branches without spawning c8).
  *
  * @param {string} summaryPath
- * @returns {{coverageMap: Record<string, number>|null, detail: string}}
+ * @returns {{coverageMap: Record<string, CoverageEntry>|null, detail: string}}
  */
 export function readCoverageSummary(summaryPath) {
   try {
@@ -98,12 +109,15 @@ export function readCoverageSummary(summaryPath) {
     if (parsed === null || typeof parsed !== 'object') {
       return { coverageMap: null, detail: 'coverage-summary.json is not an object' };
     }
-    /** @type {Record<string, number>} */
+    /** @type {Record<string, CoverageEntry>} */
     const map = Object.create(null);
     for (const key of Object.keys(parsed)) {
       const entry = parsed[key];
       if (entry && typeof entry === 'object' && entry.lines && typeof entry.lines.pct === 'number') {
-        map[key] = entry.lines.pct;
+        const branches = entry.branches && typeof entry.branches.pct === 'number'
+          ? entry.branches.pct
+          : 100;
+        map[key] = { lines: entry.lines.pct, branches };
       }
     }
     return { coverageMap: map, detail: `coverage-summary.json parsed (${Object.keys(map).length} files)` };
