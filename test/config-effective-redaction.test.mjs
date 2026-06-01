@@ -16,7 +16,7 @@ import { tmpdir } from 'node:os';
 import { configShowEffectiveCommand } from '../src/cli/commands.mjs';
 import { formatJson, formatNdjson } from '../src/output/json.mjs';
 import { renderTable } from '../src/cli/render.mjs';
-import { redactEffective } from '../src/analysis/redact-effective.mjs';
+import { redactEffective, redactKeyedValue } from '../src/analysis/redact-effective.mjs';
 
 const ENV_SECRET = 'sk-ant-SENTINEL-DO-NOT-LEAK';
 const ENV_PLAIN = 'plainval-SENTINEL';
@@ -101,4 +101,36 @@ test('redactEffective does not mutate its input (original effective stays byte-i
   assert.notEqual(out, effective);
   assert.equal(out.env.ANTHROPIC_API_KEY.redacted, true);
   assert.equal(out.model, 'opus');
+});
+
+test('redactEffective skips prototype-poisoning keys and deep-redacts nested sensitive values (proto-safe + deep branches)', () => {
+  // JSON.parse yields OWN __proto__ keys (not the prototype), exercising the
+  // isSafeKey skip in BOTH redactEnv and redactDeep, plus the non-sensitive
+  // deep-recursion arm (a nested non-sensitive object value).
+  const poisoned = JSON.parse(
+    '{"env":{"__proto__":"sk-ENVPROTO","API_KEY":"sk-REAL"},' +
+      '"permissions":{"__proto__":"sk-PERMPROTO","token":"sk-PERMTOK","nested":{"plain":"keepme-PLAIN"}}}',
+  );
+  const out = redactEffective(poisoned);
+  const wire = JSON.stringify(out);
+  assert.ok(!wire.includes('sk-ENVPROTO'), 'poisoned env __proto__ value must not leak');
+  assert.ok(!wire.includes('sk-PERMPROTO'), 'poisoned nested __proto__ value must not leak');
+  assert.ok(!wire.includes('sk-PERMTOK'), 'nested sensitive token must be redacted');
+  assert.ok(!wire.includes('sk-REAL'), 'env value must be redacted');
+  assert.ok(wire.includes('keepme-PLAIN'), 'non-sensitive nested value survives the deep copy');
+  assert.ok(!Object.prototype.hasOwnProperty.call(out.env, '__proto__'), 'no own __proto__ in redacted env');
+  assert.ok(!Object.prototype.hasOwnProperty.call(out.permissions, '__proto__'), 'no own __proto__ in redacted permissions');
+});
+
+test('redactKeyedValue never throws on malformed --key segments and still redacts nested secrets (defensive guards)', () => {
+  // Non-array segments and an empty path both fall through to a deep redact.
+  assert.doesNotThrow(() => redactKeyedValue(undefined, { token: 'sk-MALFORMED' }));
+  assert.ok(
+    !JSON.stringify(redactKeyedValue(undefined, { token: 'sk-MALFORMED' })).includes('sk-MALFORMED'),
+    'nested sensitive key redacted even when segments is not an array',
+  );
+  assert.ok(
+    !JSON.stringify(redactKeyedValue([], { password: 'sk-EMPTYPATH' })).includes('sk-EMPTYPATH'),
+    'nested sensitive key redacted when the path is empty',
+  );
 });
