@@ -161,6 +161,7 @@ test('no subcommand → code 2 + usage text', async () => {
   assert.equal(out.code, 2);
   assert.ok(out.stdout.includes('usage'));
   assert.ok(out.stdout.includes('inventory'), 'usage lists the valid commands');
+  assert.ok(out.stdout.includes('--active-probes'), 'usage documents the --active-probes flag');
 });
 
 test('unknown subcommand → code 2 naming valid commands', async () => {
