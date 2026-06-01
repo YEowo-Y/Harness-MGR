@@ -95,6 +95,109 @@ test('populated configDir: applyLeftovers contains .mgr-new in configDir and .mg
   }
 });
 
+// ── 1b. P2.2 — NESTED rollback sidecars under agents/skills/commands/hooks ─────
+
+test('applyLeftovers includes a NESTED .mgr-old stranded in agents/ (rollback double-failure)', () => {
+  const tmp = mktmp();
+  try {
+    // Rollback restore strands `<target>.mgr-old` next to the target — here nested.
+    mkdirSync(join(tmp, 'agents'));
+    touch(join(tmp, 'agents', 'foo.md.mgr-old'));
+    // also a nested .mgr-new deeper under skills/
+    mkdirSync(join(tmp, 'skills', 'my-skill'), { recursive: true });
+    touch(join(tmp, 'skills', 'my-skill', 'SKILL.md.mgr-new'));
+    // a normal nested file — must NOT appear
+    touch(join(tmp, 'agents', 'reviewer.md'));
+
+    const { fsFacts } = gatherFsProbes({ configDir: tmp });
+    const paths = fsFacts.applyLeftovers;
+    assert.ok(paths.some((p) => p.endsWith('foo.md.mgr-old')), 'nested agents/ .mgr-old must be found');
+    assert.ok(paths.some((p) => p.endsWith('SKILL.md.mgr-new')), 'nested skills/ .mgr-new must be found');
+    assert.ok(!paths.some((p) => p.endsWith('reviewer.md')), 'normal nested file must NOT appear');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('applyLeftovers: clean tree (no sidecars anywhere) → empty, no false positive', () => {
+  const tmp = mktmp();
+  try {
+    // populate the content subdirs with ONLY legitimate files
+    for (const sub of ['agents', 'skills', 'commands', 'hooks']) {
+      mkdirSync(join(tmp, sub), { recursive: true });
+      touch(join(tmp, sub, 'real.md'));
+    }
+    const { fsFacts, diagnostics } = gatherFsProbes({ configDir: tmp });
+    assert.equal(diagnostics.length, 0, 'no diagnostics for a clean valid tree');
+    assert.deepEqual(fsFacts.applyLeftovers, [], 'clean tree must yield zero apply leftovers');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('applyLeftovers: a symlinked subdir under agents/ is NOT followed (no leak, no throw)', () => {
+  const tmp = mktmp();
+  const outside = mktmp();
+  try {
+    // strand a sidecar OUTSIDE the tree
+    touch(join(outside, 'leaked.md.mgr-old'));
+    mkdirSync(join(tmp, 'agents'));
+    // a genuine nested sidecar inside the tree (must still be found)
+    touch(join(tmp, 'agents', 'inside.md.mgr-new'));
+
+    let linked = false;
+    try {
+      // symlink agents/escape → outside dir; the walk must NOT descend it
+      symlinkSync(outside, join(tmp, 'agents', 'escape'), 'dir');
+      linked = true;
+    } catch {
+      // symlinks may need elevation on Windows — case degrades to inside-only
+    }
+
+    let result;
+    assert.doesNotThrow(() => { result = gatherFsProbes({ configDir: tmp }); });
+    const paths = result.fsFacts.applyLeftovers;
+    assert.ok(paths.some((p) => p.endsWith('inside.md.mgr-new')), 'in-tree nested sidecar must be found');
+    if (linked) {
+      assert.ok(!paths.some((p) => p.endsWith('leaked.md.mgr-old')),
+        'symlinked subdir must NOT be followed — the outside sidecar must not leak');
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test('applyLeftovers: a symlinked content-dir ROOT (agents/ itself a symlink) is NOT followed', () => {
+  // Falsifiable regression for the root-symlink guard: pre-guard, readdirSync on a
+  // symlinked agents/ ROOT follows it and surfaces an OUTSIDE sidecar (reviewer
+  // reproduced this live). The lstatSync root-guard in collectNestedLeftovers must
+  // refuse to descend it — mirroring the snapshot-walk P3.U5 BLOCKER fix.
+  const tmp = mktmp();
+  const outside = mktmp();
+  try {
+    touch(join(outside, 'leaked.md.mgr-old')); // reachable ONLY by following a symlinked root
+
+    let linked = false;
+    try {
+      symlinkSync(outside, join(tmp, 'agents'), 'dir'); // agents/ ROOT is itself the symlink
+      linked = true;
+    } catch {
+      // symlinks may need elevation on Windows — assertion degrades to skipped
+    }
+
+    let result;
+    assert.doesNotThrow(() => { result = gatherFsProbes({ configDir: tmp }); });
+    if (linked) {
+      assert.ok(!result.fsFacts.applyLeftovers.some((p) => p.endsWith('leaked.md.mgr-old')),
+        'a symlinked agents/ ROOT must NOT be followed — the outside sidecar must not leak');
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
 test('populated configDir: snapshots has length 1 with finite positive mtimeMs', () => {
   const tmp = mktmp();
   try {
