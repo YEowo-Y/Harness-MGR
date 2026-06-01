@@ -70,8 +70,11 @@
  *
  * Ops-layer constraint: imports only node:* stdlib and src/lib/**. Never throws —
  * a bad/missing `files` input yields an empty result; a per-file read error
- * degrades silently to NO content (the name matcher still applies). Injectable
- * readFileFn / existsFn / allowlist seams for testability. Zero npm dependencies.
+ * degrades to NO content (the name matcher still applies) but is no longer
+ * silent: the file is KEPT and a `snapshot-file-unreadable` warn Diagnostic names
+ * it, so an unreadable-but-archived file is visible rather than captured blind.
+ * Injectable readFileFn / existsFn / allowlist seams for testability. Zero npm
+ * dependencies.
  *
  * Spec: plan "Snapshot Scope (v4 hardened)" + secrets allowlist/auth gate
  * (claude-mgr-v5.md L22, L404-420).
@@ -165,15 +168,22 @@ function isSinglePathSegment(name) {
  * Classify a single file: is it a secret, and if so why? Returns a DropRecord
  * (without `path`) when the file must be dropped, else null (keep). The name
  * matcher runs first (cheap, no I/O); content-sniff is the fallback and is
- * skipped for lockfiles. A read error degrades silently to NO content.
+ * skipped for lockfiles.
+ *
+ * A read error does NOT change the verdict — the file is still KEPT (the name
+ * matcher already cleared it and backup-completeness must not silently drop a
+ * legitimately-locked settings.json/CLAUDE.md). It DOES, however, surface a warn
+ * Diagnostic via `onReadError(rel)` so an unreadable-but-archived file is no
+ * longer an invisible signal. Pure aside from that callback; never throws.
  *
  * @param {string} rel        POSIX-relative path (the key into `files`)
  * @param {string} baseDir    absolute root to resolve `rel` against
  * @param {(p:string)=>(Buffer|string)} readFileFn
  * @param {object|undefined} allowlist  injectable secrets allowlist
+ * @param {(rel:string)=>void} onReadError  invoked once if the content read throws
  * @returns {{by:'name'|'content', kind:string, pattern:string}|null}
  */
-function classify(rel, baseDir, readFileFn, allowlist) {
+function classify(rel, baseDir, readFileFn, allowlist, onReadError) {
   // 1. Name matcher (basename-scoped, case-insensitive).
   const nameHit = matchesSecret(rel, allowlist);
   if (nameHit.match) {
@@ -182,12 +192,14 @@ function classify(rel, baseDir, readFileFn, allowlist) {
   // 2. Lockfile guard — skip the content sniff (integrity-hash entropy would
   //    false-drop). Already passed the name matcher, so KEEP.
   if (LOCKFILE_BASENAMES.has(basenameLower(rel))) return null;
-  // 3. Content sniff — read bytes, degrade silently to no-content on any error.
+  // 3. Content sniff — read bytes; an unreadable file is still KEPT (the name
+  //    matcher cleared it) but is now made VISIBLE via a warn Diagnostic.
   let bytes;
   try {
     bytes = readFileFn(join(baseDir, ...rel.split('/')));
   } catch {
     bytes = null; // unreadable → no content → name matcher already said keep
+    onReadError(rel); // surface the unreadable-but-archived file (do NOT drop)
   }
   if (bytes != null) {
     // Prose files (.md/.markdown) skip the entropy leg (follow-up #10): they
@@ -200,6 +212,23 @@ function classify(rel, baseDir, readFileFn, allowlist) {
     }
   }
   return null;
+}
+
+/**
+ * Build the per-file UNREADABLE warn Diagnostic. The file is still KEPT (and so
+ * archived); this warn makes that visible so a locked/unreadable file in a backup
+ * is reported rather than silently captured. Pure; never throws.
+ * @param {string} rel  POSIX-relative path whose content read failed
+ * @returns {Diagnostic}
+ */
+function unreadableDiagnostic(rel) {
+  return {
+    severity: 'warn',
+    code: 'snapshot-file-unreadable',
+    message: `could not read ${rel} for secret scanning; keeping it in the snapshot unscanned`,
+    path: rel,
+    phase: PHASE,
+  };
 }
 
 /**
@@ -288,9 +317,12 @@ export function filterSnapshotSecrets(opts) {
   /** @type {DropRecord[]} */
   const dropped = [];
 
+  // One warn per file whose content read failed (file still kept — see classify).
+  const onReadError = (rel) => bag.add(unreadableDiagnostic(rel));
+
   for (const rel of files) {
     if (typeof rel !== 'string' || rel.length === 0) continue; // skip junk entries
-    const verdict = classify(rel, baseDir, readFileFn, allowlist);
+    const verdict = classify(rel, baseDir, readFileFn, allowlist, onReadError);
     if (verdict === null) {
       kept.push(rel);
     } else {
