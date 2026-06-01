@@ -22,10 +22,10 @@
  * the governed file — the write already happened). No lock is taken (journal-only,
  * like recover --mark-failed); the governed-write modes (--rollback) take the lock.
  *
- * SCOPE: apply (P3.U13) writes a SINGLE create/overwrite op, so resume verifies 0 or
- * 1 op. A redacted/patch/unknown op, a multi-op journal, an out-of-target path, or an
- * unreadable target are all UNVERIFIABLE → resume refuses conservatively (recommend
- * --rollback). Multi-op resume lands with multi-op apply (P3.U19).
+ * SCOPE: resume verifies 0..N ops — each op's target is re-hashed on disk vs
+ * sha256(op.content), and ALL must match to finalize 'committed'; ANY mismatch
+ * refuses (recommend --rollback). A redacted/patch/unknown op, an out-of-target path,
+ * or an unreadable target are each UNVERIFIABLE → resume refuses conservatively.
  *
  * M2-SAFETY: imports only node:crypto/path + src/lib + sibling src/ops (never
  * src/paths.mjs). NEVER THROWS — every failure (including a thrown seam) becomes a
@@ -68,11 +68,6 @@ function containedUnder(root, target) {
 function opsLanded(journal, ctx) {
   const { targetClaudeDir, readFileFn, bag } = ctx;
   const ops = Array.isArray(journal.ops) ? journal.ops : [];
-  if (ops.length > 1) {
-    bag.add({ severity: 'error', code: 'recover-resume-unverified', phase: PHASE,
-      message: 'cannot verify a multi-op apply (P3.U19); refusing to resume — use --rollback' });
-    return false;
-  }
   for (const op of ops) {
     if (!op || typeof op !== 'object' || !VERIFIABLE_KINDS.has(op.kind) || typeof op.content !== 'string' || !isNonEmptyStr(op.target)) {
       bag.add({ severity: 'error', code: 'recover-resume-unverified', phase: PHASE,
