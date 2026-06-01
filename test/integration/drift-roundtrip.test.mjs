@@ -266,3 +266,41 @@ test('#3: .mcp.json + plugin-registry files are tracked + drift-detected; plugin
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });
+
+// ---------------------------------------------------------------------------
+// Test 6: a stranded .mgr-new / .mgr-old sidecar is NOT hashed into the fingerprint
+// ---------------------------------------------------------------------------
+
+test('stranded .mgr-new / .mgr-old sidecars under a tracked dir are NOT hashed into the fingerprint', () => {
+  const tmp = makeTempDir();
+  try {
+    // A real governed file alongside a stranded atomic-write recovery sidecar
+    // (the catastrophic apply/rollback double-failure case).
+    mkdirSync(join(tmp, 'agents'), { recursive: true });
+    writeFileSync(join(tmp, 'agents', 'real.md'), '# real agent');
+    writeFileSync(join(tmp, 'agents', 'real.md.mgr-old'), '# stranded backup');
+    // Also a nested .mgr-new deeper under skills/.
+    mkdirSync(join(tmp, 'skills', 'foo'), { recursive: true });
+    writeFileSync(join(tmp, 'skills', 'foo', 'SKILL.md'), '# skill foo');
+    writeFileSync(join(tmp, 'skills', 'foo', 'SKILL.md.mgr-new'), '# staged new');
+
+    const { state, diagnostics } = gatherTrackedState({ configDir: tmp });
+    assert.equal(diagnostics.length, 0, 'no diagnostics on a clean gather');
+    // The real files ARE hashed (POSIX-relative keys).
+    assert.ok(Object.prototype.hasOwnProperty.call(state.files, 'agents/real.md'),
+      'real governed file must be hashed');
+    assert.ok(Object.prototype.hasOwnProperty.call(state.files, 'skills/foo/SKILL.md'),
+      'real nested file must be hashed');
+    // The sidecars are NOT hashed. PRE-FIX both ARE present in state.files (the walk
+    // has no sidecar filter), so each of these assertions fails before the fix.
+    assert.equal(Object.prototype.hasOwnProperty.call(state.files, 'agents/real.md.mgr-old'), false,
+      '.mgr-old sidecar must NOT be in the fingerprint');
+    assert.equal(Object.prototype.hasOwnProperty.call(state.files, 'skills/foo/SKILL.md.mgr-new'), false,
+      '.mgr-new sidecar must NOT be in the fingerprint');
+    // Belt: no tracked key ends with a recovery-sidecar suffix.
+    const sidecarKey = Object.keys(state.files).find((k) => k.endsWith('.mgr-new') || k.endsWith('.mgr-old'));
+    assert.equal(sidecarKey, undefined, 'no tracked key may be a recovery sidecar');
+  } finally {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+});
