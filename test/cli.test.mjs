@@ -176,6 +176,81 @@ test('leading --flag with no subcommand → code 2 usage', async () => {
   assert.ok(out.stdout.includes('usage'));
 });
 
+// ── strict unknown-flag handling (P2.1) ───────────────────────────────────────────
+
+test('unknown long flag → code 2, names the flag, command did NOT execute', async () => {
+  const out = await run(['inventory', '--bogus', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 2);
+  assert.ok(out.stdout.includes('--bogus'), 'the offending flag is named');
+  // The command body never ran: output is the usage text, NOT an inventory envelope.
+  assert.ok(out.stdout.includes('unknown flag'), 'usage text, not a result');
+  assert.throws(() => JSON.parse(out.stdout), 'no JSON envelope — the command did not execute');
+});
+
+test('mistyped --configdir on snapshot --apply → code 2 (write-misdirection guard)', async () => {
+  // The headline guard: a typo for --config-dir must be CAUGHT, never silently
+  // dropped (which would leave configDir undefined → resolve the real ~/.claude).
+  const out = await run(['snapshot', '--configdir', '/tmp/x', '--apply']);
+  assert.equal(out.code, 2);
+  assert.ok(out.stdout.includes('--configdir'), 'the mistyped flag is named');
+});
+
+test('unknown --format value → still renders, warn diagnostic code unknown-format', async () => {
+  const out = await run(['inventory', '--config-dir', MIN, '--format', 'jsonn']);
+  assert.equal(out.code, 0, 'a format typo is advisory, not fatal — exit code unchanged');
+  // Falls back to the table render (a non-empty human block naming the command).
+  assert.ok(out.stdout.includes('inventory'), 'fell back to the table title');
+  // The footer line is `severity code: message` → assert the warn severity + code.
+  assert.ok(out.stdout.includes('warn unknown-format'), 'a warn-severity unknown-format diagnostic surfaced');
+  assert.ok(out.stdout.includes('jsonn'), 'names the bad format value');
+});
+
+test('valid --format json: no unknown-format diagnostic', async () => {
+  const out = await run(['inventory', '--config-dir', MIN, '--format', 'json']);
+  assert.equal(out.code, 0);
+  const env = JSON.parse(out.stdout);
+  assert.ok(!env.diagnostics.some((d) => d.code === 'unknown-format'), 'a valid format raises no warn');
+});
+
+// ── regression: valid flags still work under the strict policy ────────────────────
+
+test('valid --config-dir still works under strict-flag policy → code 0, no flag error', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'claude-mgr-cli-strict-'));
+  try {
+    await writeFile(join(dir, 'settings.json'), '{"model":"opus"}', 'utf-8');
+    const out = await run(['config', 'show-effective', '--config-dir', dir, '--format', 'json']);
+    assert.equal(out.code, 0);
+    assert.ok(!out.stdout.includes('unknown flag'), 'a valid flag is not rejected');
+    const env = JSON.parse(out.stdout);
+    assert.equal(env.command, 'config:show-effective');
+    assert.equal(env.result.effective.model, 'opus');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('every recognized flag parses without an unknown-flag error', async () => {
+  // A broad smoke over the boolean/value flags real commands use: none should be
+  // mistaken for an unknown flag (the full suite staying green proves nothing broke,
+  // but this pins the enumeration explicitly).
+  const cases = [
+    ['inventory', '--detail', '--config-dir', MIN, '--format', 'json'],
+    ['inventory', '--type', 'skill', '--config-dir', MIN, '--format', 'json'],
+    ['conflicts', '--name', 'x', '--config-dir', MIN, '--format', 'json'],
+    ['hooks', '--order', '--config-dir', MIN, '--format', 'json'],
+    ['doctor', '--active-probes', '--config-dir', MIN, '--format', 'json'],
+    ['audit', '--since', '7d', '--config-dir', MIN, '--format', 'json'],
+    ['snapshot', '--reason', 'r', '--include-auth', '--config-dir', MIN, '--format', 'json'],
+    ['snapshot', 'gc', '--keep', '2', '--older-than', '30d', '--config-dir', MIN, '--format', 'json'],
+    ['selftest', '--all', '--config-dir', MIN, '--format', 'json'],
+  ];
+  for (const argv of cases) {
+    const out = await run(argv);
+    assert.ok(!out.stdout.includes('unknown flag'), `recognized flags must not error: ${argv.join(' ')}`);
+    assert.notEqual(out.code, 2, `recognized flags must not hit the usage exit: ${argv.join(' ')}`);
+  }
+});
+
 // ── error path (exit 1) ──────────────────────────────────────────────────────────
 
 test('malformed settings.json (broken fixture) → exit 1 + error diagnostic', async () => {
