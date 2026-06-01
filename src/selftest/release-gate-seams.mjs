@@ -130,10 +130,16 @@ export function readCoverageSummary(summaryPath) {
 /**
  * DEFAULT changedSrcFiles seam: returns repo-relative paths of changed src/**.mjs
  * files (uncommitted + untracked vs HEAD, or vs merge-base with `base`).
- * Returns [] when git is unavailable (coverage step passes vacuously).
+ *
+ * On git SUCCESS returns the (possibly empty) array — an empty array means
+ * "git ran fine and nothing under src/ changed". On git FAILURE (git unavailable,
+ * a fresh zero-commit clone with no HEAD, a timeout, etc.) returns `null` — a
+ * "cannot determine changed files" sentinel distinct from a genuinely-empty diff.
+ * coverageStep treats `null` as a gate failure (it must not pass vacuously) and
+ * `[]` as a real, passing no-change result.
  *
  * @param {{repoRoot: string, base?: string}} opts
- * @returns {string[]}
+ * @returns {string[]|null}  array on success (possibly empty); null when git failed
  */
 export function defaultChangedSrcFiles({ repoRoot, base }) {
   try {
@@ -155,7 +161,10 @@ export function defaultChangedSrcFiles({ repoRoot, base }) {
     for (const p of untracked) if (!seen.has(p)) diff.push(p);
     return diff;
   } catch {
-    return [];
+    // git threw / was unavailable: cannot determine the changed set. Return the
+    // cannot-determine sentinel so the coverage step fails closed rather than
+    // mistaking a broken git invocation for a clean zero-change diff.
+    return null;
   }
 }
 
@@ -177,18 +186,27 @@ function parseMjsLines(text) {
 /**
  * DEFAULT runSchemaCanary seam: dynamically imports probe-schema + schema-canary
  * to keep the release-gate's static graph paths.mjs-free (M2-safe).
- * Returns {pass:true, detail, diagnostics}. Never throws — any failure degrades
- * to {pass:true, detail:'schema canary skipped: <msg>', diagnostics:[]}.
+ * Returns {pass:true, detail, diagnostics}. Never throws.
  *
- * @param {{configDir: string}} opts
+ * Drift is intentionally non-blocking (pass stays true; drift surfaces as a WARN
+ * from the compare layer). A CRASH inside the canary (a thrown import/gather/compute)
+ * is ALSO non-blocking, BUT is no longer silent: the OUTER catch emits ONE WARN
+ * `schema-canary-unavailable` naming the error, so a canary that rots into throwing
+ * every run becomes VISIBLE in diagnostics instead of masquerading as a clean run.
+ *
+ * `seams.load` is an injectable test seam (default: the real dynamic imports) so the
+ * outer-catch crash path is exercisable without breaking a real module. It does NOT
+ * change the success path.
+ *
+ * @param {{configDir: string, seams?: {load?: () => Promise<Record<string, Function>>}}} opts
  * @returns {Promise<{pass: boolean, detail: string, diagnostics: import('../lib/diagnostic.mjs').Diagnostic[]}>}
  */
-export async function defaultRunSchemaCanary({ configDir }) {
+export async function defaultRunSchemaCanary({ configDir, seams }) {
+  const load = (seams && typeof seams.load === 'function') ? seams.load : defaultSchemaCanaryLoad;
   try {
-    const { gatherSchemaFacts } = await import('../discovery/probe-schema.mjs');
-    const { scan } = await import('../discovery/scan.mjs');
-    const { computeFingerprint, compareFingerprint } = await import('../selftest/schema-canary.mjs');
-    const { readJsonFile } = await import('../discovery/read-json.mjs');
+    const {
+      gatherSchemaFacts, scan, computeFingerprint, compareFingerprint, readJsonFile,
+    } = await load();
     const baselineUrl = new URL('../selftest/schema-baseline.json', import.meta.url);
     const baselinePath = fileURLToPath(baselineUrl);
 
@@ -208,8 +226,33 @@ export async function defaultRunSchemaCanary({ configDir }) {
     return { pass: true, detail, diagnostics };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err ?? '');
-    return { pass: true, detail: `schema canary skipped: ${msg}`, diagnostics: [] };
+    // Non-blocking (pass:true) but VISIBLE: a thrown canary must not vanish silently.
+    return {
+      pass: true,
+      detail: `schema canary skipped: ${msg}`,
+      diagnostics: [{
+        severity: 'warn',
+        code: 'schema-canary-unavailable',
+        message: `schema canary could not run: ${msg}`,
+        phase: 'schema-canary',
+      }],
+    };
   }
+}
+
+/**
+ * Real loader for defaultRunSchemaCanary: the dynamic imports that keep the
+ * release-gate static graph paths.mjs-free (M2-safe). Split out so an injected
+ * test seam can force the outer catch without rewriting a real module.
+ *
+ * @returns {Promise<Record<string, Function>>}
+ */
+async function defaultSchemaCanaryLoad() {
+  const { gatherSchemaFacts } = await import('../discovery/probe-schema.mjs');
+  const { scan } = await import('../discovery/scan.mjs');
+  const { computeFingerprint, compareFingerprint } = await import('../selftest/schema-canary.mjs');
+  const { readJsonFile } = await import('../discovery/read-json.mjs');
+  return { gatherSchemaFacts, scan, computeFingerprint, compareFingerprint, readJsonFile };
 }
 
 /**
