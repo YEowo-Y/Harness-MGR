@@ -34,6 +34,9 @@ import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
 import { selftestCommand } from './selftest-command.mjs';
+import { rollbackCommand } from './rollback-command.mjs';
+import { recoverCommand } from './recover-command.mjs';
+import { lockCommand } from './lock-command.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -387,8 +390,16 @@ export const COMMANDS = Object.freeze({
   // the default (real) store functions.
   'snapshot:list': (ctx) => snapshotListCommand(ctx),
   'snapshot:gc': (ctx) => snapshotGcCommand(ctx),
+  // Governed-config WRITE commands (P3.U22), DRY-RUN by default + held behind the
+  // two-factor write gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). Each takes an
+  // optional second `deps` arg; the registry passes only ctx so they use the default
+  // (real engine + real process.env + real `import('../paths.mjs')`) deps.
+  'rollback': (ctx) => rollbackCommand(ctx),
+  'recover': (ctx) => recoverCommand(ctx),
+  'lock': (ctx) => lockCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
 export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
 export { snapshotListCommand, snapshotGcCommand };
+export { rollbackCommand, recoverCommand, lockCommand };
