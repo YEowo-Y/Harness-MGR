@@ -21,7 +21,7 @@
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-export { snapshotDirHashes, checkSpawnWriteBoundary } from './spawn-write-boundary.mjs';
+export { snapshotDirHashes, checkSpawnWriteBoundary } from '../lib/spawn-write-boundary.mjs';
 export { checkSpawnSpecGuardrail, MUTATION_FLAGS, LEGIT_POSIX_PATH } from './spawn-spec-guardrail.mjs';
 export { checkSpawnSpecCompleteness } from './spawn-spec-completeness.mjs';
 import { checkSpawnSpecGuardrail } from './spawn-spec-guardrail.mjs';
