@@ -58,6 +58,14 @@ export function isPidAlive(pid, killFn = process.kill) {
 function lp(sd) { return join(sd, LOCK_REL); }
 
 /**
+ * Absolute path to the apply lock file (`<stateDir>/locks/apply.lock`). READ-ONLY
+ * helper so callers (gc-extras orphan-lock reap) can reconstruct the path to
+ * unlink without duplicating the internal LOCK_REL join.
+ * @param {string} stateDir @returns {string}
+ */
+export function lockPath(stateDir) { return lp(stateDir); }
+
+/**
  * Read + parse the lock file. Returns { holder, err }.
  * @param {string} path
  * @param {(p: string, enc: string) => string} [readFn]
