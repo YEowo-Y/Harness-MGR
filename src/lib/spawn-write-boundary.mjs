@@ -22,7 +22,7 @@ import { join, relative, sep } from 'node:path';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-/** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
+/** @typedef {import('./diagnostic.mjs').Diagnostic} Diagnostic */
 
 /** Maximum recursion depth for directory walks. Mirrors probe-state.mjs. */
 const WALK_MAX_DEPTH = 64;
