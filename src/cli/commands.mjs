@@ -33,6 +33,7 @@ import { redactEffective, redactKeysMap, redactMergeEntry, redactKeyedValue } fr
 import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
+import { snapshotPinCommand, snapshotUnpinCommand } from './snapshot-pin-command.mjs';
 import { selftestCommand } from './selftest-command.mjs';
 import { rollbackCommand } from './rollback-command.mjs';
 import { recoverCommand } from './recover-command.mjs';
@@ -390,6 +391,12 @@ export const COMMANDS = Object.freeze({
   // the default (real) store functions.
   'snapshot:list': (ctx) => snapshotListCommand(ctx),
   'snapshot:gc': (ctx) => snapshotGcCommand(ctx),
+  // snapshot pin/unpin (P3.U21): write the/remove the `.pin` retention marker, DRY-RUN
+  // by default + held behind the two-factor write gate (pin is a CREATE → dynamic
+  // paths.mjs on --apply; unpin is a bounded DELETE → no paths.mjs). Each takes an
+  // optional second `deps` arg; the registry passes only ctx so they use the defaults.
+  'snapshot:pin': (ctx) => snapshotPinCommand(ctx),
+  'snapshot:unpin': (ctx) => snapshotUnpinCommand(ctx),
   // Governed-config WRITE commands (P3.U22), DRY-RUN by default + held behind the
   // two-factor write gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). Each takes an
   // optional second `deps` arg; the registry passes only ctx so they use the default
@@ -402,4 +409,5 @@ export const COMMANDS = Object.freeze({
 // Re-export commands so tests can import them directly from this module.
 export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
 export { snapshotListCommand, snapshotGcCommand };
+export { snapshotPinCommand, snapshotUnpinCommand };
 export { rollbackCommand, recoverCommand, lockCommand };
