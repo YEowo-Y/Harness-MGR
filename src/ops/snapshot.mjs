@@ -35,6 +35,7 @@ import { join, basename, dirname } from 'node:path';
 import { readFileSync, mkdirSync, unlinkSync, rmdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
+import { snapshotDirHashes, checkSpawnWriteBoundary } from '../lib/spawn-write-boundary.mjs';
 import { walkSnapshotScope } from './snapshot-walk.mjs';
 import { filterSnapshotSecrets } from './snapshot-secrets-filter.mjs';
 import { resolveTar, createSnapshotTar } from './snapshot-tar.mjs';
@@ -236,6 +237,32 @@ function resolveTarOrFail(resolveFn, dryRun, bag) {
 }
 
 /**
+ * Archive the kept files, then run the post-hoc spawn-write boundary check. The
+ * syscall write-gate cannot see a SPAWNED process's writes, so after tar this
+ * snapshots the dir and confirms tar wrote ONLY the declared archive (files.tar)
+ * into the freshly-created snapshot dir — a DETECTIVE control (threat-model
+ * §5.7/§6) that catches a misbehaving tar leaving undeclared content in a "good"
+ * snapshot. Adds every step's diagnostics to `bag`; returns `{ok:true}` or
+ * `{ok:false, code, message}` for the caller's failProgress. Extracted to keep
+ * createSnapshot under the function-SLOC limit. Never rejects — the awaited
+ * createSnapshotTar is contractually never-throws and the two pure helpers never throw.
+ * @param {{tarPath:string, archivePath:string, baseDir:string, files:string[], spawnFn?:Function}} tarOpts
+ * @param {string} dir   the snapshot dir (created empty just before this call)
+ * @param {DiagnosticBag} bag
+ * @returns {Promise<{ok:boolean, code?:string, message?:string}>}
+ */
+async function archiveWithBoundary(tarOpts, dir, bag) {
+  const before = snapshotDirHashes(dir); // empty fresh dir → {} ; attributes new files to tar
+  const tar = await createSnapshotTar(tarOpts);
+  for (const d of tar.diagnostics) bag.add(d);
+  if (!tar.ok) return { ok: false, code: 'snapshot-archive-failed', message: 'tar archive creation failed' };
+  const boundary = checkSpawnWriteBoundary({ before, after: snapshotDirHashes(dir), declaredWrites: [ARCHIVE_NAME] });
+  for (const d of boundary.diagnostics) bag.add(d);
+  if (!boundary.ok) return { ok: false, code: 'snapshot-tar-wrote-undeclared', message: 'tar wrote undeclared file(s) into the snapshot dir' };
+  return { ok: true };
+}
+
+/**
  * Create a snapshot of `targetClaudeDir` into `<mgrStateDir>/snapshots/<id>/`.
  * Wires walk → secrets-filter → hash → tar → manifest. Pure orchestration over
  * injectable seams; NEVER throws — every failure yields a Diagnostic + ok:false
@@ -353,11 +380,13 @@ export async function createSnapshot(opts) {
   const mkErr = tryMakeSnapshotDir(mkdirFn, dir, id);
   if (mkErr) return failProgress(mkErr.code, mkErr.message);
 
-  // 8. Archive the kept files (relative POSIX paths, rooted at targetClaudeDir).
-  //    From here on, the dir exists → a failure runs the bounded cleanup (cleanup:true).
-  const tar = await createSnapshotTar({ tarPath, archivePath, baseDir: targetClaudeDir, files: filter.kept, spawnFn });
-  for (const d of tar.diagnostics) bag.add(d);
-  if (!tar.ok) return failProgress('snapshot-archive-failed', 'tar archive creation failed', true);
+  // 8. Archive the kept files + verify the tar spawn stayed within its declared
+  //    writes (the detective boundary check, §5.7/§6). From here on the dir exists
+  //    → a failure runs the bounded cleanup (cleanup:true).
+  const arch = await archiveWithBoundary(
+    { tarPath, archivePath, baseDir: targetClaudeDir, files: filter.kept, spawnFn }, dir, bag,
+  );
+  if (!arch.ok) return failProgress(arch.code, arch.message, true);
 
   // 9. Build the manifest from the hashed records.
   const built = buildManifest({ snapshotId: id, targetClaudeDir, files: records, reason, now: () => capturedAt });
