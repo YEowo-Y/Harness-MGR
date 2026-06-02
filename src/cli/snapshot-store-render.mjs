@@ -38,9 +38,12 @@ export function snapshotListTable(r) {
 }
 
 /**
- * snapshot:gc → a header line (mode + the relevant count) followed by one row per
- * affected id. In dry-run the rows are the WOULD-delete ids; on apply they are the
- * DELETED ids. Defensive — missing arrays render as an empty table.
+ * snapshot:gc → a header line (mode + the snapshot count) followed by one row per
+ * affected snapshot id, then the THREE extra cleanup categories (audit-large orphans
+ * / orphan apply-lock / leftover sidecars). In dry-run the snapshot rows are the
+ * WOULD-delete ids and the extra lines show the would-delete/would-reap counts; on
+ * apply they show the actually-deleted/reaped counts. Defensive — missing fields
+ * render as 0 and missing arrays as an empty table.
  * @param {Record<string, unknown>} r
  * @returns {string}
  */
@@ -57,5 +60,37 @@ export function snapshotGcTable(r) {
     { key: 'action', header: 'action' },
     { key: 'id', header: 'id' },
   ], rows);
-  return table ? `${header}\n${table}` : header;
+  const body = table ? `${header}\n${table}` : header;
+  return `${body}\n${extraCategoryLines(applied, r)}`;
+}
+
+/**
+ * The three extra-category summary lines. Each names its category and the count for
+ * the current mode (deleted/reaped on apply, would-delete/would-reap in dry-run).
+ * Defensive — a missing category object or count reads as 0.
+ * @param {boolean} applied
+ * @param {Record<string, unknown>} r
+ * @returns {string}
+ */
+function extraCategoryLines(applied, r) {
+  const al = obj(r.auditLarge);
+  const lk = obj(r.lock);
+  const lo = obj(r.leftovers);
+  const fileVerb = applied ? 'deleted' : 'would-delete';
+  const lockVerb = applied ? 'reaped' : 'would-reap';
+  return [
+    `audit-large: ${fileVerb} ${num(applied ? al.deleted : al.wouldDelete)}`,
+    `lock: ${lockVerb} ${num(applied ? lk.reaped : lk.wouldReap)}`,
+    `leftovers: ${fileVerb} ${num(applied ? lo.deleted : lo.wouldDelete)}`,
+  ].join('\n');
+}
+
+/** A plain object or {} (never null/array). @param {unknown} v @returns {Record<string, unknown>} */
+function obj(v) {
+  return v && typeof v === 'object' && !Array.isArray(v) ? /** @type {Record<string, unknown>} */ (v) : {};
+}
+
+/** A finite number or 0. @param {unknown} v @returns {number} */
+function num(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }
