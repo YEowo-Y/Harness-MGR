@@ -1,12 +1,16 @@
 # Threat model — `claude-mgr`
 
-**Status: initial draft (P2.U12, the Phase-2 gate).** This is the *first* cut of
-the threat model; it will be **expanded across the 30-day stability gate** as the
-write-side (Phase 3: snapshot / rollback / apply-journal) lands and the dogfood
-log accumulates evidence. It documents the threats that exist *today*, when the
-tool is read-mostly.
-
-> **2026-05-29 review addendum** (see [`docs/project-review-2026-05-29.md`](project-review-2026-05-29.md)). Two write-phase accuracy items are flagged now; a full revision is **release-blocking before U7/U12**: (1) §6's post-hoc sha256 spawned-write drift check is **NOT YET IMPLEMENTED** — vacuously true only because no spawned write exists yet; `tar` (U7) must not land until `boundary.mjs` + `spawn-write-boundary.test.mjs` are built. (2) This doc does not yet cover the LANDED Phase-3 scaffolding: the apply-lock (`lock.mjs`, incl. the unconditional `releaseLock` to fix before U12), the **REQUIRED-injected `assertWritable`** fail-safe contract across the three writers (a good control worth documenting), the secrets allowlist's current **name-only** limitation, and the redaction helper's **verbatim create/overwrite-content** boundary.
+**Status: revised 2026-06-02 — now covers the Phase-3 write surface as shipped.**
+The original P2.U12 cut documented the read-mostly phase; this revision reflects the
+landed Phase-3 write-side (snapshot / rollback / apply / recover / lock / audit
+writer / gc). The shape of the security model is unchanged — still exactly two
+privileged operations behind two choke points — but governed-config WRITES now
+exist (behind a two-factor gate, dry-run-by-default), the spawn-write boundary check
+is built (unit-tested but not yet wired into the live `selftest --boundary` run), and several formerly "Phase-3, not
+yet implemented" items below are now implemented and re-cited. A 2026-06-02 read-only
+security re-scan of Phases 1–3 (six surfaces) found the invariants here HOLD and
+fixed three issues (discovery symlink-follow, output secret-shape leakage, drift
+symlink-follow) now reflected in §5.2 / §5.3 / §5.9.
 
 **Security posture in one breath:** `claude-mgr` is a zero-runtime-dependency
 Node ESM CLI that **inspects** a Claude Code `~/.claude` install (inventory /
@@ -77,12 +81,12 @@ or simply deferred. It is deliberately **not exhaustive**; it is accurate.
    I/O at all and can only emit verdicts over facts gathered elsewhere.
 2. **The single WRITE choke point.** Every governed-surface write passes through
    `assertWritable(target, context)` in
-   [`src/paths.mjs`](../src/paths.mjs) (`paths.mjs:196`).
+   [`src/paths.mjs`](../src/paths.mjs) (`paths.mjs:222`).
 3. **The single SPAWN choke point.** Every external process is launched through
    `safeSpawn` / `validateSpawnSpec` in
-   [`src/lib/safe-spawn.mjs`](../src/lib/safe-spawn.mjs) (`safe-spawn.mjs:55`,
-   `:116`). `execFile` is used with `shell:false` (`safe-spawn.mjs:127`) — never
-   `exec` or a shell.
+   [`src/lib/safe-spawn.mjs`](../src/lib/safe-spawn.mjs) (`validateSpawnSpec`
+   `safe-spawn.mjs:71`, `safeSpawn` `:138`). `execFile` is used with `shell:false`
+   (`safe-spawn.mjs:146-149`) — never `exec` or a shell.
 4. **Outside the CC loader.** `claude-mgr` is a separate package that the Claude
    Code loader does not load; inspecting the harness cannot perturb it.
 
@@ -96,45 +100,59 @@ Each mitigation is cited to the code that implements it.
 
 The "Forbidden vs Rollback-Writable" model (plan §"Forbidden vs Rollback-Writable",
 plan line ~417) is enforced entirely in `assertWritable`
-([`src/paths.mjs`](../src/paths.mjs), `paths.mjs:196`):
+([`src/paths.mjs`](../src/paths.mjs), `paths.mjs:222`):
 
 - **Outside the governed dir → refused.** Anything not under `targetClaudeDir`
-  (and not under `.mgr-state`) throws `write-outside-target` (`paths.mjs:211-216`).
+  (and not under `.mgr-state`) throws `write-outside-target` (`paths.mjs:237-240`).
 - **Forbidden subtrees → always refused**, even in rollback:
   `plugins/marketplaces/**` and `projects/**` throw `write-forbidden`
-  (`paths.mjs:219-227`).
+  (`paths.mjs:249-251`).
+- **Apply-writable files.** Only the three exact basenames in `APPLY_WRITABLE_FILES`
+  — `settings.json`, `settings.local.json`, `.mcp.json` (`paths.mjs:52`) — are
+  writable DIRECTLY in the config root in BOTH `apply` and `rollback`, via
+  `isApplyWritableFile` (`paths.mjs:193-195`, checked `paths.mjs:277`). This is the
+  surface the Phase-3 apply path may create/overwrite.
 - **Rollback-only surfaces.** `CLAUDE.md` and `agents/skills/commands/hooks` are
   writable **only** with `context === 'rollback'`; an `apply`-context attempt
-  throws `write-rollback-only` (`paths.mjs:247-262`).
+  throws `write-rollback-only` (`paths.mjs:290-295`).
 - **Deny-by-default tail.** Any other path under the config dir that is not on the
-  allowlist throws `write-not-allowed` (`paths.mjs:266-269`) — unknown surfaces
+  allowlist throws `write-not-allowed` (`paths.mjs:304`) — unknown surfaces
   are rejected, not allowed.
 - **`.mgr-state` passthrough.** The tool's own state dir is writable in any
-  context (`paths.mjs:206-208`); this is what lets the drift lockfile persist
-  (see 5.x) without a bespoke write flag.
+  context (`paths.mjs:232-233`); this is what lets the drift lockfile, snapshots,
+  apply-journal, and audit log persist without a bespoke write flag.
 
-In the read-mostly phase the **only** code that writes to a *governed* directory
-is the opt-in loader probe (5.4); everything else writes only under `.mgr-state`.
+Governed-config writes are now live (Phase 3) but **dry-run-by-default and behind a
+two-factor gate**: the `apply`/`rollback`/`recover`/`lock` CLI commands write only
+when BOTH `--apply` is passed AND `CLAUDE_MGR_ENABLE_WRITES=1` is set
+([`src/cli/write-gate.mjs`](../src/cli/write-gate.mjs) `resolveWriteIntent`); a
+closed gate exits before `paths.mjs` is even loaded. Every writer (apply,
+rollback-restore, snapshot manifest/journal, lock, audit) takes `assertWritable` as
+a **REQUIRED injected** dependency and fails safe (refuses) if it is absent. The
+atomic single-file replace ([`src/ops/atomic-write.mjs`](../src/ops/atomic-write.mjs))
+gate-checks FIRST, before staging. The loader probe (5.4) remains the only governed
+write that runs without the two-factor gate (it is behind `--active-probes` and
+self-cleans).
 
 ### 5.2 Symlink & path traversal (allowlist escape)
 
 `assertWritable` is **fail-closed** against symlink and traversal escapes:
 
-- `canonical()` ([`src/paths.mjs`](../src/paths.mjs), `paths.mjs:128`) resolves
+- `canonical()` ([`src/paths.mjs`](../src/paths.mjs), `paths.mjs:137`) resolves
   the target via `realpathSync` **before** the allowlist comparison (plan finding
   **L1**, plan line ~560), so a symlink cannot point an allowed name at a
   forbidden location.
 - It **fails closed on any non-ENOENT error**: `ELOOP`/`EACCES`/`ENOTDIR` throw
   `write-canonicalize-failed` rather than being treated as writable
-  (`paths.mjs:133-157`). Only `ENOENT` (the legitimate "to-be-created file" case)
+  (`paths.mjs:141-164`). Only `ENOENT` (the legitimate "to-be-created file" case)
   falls through, and even then the **deepest existing ancestor is realpath-resolved**
-  so a symlinked parent dir still cannot escape (`paths.mjs:140-141`).
+  so a symlinked parent dir still cannot escape (`paths.mjs:149-153`).
 - Prefix comparison is canonicalized on both sides and Windows-case-normalized
-  (`isUnder`, `paths.mjs:169-173`; `canonical` lowercases on win32,
-  `paths.mjs:160`), defeating case-insensitive-FS bypasses.
+  (`isUnder`, `paths.mjs:178-181`; `canonical` lowercases on win32,
+  `paths.mjs:169`), defeating case-insensitive-FS bypasses.
 - The `'probe'` context recomputes `canonical()` for both target and `agents/`
   and requires the resolved parent to equal the canonical `agents/` dir, so a
-  symlinked `agents/` is still denied (`paths.mjs:233-243`).
+  symlinked `agents/` is still denied (`paths.mjs:262-267`).
 
 ### 5.3 Secret leakage
 
@@ -143,7 +161,9 @@ is the opt-in loader probe (5.4); everything else writes only under `.mgr-state`
   `rec.envKeys = Object.keys(cfg.env).sort()` with the explicit "NAMES ONLY —
   never values" contract ([`src/discovery/mcp.mjs`](../src/discovery/mcp.mjs),
   `mcp.mjs:128`; see also the module header `mcp.mjs:13-16`). So inventory output
-  and (future) snapshots cannot leak an MCP secret value.
+  cannot leak an MCP secret value. (Snapshots are a separate local backup under
+  `.mgr-state`; they archive config files to be restorable and exclude dedicated
+  credential files via the secrets-filter — see §2 and the snapshot bullet below.)
 - **`config show-effective` redacts settings secret VALUES.** The merged
   `settings.json` surface is NOT names-only — `settings.json` can carry an `env`
   map (e.g. `ANTHROPIC_API_KEY`) and sensitive-keyed scalars (e.g.
@@ -161,15 +181,34 @@ is the opt-in loader probe (5.4); everything else writes only under `.mgr-state`
   [`src/analysis/redact-effective.mjs`](../src/analysis/redact-effective.mjs);
   the wiring is [`src/cli/commands.mjs`](../src/cli/commands.mjs)
   (`configShowEffectiveCommand`).
-- **The audit log is metadata-only.** The reader treats every line as an opaque
-  JSONL object and examines **only `timestamp`** for sort/filter
-  ([`src/ops/audit.mjs`](../src/ops/audit.mjs), `audit.mjs:117`, header
-  `audit.mjs:5-6`); it never reads or echoes file contents. (Plan finding **M3**,
-  plan line ~558, scopes the *writer* to metadata only — Phase 3.)
-- Snapshot-time secret redaction (content-sniff allowlist, `--include-auth` gate;
-  plan findings **H1/H2**, plan lines ~553-554) is a **Phase-3** mechanism and is
-  **not yet implemented** — noted as a deferred item in
-  [Residual risks](#6-residual-risks--detective-not-preventive).
+- **Output command strings + non-sensitively-keyed values are shape-redacted.** A
+  credential can hide in a string the key-name redactor above would miss — a token
+  inside a hook or statusLine `command`, or a connection string under a benign key
+  name (e.g. `myDatabaseUrl: postgres://u:p@h`). `redactSecretsInString` /
+  `redactSecretsDeep` ([`src/analysis/redact-secrets-text.mjs`](../src/analysis/redact-secrets-text.mjs))
+  replace high-confidence secret SUBSTRINGS — PEM blocks, self-identifying token
+  shapes (single-sourced from `secrets-content-sniff.mjs`), URL userinfo,
+  Bearer/Basic, and a sensitive `name=value` — with `<redacted>`, leaving the
+  surrounding command/URL text intact. The high-entropy heuristic is deliberately
+  excluded (low false-positive) and input is length-bounded so matching stays linear
+  (no ReDoS). Wired into `redactDeep` (so `config show-effective` is covered across
+  the effective/keys/`--key` surfaces) and into [`src/cli/commands.mjs`](../src/cli/commands.mjs)
+  for inventory `statusLine`, `hooks`, `permissions` rules, and `--detail` component
+  descriptions (2026-06-02 audit P1).
+- **The audit log is metadata-only — on BOTH read and write.** The reader examines
+  only metadata for sort/filter ([`src/ops/audit.mjs`](../src/ops/audit.mjs)); the
+  writer ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs), P3.U20) enforces
+  a strict metadata whitelist `{timestamp, command, planVersion, snapshotId,
+  exitCode, opCount}` TWICE — on build AND again at the I/O boundary — so file
+  contents / before / after / diffs can never reach `audit.log` (plan finding **M3**).
+- **Snapshot-time secret EXCLUSION is implemented (Phase 3).** The snapshot walker's
+  file list is filtered by [`src/ops/snapshot-secrets-filter.mjs`](../src/ops/snapshot-secrets-filter.mjs)
+  — DROP = a basename match against `secrets-allowlist.json` OR a content-sniff hit
+  via `secrets-content-sniff.mjs` — BEFORE the `tar` spawn, so a credential never
+  enters the archive; `mcp-needs-auth-cache.json` is default-excluded and captured
+  only via the audited `--include-auth` opt-in (§2). The apply-journal redacts each
+  op via `redactPatchOp` ([`src/lib/plan.mjs`](../src/lib/plan.mjs)) before
+  persisting — see §6 for its pointer-name residual.
 
 ### 5.4 Arbitrary code execution via probes
 
@@ -221,12 +260,12 @@ an `isSafeKey` check (or an equivalent inline guard):
 - [`src/discovery/probe-hooks.mjs`](../src/discovery/probe-hooks.mjs) — hook-event
   keys guarded at `probe-hooks.mjs:103`.
 - [`src/output/json.mjs`](../src/output/json.mjs) — `stableStringify` drops unsafe
-  keys at `json.mjs:100`.
+  keys at `json.mjs:99`.
 - [`src/discovery/probe-state.mjs`](../src/discovery/probe-state.mjs) — the drift
   walk skips poisoning relpath keys at `probe-state.mjs:123`.
 - Frontmatter maps are built with `Object.create(null)` so a frontmatter key can
   never reach `Object.prototype` ([`src/discovery/frontmatter.mjs`](../src/discovery/frontmatter.mjs),
-  `frontmatter.mjs:31-33`). The JSONC parser likewise produces null-prototype
+  `frontmatter.mjs:33-36`). The JSONC parser likewise produces null-prototype
   objects (P2.U1).
 
 ### 5.6 Resource exhaustion / denial of service
@@ -245,7 +284,7 @@ an `isSafeKey` check (or an equivalent inline guard):
 - **Spawns are time-boxed.** Every `safeSpawn` call sets a `timeoutMs`
   (`probe-hook-syntax.mjs:84` = 10 s, `probe-cli.mjs:114` = 15 s,
   `probe-access.mjs:204` = 5 s); the gate honours it via execFile's `timeout`
-  option (`safe-spawn.mjs:127`).
+  option (`safe-spawn.mjs:146-149`).
 
 ### 5.7 TOCTOU (time-of-check / time-of-use)
 
@@ -256,9 +295,12 @@ touch the tree). Handled detectively rather than by locking the user's config:
   mislabelling it a syntax error (`probe-hook-syntax.mjs:89-100`, see 5.4).
 - The loader probe's cleanup is in a `finally` and verifies the file is gone via
   an `existsFn` check (`probe-loader.mjs:55-62`, `:140-144`).
-- For *spawned* writes (Phase 3+), the design is **detective, not preventive**: a
-  post-hoc sha256 drift check bounds them, not the syscall gate (plan **P1-7**,
-  plan line ~100, and plan line ~117). See [Residual risks](#6-residual-risks--detective-not-preventive).
+- For *spawned* writes (Phase 3's snapshot `tar`), the design is **detective, not
+  preventive**: the syscall gate does not see a child process's writes, so they are
+  bounded by the argv allowlist (`safeSpawn`) PLUS the post-hoc **spawn-write
+  boundary check** ([`src/selftest/spawn-write-boundary.mjs`](../src/selftest/spawn-write-boundary.mjs),
+  a unit-tested primitive NOT yet wired into the live `selftest --boundary` run), not by the syscall gate (plan **P1-7**, plan line
+  ~100). See [Residual risks](#6-residual-risks--detective-not-preventive).
 
 ### 5.8 Availability — degrading gracefully when the environment is broken
 
@@ -291,9 +333,20 @@ A governance tool must still inspect a *broken* config. Two mechanisms:
   malformed per-server entry (`mcp-entry-malformed`) — each a `Diagnostic`, never
   a throw ([`src/discovery/mcp.mjs`](../src/discovery/mcp.mjs), `mcp.mjs:91-113`).
   Junk `opts` destructure safely via `?? {}` (`mcp.mjs:63`).
-- **Symlinks in the config are observed, not followed.** Discovery does not
-  traverse symlinks and surfaces them as info (plan §Windows-hardening, plan line
-  ~544); the drift walk skips them outright (`probe-state.mjs:116`).
+- **Symlinks in the config are never followed to read foreign content.** The
+  snapshot walker, the drift walk, AND the discovery readers all refuse to
+  dereference a symlink out of the config dir: `collectDirFiles` skips symlinked
+  entries (`probe-state.mjs:125`) and `gatherTrackedState` guards both the
+  TRACKED_DIRS roots and the top-level tracked FILES with `lstatSync().isSymbolicLink()`;
+  [`src/discovery/components.mjs`](../src/discovery/components.mjs) `collectSkills`
+  skips a symlinked `skills/<n>/SKILL.md` (emitting `component-symlink-skipped`); and
+  [`src/discovery/read-json.mjs`](../src/discovery/read-json.mjs) refuses a symlinked
+  `settings.json`/`.mcp.json`/plugins JSON (error-shaped result). A 2026-06-02 audit
+  proved the pre-fix discovery readers leaked foreign frontmatter (a `ghp_`-shaped
+  token) into `inventory --format json`; these guards close that. The existing
+  `ent.isFile()` / `ent.isDirectory()` gates already covered symlinked flat
+  `agents/`/`commands/` `.md` and skill DIR-symlinks. (HARDLINKS are a documented
+  residual — see §6.)
 - The JSONC tokenizer (P2.U1/U2) is never-throws, last-wins on duplicate keys with
   `line:column`, and produces null-prototype values — malformed input becomes
   `errors[]`, never an exception.
@@ -305,13 +358,15 @@ A governance tool must still inspect a *broken* config. Two mechanisms:
 This section is deliberately honest — these are real gaps or
 detective-only controls today, not a victory lap.
 
-- **Spawned-write residual TOCTOU is detective, not preventive (Phase 3+).**
-  `assertWritable` governs **direct `fs` writes only**. When Phase 3 spawns
-  `tar`/`git`/`claude mcp`, those writes are bounded by the **argv allowlist**
-  ([`src/lib/safe-spawn.mjs`](../src/lib/safe-spawn.mjs), `validateSpawnSpec`,
-  `safe-spawn.mjs:55`) plus a **post-hoc sha256 drift check**, *not* by the
-  syscall gate. A race between the spawned process and the drift check is a
-  documented detective control (plan **P1-7**, plan line ~100; plan line ~117).
+- **Spawned-write residual TOCTOU is detective, not preventive.**
+  `assertWritable` governs **direct `fs` writes only**. Phase 3's snapshot `tar`
+  spawn ([`src/ops/snapshot-tar.mjs`](../src/ops/snapshot-tar.mjs)) writes via a
+  child process the syscall gate does not see, so it is bounded by the **argv
+  allowlist** ([`src/lib/safe-spawn.mjs`](../src/lib/safe-spawn.mjs),
+  `validateSpawnSpec`, `safe-spawn.mjs:71`) plus the post-hoc **spawn-write boundary
+  check** ([`src/selftest/spawn-write-boundary.mjs`](../src/selftest/spawn-write-boundary.mjs),
+  a unit-tested primitive NOT yet wired into the live `selftest --boundary` run), *not* by the syscall gate. A race between the
+  spawned process and that check is a documented detective control (plan **P1-7**).
 - **The Windows ACL check (#24) is advisory and read-only.** `icacls` is invoked
   read-only (`probe-access.mjs:195-206`); the tool **reports** broad principals
   but does not *fix* permissions. The parser also has a known false-positive:
@@ -321,19 +376,31 @@ detective-only controls today, not a victory lap.
 - **The lock probe (#17) detects only exclusive locks.** A read-only shared open
   cannot see shared locks held by other readers
   (`probe-access.mjs:8-13`, `:53-56`) — the honest limit for a read-only tool.
-- **Audit-log tamper-evidence needs `--audit-chain` (Phase 3).** The reader is
-  metadata-only and never validates a hash chain; the optional `prevHash` chain
-  is a Phase-3 writer feature (plan **L2**, plan line ~561).
-- **Snapshot/journal secret redaction is not yet implemented.** The
-  content-sniff secrets allowlist, the `--include-auth` gate, and apply-journal
-  `before/after` redaction (plan **H1/H2/M2**, plan lines ~553-557) are
-  **Phase-3** mechanisms. The read-side secret-bearing surfaces the tool exposes
-  are MCP `env` (names-only, 5.3) and `config show-effective` settings values
-  (redacted to `{redacted, sha256}`, 5.3); both are covered.
+- **Audit-log tamper-evidence is opt-in via `--audit-chain`.** The writer
+  ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs), P3.U20) computes an
+  optional `prevHash` chain off the prior log bytes; the reader does not yet
+  *validate* the chain, and concurrent chained appends may fork unless serialized by
+  the apply lock (plan **L2**). Tamper-evidence is therefore present but best-effort.
+- **Apply-journal redaction is by pointer-NAME, with a content residual.** The
+  snapshot content-sniff allowlist and the `--include-auth` gate ARE implemented
+  (§5.3). The apply-journal redacts each op through `redactPatchOp`
+  ([`src/lib/plan.mjs`](../src/lib/plan.mjs)) — but redaction keys off the op's
+  JSON-pointer NAME, so a secret VALUE written under a non-sensitively-named pointer
+  would persist in the journal, and a create/overwrite op's `content` is kept
+  verbatim for replay. This is **only reachable once a real plan-producing apply
+  command exists** (none ships today — `apply` is engine-level plumbing for the
+  future remove/update commands); closing it (shape-based journal redaction,
+  mirroring §5.3's output redactor) is a HARD DoD criterion for that future unit.
 - **A transiently-unreadable tracked file can surface as spurious drift.** A
   locked/EACCES file is omitted from the drift fingerprint and reads as a
   `removed` change on the next diff (`probe-state.mjs:63-84`) — best-effort by
   design, documented so the user verifies readability before assuming deletion.
+- **Hardlinks are an accepted residual of the symlink-never-follow guards.** The
+  §5.9 guards use `lstatSync().isSymbolicLink()`, which cannot detect a HARDLINK to a
+  foreign file (a hardlink carries no link bit). Under the single-trusted-local-user
+  model (§3) this is acceptable — an attacker who can plant a hardlink inside
+  `~/.claude` already has the user's own FS privileges and could read the target
+  directly; the TOCTOU posture (§5.7) is likewise detective.
 - **CJK table width is cosmetic.** Double-width glyph alignment in the table
   renderer is a known Phase-1 display limitation; it has no security impact.
 - **`safe-spawn`'s flag gate is secure-by-default for `/`-prefixed tokens
@@ -366,7 +433,7 @@ detective-only controls today, not a victory lap.
   `--with-net` resolvability probe envisioned in the plan is *not* implemented;
   `gatherMcpProbes` resolves commands on `PATH` only.)
 - **The contents of plugins / marketplaces the user installed.** Those subtrees
-  are forbidden to write (`paths.mjs:219-227`) and their executable content is the
+  are forbidden to write (`paths.mjs:249-251`) and their executable content is the
   user's own supply-chain decision, not `claude-mgr`'s.
 
 ---
@@ -406,5 +473,5 @@ trust:
 
 ---
 
-*This is the P2.U12 initial draft. Expand it as Phase 3 (snapshot / rollback /
-apply-journal / audit writer) lands and the 30-day dogfood log grows.*
+*Revised 2026-06-02 to cover the landed Phase-3 write surface. Keep it in sync as
+the apply/rollback CLI commands and the 30-day dogfood log evolve.*
