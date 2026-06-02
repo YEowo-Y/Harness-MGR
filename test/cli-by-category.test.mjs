@@ -45,6 +45,27 @@ test('inventory WITHOUT --by-category omits the categories block (contract uncha
   withSkills([['article-writing', 'write blog posts']], (dir) => {
     const { result } = inventoryCommand({ configDir: dir, args: {} });
     assert.equal(result.categories, undefined, 'no categories key without the flag');
+    assert.equal(result.mcpCategories, undefined, 'mcpCategories also absent without the flag');
     assert.ok(result.counts, 'counts still present');
   });
+});
+
+test('inventory --by-category also groups MCP servers by purpose (mcpCategories)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-bycat-mcp-'));
+  try {
+    // project-scope .mcp.json — the server KEY is the name categorizeMcp keys off.
+    writeFileSync(join(dir, '.mcp.json'), JSON.stringify({
+      mcpServers: {
+        github: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-github'] },
+        exa: { command: 'npx', args: ['exa-mcp-server'] },
+      },
+    }), 'utf8');
+    const { result } = inventoryCommand({ configDir: dir, args: { 'by-category': true } });
+    assert.ok(result.mcpCategories, 'mcpCategories block present');
+    // inclusion-only (robust to any user-scope MCP servers the scan may also see):
+    assert.ok(result.mcpCategories.byCategory.development.includes('github'), 'github → development');
+    assert.ok(result.mcpCategories.byCategory.research.includes('exa'), 'exa → research');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
