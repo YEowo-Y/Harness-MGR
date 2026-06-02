@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 
 import { listSnapshots, gcSnapshots } from '../src/ops/snapshot-store.mjs';
 import { snapshotDir, SNAPSHOTS_DIRNAME } from '../src/ops/snapshot-manifest.mjs';
+import { pinMarkerPath } from '../src/ops/snapshot-pin.mjs';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,10 +79,10 @@ test('listSnapshots: 2 valid + 1 incomplete + 1 non-id → exact newest-first li
     const { snapshots, diagnostics } = listSnapshots({ mgrStateDir: st.dir });
     // Newest-first: C, B, A.
     assert.deepEqual(snapshots.map((s) => s.id), [ID_C, ID_B, ID_A]);
-    // C complete with its fields.
-    assert.deepEqual(snapshots[0], { id: ID_C, createdAt: '2026-05-25T00:00:00.000Z', reason: 'third', fileCount: 5, complete: true });
-    // B incomplete (no manifest) → just {id, complete:false}.
-    assert.deepEqual(snapshots[1], { id: ID_B, complete: false });
+    // C complete with its fields (no .pin marker → pinned:false).
+    assert.deepEqual(snapshots[0], { id: ID_C, createdAt: '2026-05-25T00:00:00.000Z', reason: 'third', fileCount: 5, complete: true, pinned: false });
+    // B incomplete (no manifest) → {id, complete:false, pinned:false}.
+    assert.deepEqual(snapshots[1], { id: ID_B, complete: false, pinned: false });
     // A complete.
     assert.equal(snapshots[2].complete, true);
     assert.equal(snapshots[2].fileCount, 2);
@@ -106,7 +107,7 @@ test('listSnapshots: a dir with an UNPARSEABLE manifest is listed as incomplete'
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'manifest.json'), '{ this is not json', 'utf8');
     const { snapshots } = listSnapshots({ mgrStateDir: st.dir });
-    assert.deepEqual(snapshots, [{ id: ID_A, complete: false }]);
+    assert.deepEqual(snapshots, [{ id: ID_A, complete: false, pinned: false }]);
   } finally { st.cleanup(); }
 });
 
@@ -382,4 +383,154 @@ test('gcSnapshots: never throws on a junk opts object', () => {
   assert.doesNotThrow(() => gcSnapshots(42));
   const r = gcSnapshots(null);
   assert.ok(Array.isArray(r.deleted) && Array.isArray(r.diagnostics));
+});
+
+// ── PIN-AWARENESS (P3.U21) ────────────────────────────────────────────────────────
+
+test('listSnapshots: a snapshot whose .pin marker exists reports pinned:true (existsFn seam)', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_C, { fileCount: 1 });
+    // Inject an existsFn that reports the .pin present ONLY for ID_C's marker path.
+    const cPinPath = pinMarkerPath(st.dir, ID_C);
+    const existsFn = (p) => p === cPinPath;
+
+    const { snapshots } = listSnapshots({ mgrStateDir: st.dir, existsFn });
+    const byId = Object.fromEntries(snapshots.map((s) => [s.id, s]));
+    assert.equal(byId[ID_C].pinned, true, 'C has a .pin → pinned');
+    assert.equal(byId[ID_A].pinned, false, 'A has no .pin → not pinned');
+  } finally { st.cleanup(); }
+});
+
+test('listSnapshots: an INCOMPLETE (no-manifest) but pinned dir still reports pinned:true', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { manifest: false }); // incomplete
+    const aPinPath = pinMarkerPath(st.dir, ID_A);
+    const { snapshots } = listSnapshots({ mgrStateDir: st.dir, existsFn: (p) => p === aPinPath });
+    assert.deepEqual(snapshots, [{ id: ID_A, complete: false, pinned: true }]);
+  } finally { st.cleanup(); }
+});
+
+test('listSnapshots: no .pin markers → every snapshot pinned:false (default existsFn over real fs)', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 });
+    const { snapshots } = listSnapshots({ mgrStateDir: st.dir });
+    assert.equal(snapshots[0].pinned, false);
+  } finally { st.cleanup(); }
+});
+
+test('gcSnapshots HEADLINE: keep 0 (delete all) but one id PINNED → it is RETAINED, never deleted', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_B, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_C, { fileCount: 1 });
+    // Pin ID_B via a fake isPinnedFn (no real .pin file needed).
+    const isPinnedFn = ({ snapshotId }) => snapshotId === ID_B;
+
+    // Dry-run first: keep 0 would delete ALL, but the pin saves B.
+    const dry = gcSnapshots({ mgrStateDir: st.dir, keep: 0, seams: { isPinnedFn } });
+    assert.ok(dry.retained.includes(ID_B), 'pinned B retained in dry-run');
+    assert.ok(!dry.wouldDelete.includes(ID_B), 'pinned B NOT in wouldDelete');
+    assert.deepEqual(dry.wouldDelete.sort(), [ID_A, ID_C].sort(), 'only the non-pinned would go');
+    // The pin-saved info diagnostic is surfaced.
+    assert.ok(dry.diagnostics.some((d) => d.code === 'gc-pin-retained' && d.path === ID_B && d.severity === 'info'),
+      JSON.stringify(dry.diagnostics));
+
+    // Apply: B survives on disk; A and C are gone.
+    const r = gcSnapshots({ mgrStateDir: st.dir, keep: 0, apply: true, seams: { isPinnedFn } });
+    assert.ok(r.retained.includes(ID_B), 'pinned B retained on apply');
+    assert.ok(!r.deleted.includes(ID_B), 'pinned B NEVER deleted');
+    assert.deepEqual(r.deleted.sort(), [ID_A, ID_C].sort());
+    assert.ok(existsSync(snapshotDir(st.dir, ID_B)), 'pinned B dir survives on disk');
+    assert.ok(!existsSync(snapshotDir(st.dir, ID_A)), 'A deleted');
+    assert.ok(!existsSync(snapshotDir(st.dir, ID_C)), 'C deleted');
+  } finally { st.cleanup(); }
+});
+
+test('gcSnapshots: --older-than would prune an OLD snapshot, but a pin retains it', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 }); // 2026-05-20 (old)
+    plantSnapshot(st.dir, ID_C, { fileCount: 1 }); // 2026-05-25 (new)
+    const now = () => Date.parse('2026-05-25T12:00:00.000Z');
+    // older-than 2d → A would be pruned. Pin A → it must be retained instead.
+    const isPinnedFn = ({ snapshotId }) => snapshotId === ID_A;
+    const r = gcSnapshots({ mgrStateDir: st.dir, olderThanMs: 2 * 86400000, now, apply: true, seams: { isPinnedFn } });
+    assert.deepEqual(r.retained.sort(), [ID_A, ID_C].sort(), 'both retained: C by age, A by pin');
+    assert.deepEqual(r.deleted, [], 'nothing deleted — the only prune candidate was pinned');
+    assert.ok(existsSync(snapshotDir(st.dir, ID_A)), 'pinned old A survives');
+    assert.ok(r.diagnostics.some((d) => d.code === 'gc-pin-retained' && d.path === ID_A));
+  } finally { st.cleanup(); }
+});
+
+test('gcSnapshots: a NON-pinned snapshot is still pruned normally (pin does not break ordinary gc)', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_B, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_C, { fileCount: 1 });
+    // Pin only C (the newest, which keep:1 would retain anyway → NO pin-saved info).
+    const isPinnedFn = ({ snapshotId }) => snapshotId === ID_C;
+    const r = gcSnapshots({ mgrStateDir: st.dir, keep: 1, apply: true, seams: { isPinnedFn } });
+    assert.deepEqual(r.retained, [ID_C]);
+    assert.deepEqual(r.deleted, [ID_B, ID_A], 'non-pinned older two pruned as usual');
+    assert.ok(!existsSync(snapshotDir(st.dir, ID_A)));
+    assert.ok(!existsSync(snapshotDir(st.dir, ID_B)));
+    // C was retained by the keep criterion anyway, so NO gc-pin-retained info is emitted.
+    assert.ok(!r.diagnostics.some((d) => d.code === 'gc-pin-retained'),
+      'no pin-saved info when the criteria would have kept it regardless');
+  } finally { st.cleanup(); }
+});
+
+test('gcSnapshots: the real isPinned path force-retains via an on-disk .pin marker', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_C, { fileCount: 1 });
+    // Write a real .pin marker into A's dir — no isPinnedFn seam, exercise production isPinned.
+    writeFileSync(pinMarkerPath(st.dir, ID_A), '{"pinnedAt":"2026-05-21T00:00:00.000Z"}\n', 'utf8');
+    const r = gcSnapshots({ mgrStateDir: st.dir, keep: 0, apply: true }); // keep 0 = delete all
+    assert.ok(r.retained.includes(ID_A), 'A retained by its real .pin marker');
+    assert.deepEqual(r.deleted, [ID_C], 'only the unpinned C deleted');
+    assert.ok(existsSync(snapshotDir(st.dir, ID_A)), 'pinned A dir survives');
+    assert.ok(!existsSync(snapshotDir(st.dir, ID_C)));
+  } finally { st.cleanup(); }
+});
+
+test('gcSnapshots: a THROWING isPinnedFn seam never aborts gc — fail-open, deletes proceed (Low-1)', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_C, { fileCount: 1 });
+    // A hostile injected pin-check that throws must be treated as "not pinned" (fail-
+    // open is safe — an un-evaluatable pin is simply prunable) and must NOT make
+    // gcSnapshots throw. The default isPinned never throws; this guards the seam.
+    const isPinnedFn = () => { throw new Error('pin probe blew up'); };
+    let r;
+    assert.doesNotThrow(() => {
+      r = gcSnapshots({ mgrStateDir: st.dir, keep: 0, apply: true, seams: { isPinnedFn } });
+    }, 'a throwing isPinnedFn must not propagate out of gcSnapshots');
+    // Fail-open: neither id is treated as pinned, so keep:0 prunes both.
+    assert.deepEqual(r.deleted.sort(), [ID_A, ID_C].sort(), 'both pruned (throw → not pinned)');
+    assert.deepEqual(r.retained, [], 'nothing retained when the pin probe fails open');
+    assert.ok(!existsSync(snapshotDir(st.dir, ID_A)));
+    assert.ok(!existsSync(snapshotDir(st.dir, ID_C)));
+  } finally { st.cleanup(); }
+});
+
+test('gcSnapshots: a pin on EVERY snapshot under keep 0 → nothing deleted', () => {
+  const st = makeStateDir();
+  try {
+    plantSnapshot(st.dir, ID_A, { fileCount: 1 });
+    plantSnapshot(st.dir, ID_C, { fileCount: 1 });
+    const r = gcSnapshots({ mgrStateDir: st.dir, keep: 0, apply: true, seams: { isPinnedFn: () => true } });
+    assert.deepEqual(r.retained.sort(), [ID_A, ID_C].sort());
+    assert.deepEqual(r.deleted, []);
+    assert.deepEqual(r.wouldDelete, []);
+    for (const id of [ID_A, ID_C]) assert.ok(existsSync(snapshotDir(st.dir, id)), `${id} survives — all pinned`);
+  } finally { st.cleanup(); }
 });
