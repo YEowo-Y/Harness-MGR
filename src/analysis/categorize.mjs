@@ -56,7 +56,7 @@ const CATEGORY_RULES = Object.freeze([
   // self-iteration / meta — improving skills, agents, hooks, or the harness itself.
   {
     category: 'self-iteration',
-    name: /skill-(creator|create|health|comply|scout|stocktake)|skillify|hookify|self-improve|continuous-learning|harness-(optimizer|construction|audit)|harness-audit|agent-(harness|sort|eval|architecture|introspection)|prompt-optimiz|rules-distill|configure-ecc|^omc|^learner?$|instinct|^evolve$|claude-md|deepinit|context-budget|token-budget|model-route|council|devfleet|^multi-(execute|plan|workflow|backend|frontend)$|^prp-|agentic-engineering|agent-payment|learn-eval|^learn$|^eval$|^promote$|^prune$|checkpoint/,
+    name: /skill-(creator|create|health|comply|scout|stocktake)|skillify|hookify|self-improve|continuous-learning|harness-(optimizer|construction|audit)|harness-audit|agent-(harness|sort|eval|architecture|introspection)|prompt-optimiz|rules-distill|configure-ecc|^omc|^learner?$|instinct|^evolve$|claude-md|deepinit|context-budget|token-budget|model-route|council|devfleet|^multi-(execute|plan|workflow|backend|frontend)$|^prp-|agentic-engineering|agent-payment|learn-eval|^learn$|^eval$|^promote$|^prune$|checkpoint|ultra(work|goal)|ralplan|strategic-compact|^skill$|safety-guard|^claw$|persona-forge|external-context|santa|^ralph$/,
     desc: /\b(skill|agent|hook|harness|prompt)s?\b[^.]{0,300}\b(creat|generat|improv|optimi|audit|distill|author|scaffold)/,
   },
   // domain-specific verticals (industry / regulated workflows).
@@ -67,13 +67,13 @@ const CATEGORY_RULES = Object.freeze([
   // writing & content.
   {
     category: 'writing',
-    name: /writer|writing|article|content-(engine|research|hash)|brand-voice|blog|essay|crosspost|changelog|avoid-ai|research-paper|newsletter|marketing-copy|\bwiki\b|article-writing/,
+    name: /writer|writing|article|content-(engine|research|hash)|brand-voice|blog|essay|crosspost|changelog|avoid-ai|research-paper|newsletter|marketing-copy|\bwiki\b|article-writing|^docs?$|update-docs|update-codemaps|code-tour|tailored-resume|resume-generator/,
     desc: /\b(writ(e|ing|er)|article|blog post|prose|newsletter|essay|long-form|copywrit)/,
   },
   // research & information-gathering.
   {
     category: 'research',
-    name: /research|deep-(research|dive)|\bexa\b|retrieval|competitive-ads|search-first|deepsearch|knowledge-ops|lead-(research|intelligence)|scraper?\b|market-research/,
+    name: /research|deep-(research|dive)|\bexa\b|retrieval|competitive-ads|search-first|deepsearch|knowledge-ops|lead-(research|intelligence)|scraper?\b|market-research|document-specialist|deep-interview|documentation-lookup/,
     desc: /\b(research|investigat|citations?|sources?|literature review|gather (data|evidence))/,
   },
   // design & UI / visual / media.
@@ -85,13 +85,13 @@ const CATEGORY_RULES = Object.freeze([
   // ops / automation / infrastructure / orchestration.
   {
     category: 'ops',
-    name: /docker|deploy|github-ops|terminal-ops|\bpm2\b|canary|mcp-(builder|setup|server)|\brelease\b|automation|-ops$|ops-|\binfra|pipeline|orchestrat|autonomous|continuous-agent|notifications?|^connect$|scheduled?-task|loop-(start|status|operator)/,
+    name: /docker|deploy|github-ops|terminal-ops|\bpm2\b|canary|mcp-(builder|setup|server)|\brelease\b|automation|-ops$|ops-|\binfra|pipeline|orchestrat|autonomous|continuous-agent|notifications?|^connect$|scheduled?-task|loop-(start|status|operator)|git-workflow|^jira|jira-integration|^projects?$|project-session|(save|resume)-session|^setup/,
     desc: /\b(deploy|CI\/CD|docker|pipeline|automat|infrastructure|orchestrat|schedul)/,
   },
   // data / analytics / databases.
   {
     category: 'data',
-    name: /dashboard|clickhouse|data-(scraper|atlas|throughput|engineering)|benchmark|analytics|postgres|\bredis\b|mysql|\bsql\b|database-migrations|\bjpa\b|prisma|exposed-patterns/,
+    name: /dashboard|clickhouse|data-(scraper|atlas|throughput|engineering)|benchmark|analytics|postgres|\bredis\b|mysql|\bsql\b|database-migrations|\bjpa\b|prisma|exposed-patterns|meeting-insights|nutrient-document/,
     desc: /\b(database|analytics|querie|dashboard|metrics|schema migration)/,
   },
   // business / marketing / growth.
@@ -103,7 +103,7 @@ const CATEGORY_RULES = Object.freeze([
   // development — broad catch-all, LAST before uncategorized.
   {
     category: 'development',
-    name: /review(er)?|build|test(ing)?|patterns|\btdd\b|debug|refactor|\blint|api-(design|connector)|backend|frontend|coding-standards|simplif|build-(error|fix)|verification|security|e2e|\bqa\b|migration|architecture|hexagonal|runtime|sdk|repl|nextjs|turbopack|nodejs-|laravel|keccak|foundation-models|plugin-discovery|bun-runtime|^(analyst|planner|architect|debugger|tracer|verifier|critic|executor|git-master)$|feature-dev|build-fix|quality-gate/,
+    name: /review(er)?|build|test(ing)?|patterns|\btdd\b|debug|refactor|\blint|api-(design|connector)|backend|frontend|coding-standards|simplif|build-(error|fix)|verification|security|e2e|\bqa\b|migration|architecture|hexagonal|runtime|sdk|repl|nextjs|turbopack|nodejs-|laravel|keccak|foundation-models|plugin-discovery|bun-runtime|^(analyst|planner|architect|debugger|tracer|verifier|critic|executor|git-master)$|feature-dev|build-fix|quality-gate|swift|^verify$|regex-vs/,
     desc: /\b(code|build|test|debug|refactor|compile|API|lint|review|implement|TypeScript|Python|function|class)/,
   },
 ]);
