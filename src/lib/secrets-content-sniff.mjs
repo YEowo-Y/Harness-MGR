@@ -65,14 +65,14 @@ const INPUT_CAP = 64 * 1024;
  * The newline following the header is not required — we match on the header
  * line alone so a single-line embedding (e.g. in JSON) is also caught.
  */
-const PEM_RE = /-----BEGIN (?:[A-Z0-9 ]*PRIVATE KEY|CERTIFICATE|OPENSSH PRIVATE KEY)-----/;
+export const PEM_RE = /-----BEGIN (?:[A-Z0-9 ]*PRIVATE KEY|CERTIFICATE|OPENSSH PRIVATE KEY)-----/;
 
 // ---------------------------------------------------------------------------
 // Token shape detectors (checked in order; first match returned)
 // ---------------------------------------------------------------------------
 
 /** @type {Array<{re: RegExp, pattern: string}>} */
-const TOKEN_PATTERNS = [
+export const TOKEN_PATTERNS = [
   // AWS access key ID (permanent) and STS temporary credentials:
   //   AKIA… = long-term IAM key; ASIA… = STS/assumed-role session key.
   //   Both: exactly 16 uppercase alphanumeric chars after the prefix.
