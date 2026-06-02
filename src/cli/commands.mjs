@@ -33,6 +33,7 @@ import { redactEffective, redactKeysMap, redactMergeEntry, redactKeyedValue } fr
 import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
 import { redactSecretsDeep, redactSecretsInString } from '../analysis/redact-secrets-text.mjs';
 import { categorizeComponents } from '../analysis/categorize.mjs';
+import { categorizeMcp } from '../analysis/categorize-mcp.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
 import { snapshotPinCommand, snapshotUnpinCommand } from './snapshot-pin-command.mjs';
@@ -84,7 +85,8 @@ import { lockCommand } from './lock-command.mjs';
  *   `args['by-category']` (optional boolean) ADDS a `categories` block
  *                 (`{summary, byCategory}`) that sorts skills/agents/commands into
  *                 purpose buckets (writing/development/self-iteration/…) for a grouped
- *                 TUI/Web-UI view; absent → unchanged.
+ *                 TUI/Web-UI view, PLUS an `mcpCategories` block grouping the MCP
+ *                 servers by purpose the same way; absent → unchanged.
  * @type {CommandHandler}
  */
 export function inventoryCommand(ctx) {
@@ -122,6 +124,9 @@ export function inventoryCommand(ctx) {
     const cat = categorizeComponents(s.components);
     result.categories = { summary: cat.summary, byCategory: cat.byCategory };
     diagnostics.push(...cat.diagnostics);
+    const mcpCat = categorizeMcp(s.mcpServers);
+    result.mcpCategories = { summary: mcpCat.summary, byCategory: mcpCat.byCategory };
+    diagnostics.push(...mcpCat.diagnostics);
   }
   return { result, diagnostics };
 }
