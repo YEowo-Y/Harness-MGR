@@ -69,7 +69,7 @@ const SEGMENT_SEP_RE = /[-_.]/;
  * @param {string} name
  * @returns {boolean}
  */
-function isSensitiveArgName(name) {
+export function isSensitiveArgName(name) {
   if (typeof name !== 'string' || name.length === 0) return false;
   const n = stripLeadingDashes(name).toLowerCase();
   const segments = n.split(SEGMENT_SEP_RE);
