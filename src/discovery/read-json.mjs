@@ -20,8 +20,17 @@
  * Zero npm dependencies. Node stdlib only.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, lstatSync } from 'node:fs';
 import { parseJsonc } from '../lib/jsonc-parser.mjs';
+
+/**
+ * Reason returned when a config path is a symbolic link. The discovery layer
+ * refuses to FOLLOW a link out of the config dir: readFileSync dereferences, so
+ * a planted `settings.json` -> a foreign file would read foreign content (e.g. a
+ * statusLine.command or MCP url carrying a token) into the field-scoped record.
+ * Mirrors the symlink-never-follow rule in src/ops/snapshot-walk.mjs.
+ */
+const SYMLINK_REFUSED = 'refused symlink: not following a link out of the config dir';
 
 /**
  * @typedef {Object} JsonReadResult
@@ -36,6 +45,7 @@ import { parseJsonc } from '../lib/jsonc-parser.mjs';
  * @returns {JsonReadResult}
  */
 export function readJsonFile(file) {
+  if (isSymlinkPath(file)) return { value: null, error: SYMLINK_REFUSED, missing: false };
   let text;
   try {
     text = readFileSync(file, 'utf-8');
@@ -74,6 +84,7 @@ export function readJsonFile(file) {
  * @returns {JsoncReadResult}
  */
 export function readJsoncFile(file) {
+  if (isSymlinkPath(file)) return { value: null, error: SYMLINK_REFUSED, missing: false, duplicateKeys: [] };
   let text;
   try {
     text = readFileSync(file, 'utf-8');
@@ -98,6 +109,21 @@ export function readJsoncFile(file) {
  */
 export function isJsonObject(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * True if `p` is a symbolic link. lstatSync does NOT follow the link, so a
+ * planted link is detected whether or not its target exists. Never throws: a
+ * missing path returns false, leaving the existing ENOENT handling to run.
+ * @param {string} p
+ * @returns {boolean}
+ */
+function isSymlinkPath(p) {
+  try {
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 /** @param {unknown} err @returns {string} */
