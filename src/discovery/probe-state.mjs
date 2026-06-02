@@ -181,8 +181,19 @@ export function gatherTrackedState(opts) {
   // Hash the top-level tracked files + the named plugin-registry files (skip when
   // absent — null return from hashFileSync). A slashed name (plugins/...) is split so
   // plugins/ is addressed BY NAME, never walked recursively. (#3)
+  // SECURITY: never FOLLOW a symlinked tracked file — readFileSync (in hashFileSync)
+  // dereferences, so a symlinked settings.json/.mcp.json/CLAUDE.md/plugins JSON would
+  // otherwise hash its FOREIGN target into the drift fingerprint + lockfile. lstat
+  // reports the link itself; a real file is false, so normal files are never skipped.
+  // Mirrors the TRACKED_DIRS root guard below + snapshot-walk's never-follow rule.
   for (const name of [...TRACKED_FILES, ...TRACKED_PLUGIN_FILES]) {
-    const h = hashFileSync(join(configDir, ...name.split('/')));
+    const abs = join(configDir, ...name.split('/'));
+    try {
+      if (lstatSync(abs).isSymbolicLink()) continue; // never follow a symlinked tracked file
+    } catch {
+      continue; // absent / unreadable — benign, nothing to hash
+    }
+    const h = hashFileSync(abs);
     if (h !== null) files[name] = h;
   }
 
