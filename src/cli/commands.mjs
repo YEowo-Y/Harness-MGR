@@ -31,6 +31,7 @@ import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
 import { redactEffective, redactKeysMap, redactMergeEntry, redactKeyedValue } from '../analysis/redact-effective.mjs';
 import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
+import { redactSecretsDeep, redactSecretsInString } from '../analysis/redact-secrets-text.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
 import { snapshotPinCommand, snapshotUnpinCommand } from './snapshot-pin-command.mjs';
@@ -96,7 +97,9 @@ export function inventoryCommand(ctx) {
       marketplaces: s.marketplaces.length,
       mcpServers: s.mcpServers.length,
     },
-    statusLine: s.settings.statusLine,
+    // SECRET-SAFE: a token embedded in the statusLine command string is redacted to
+    // <redacted> before it reaches json/ndjson (audit P1). See redact-secrets-text.mjs.
+    statusLine: redactSecretsDeep(s.settings.statusLine),
     topDirs: s.topDirs.known.filter((d) => d.present).map((d) => d.name),
     unknownTopDirs: s.topDirs.unknown,
   };
@@ -124,7 +127,8 @@ function trimComponent(c) {
   const r = c || {};
   const fm = r.frontmatter;
   const description = fm && typeof fm.description === 'string' ? fm.description : '';
-  return { name: r.name, kind: r.kind, source: r.source, path: r.path, description };
+  // SECRET-SAFE: a credential pasted into a frontmatter description is redacted (audit P1).
+  return { name: r.name, kind: r.kind, source: r.source, path: r.path, description: redactSecretsInString(description) };
 }
 
 /**
@@ -310,7 +314,9 @@ function navigate(obj, segments) {
 export function hooksCommand(ctx) {
   const layers = readSettingsLayers(ctx.configDir);
   const m = mergeSettings(layers.layers);
-  const hooks = (m.effective && m.effective.hooks) || {};
+  // SECRET-SAFE: a token embedded in a hook command string (an Authorization header
+  // or --token=) is redacted to <redacted> before it reaches json/ndjson (audit P1).
+  const hooks = redactSecretsDeep((m.effective && m.effective.hooks) || {});
   return { result: { hooks }, diagnostics: [...layers.diagnostics, ...m.diagnostics] };
 }
 
@@ -328,13 +334,18 @@ export function permissionsCommand(ctx) {
   const baseDiag = [...layers.diagnostics, ...m.diagnostics];
   const perms = (m.effective && m.effective.permissions) || {};
   const audit = auditPermissions(perms);
+  // SECRET-SAFE: a credential embedded in a permission rule string (e.g. a URL with
+  // userinfo) is redacted before it reaches json/ndjson (audit P1).
+  const allow = redactSecretsDeep(audit.allow);
+  const ask = redactSecretsDeep(audit.ask);
+  const deny = redactSecretsDeep(audit.deny);
   if (ctx.args && ctx.args.audit) {
     return {
-      result: { allow: audit.allow, ask: audit.ask, deny: audit.deny, overbroad: audit.overbroad },
+      result: { allow, ask, deny, overbroad: redactSecretsDeep(audit.overbroad) },
       diagnostics: [...baseDiag, ...audit.diagnostics],
     };
   }
-  return { result: { allow: audit.allow, ask: audit.ask, deny: audit.deny }, diagnostics: baseDiag };
+  return { result: { allow, ask, deny }, diagnostics: baseDiag };
 }
 
 // ── doctor ──────────────────────────────────────────────────────────────────────
