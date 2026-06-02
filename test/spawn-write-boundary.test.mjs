@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import {
   snapshotDirHashes,
   checkSpawnWriteBoundary,
-} from '../src/selftest/spawn-write-boundary.mjs';
+} from '../src/lib/spawn-write-boundary.mjs';
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
