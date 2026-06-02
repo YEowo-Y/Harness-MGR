@@ -134,6 +134,8 @@ function parseArgs(argv) {
  *   `config show-effective` → `config:show-effective` (consumed 2)
  *   `snapshot list`         → `snapshot:list`          (consumed 2)
  *   `snapshot gc`           → `snapshot:gc`            (consumed 2)
+ *   `snapshot pin`          → `snapshot:pin`           (consumed 2)
+ *   `snapshot unpin`        → `snapshot:unpin`         (consumed 2)
  * A bare `snapshot` (no sub-verb) stays `snapshot` (consumed 1, the create command).
  * Otherwise the first positional is the canonical name verbatim (consumed 1;
  * membership checked later).
@@ -147,6 +149,8 @@ function canonicalize(positionals) {
   if (first === 'config' && positionals[1] === 'show-effective') return { canonical: 'config:show-effective', consumed: 2 };
   if (first === 'snapshot' && positionals[1] === 'list') return { canonical: 'snapshot:list', consumed: 2 };
   if (first === 'snapshot' && positionals[1] === 'gc') return { canonical: 'snapshot:gc', consumed: 2 };
+  if (first === 'snapshot' && positionals[1] === 'pin') return { canonical: 'snapshot:pin', consumed: 2 };
+  if (first === 'snapshot' && positionals[1] === 'unpin') return { canonical: 'snapshot:unpin', consumed: 2 };
   return { canonical: first, consumed: 1 };
 }
 
