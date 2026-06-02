@@ -6,8 +6,8 @@ landed Phase-3 write-side (snapshot / rollback / apply / recover / lock / audit
 writer / gc). The shape of the security model is unchanged — still exactly two
 privileged operations behind two choke points — but governed-config WRITES now
 exist (behind a two-factor gate, dry-run-by-default), the spawn-write boundary check
-is built (unit-tested but not yet wired into the live `selftest --boundary` run), and several formerly "Phase-3, not
-yet implemented" items below are now implemented and re-cited. A 2026-06-02 read-only
+is now wired LIVE into the snapshot create path (it runs post-tar in `createSnapshot`),
+and several formerly "Phase-3, not yet implemented" items below are now implemented and re-cited. A 2026-06-02 read-only
 security re-scan of Phases 1–3 (six surfaces) found the invariants here HOLD and
 fixed three issues (discovery symlink-follow, output secret-shape leakage, drift
 symlink-follow) now reflected in §5.2 / §5.3 / §5.9.
@@ -298,9 +298,11 @@ touch the tree). Handled detectively rather than by locking the user's config:
 - For *spawned* writes (Phase 3's snapshot `tar`), the design is **detective, not
   preventive**: the syscall gate does not see a child process's writes, so they are
   bounded by the argv allowlist (`safeSpawn`) PLUS the post-hoc **spawn-write
-  boundary check** ([`src/selftest/spawn-write-boundary.mjs`](../src/selftest/spawn-write-boundary.mjs),
-  a unit-tested primitive NOT yet wired into the live `selftest --boundary` run), not by the syscall gate (plan **P1-7**, plan line
-  ~100). See [Residual risks](#6-residual-risks--detective-not-preventive).
+  boundary check** ([`src/lib/spawn-write-boundary.mjs`](../src/lib/spawn-write-boundary.mjs)),
+  now wired LIVE into the snapshot create path (`createSnapshot`, `src/ops/snapshot.mjs`):
+  it diffs a before/after sha256 snapshot of the dir around the tar spawn and REFUSES
+  the snapshot if tar wrote any undeclared file — not by the syscall gate (plan
+  **P1-7**, plan line ~100). See [Residual risks](#6-residual-risks--detective-not-preventive).
 
 ### 5.8 Availability — degrading gracefully when the environment is broken
 
@@ -364,8 +366,10 @@ detective-only controls today, not a victory lap.
   child process the syscall gate does not see, so it is bounded by the **argv
   allowlist** ([`src/lib/safe-spawn.mjs`](../src/lib/safe-spawn.mjs),
   `validateSpawnSpec`, `safe-spawn.mjs:71`) plus the post-hoc **spawn-write boundary
-  check** ([`src/selftest/spawn-write-boundary.mjs`](../src/selftest/spawn-write-boundary.mjs),
-  a unit-tested primitive NOT yet wired into the live `selftest --boundary` run), *not* by the syscall gate. A race between the
+  check** ([`src/lib/spawn-write-boundary.mjs`](../src/lib/spawn-write-boundary.mjs)),
+  now wired LIVE into `createSnapshot` (`src/ops/snapshot.mjs`): it diffs a before/after
+  sha256 snapshot of the dir around the tar spawn and REFUSES the snapshot
+  (`snapshot-tar-wrote-undeclared`) on any undeclared write. A race between the
   spawned process and that check is a documented detective control (plan **P1-7**).
 - **The Windows ACL check (#24) is advisory and read-only.** `icacls` is invoked
   read-only (`probe-access.mjs:195-206`); the tool **reports** broad principals
