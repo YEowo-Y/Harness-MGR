@@ -30,6 +30,7 @@
  */
 
 import { isSensitivePointer, sha256OfValue } from '../lib/plan.mjs';
+import { redactSecretsInString } from './redact-secrets-text.mjs';
 
 /**
  * @typedef {import('../lib/plan.mjs').RedactedValue} RedactedValue
@@ -189,13 +190,16 @@ function redactEnv(env) {
 }
 
 /**
- * Recursively copy a value, redacting any nested value whose KEY is sensitive.
+ * Recursively copy a value, redacting any nested value whose KEY is sensitive AND
+ * scanning every STRING leaf for high-confidence secret SHAPES (a hook/statusLine
+ * command, or a connection string under a benign key name) via redactSecretsInString.
  * Plain objects are rebuilt (proto-keys skipped); arrays are element-mapped (array
- * indices are never sensitive keys); primitives pass through. Never throws.
+ * indices are never sensitive keys); non-string primitives pass through. Never throws.
  * @param {unknown} value
  * @returns {unknown}
  */
 function redactDeep(value) {
+  if (typeof value === 'string') return redactSecretsInString(value);
   if (Array.isArray(value)) return value.map((item) => redactDeep(item));
   if (!isPlainObject(value)) return value;
   /** @type {Record<string, unknown>} */
