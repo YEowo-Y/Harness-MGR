@@ -32,6 +32,7 @@ import { readSettingsLayers } from './settings-layers.mjs';
 import { redactEffective, redactKeysMap, redactMergeEntry, redactKeyedValue } from '../analysis/redact-effective.mjs';
 import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
 import { redactSecretsDeep, redactSecretsInString } from '../analysis/redact-secrets-text.mjs';
+import { categorizeComponents } from '../analysis/categorize.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';
 import { snapshotListCommand, snapshotGcCommand } from './snapshot-store-command.mjs';
 import { snapshotPinCommand, snapshotUnpinCommand } from './snapshot-pin-command.mjs';
@@ -80,6 +81,10 @@ import { lockCommand } from './lock-command.mjs';
  *                 When absent the result is the counts-only summary, byte-for-byte
  *                 as before (none of these four keys) so existing callers and the
  *                 lean path are unchanged.
+ *   `args['by-category']` (optional boolean) ADDS a `categories` block
+ *                 (`{summary, byCategory}`) that sorts skills/agents/commands into
+ *                 purpose buckets (writing/development/self-iteration/…) for a grouped
+ *                 TUI/Web-UI view; absent → unchanged.
  * @type {CommandHandler}
  */
 export function inventoryCommand(ctx) {
@@ -109,7 +114,16 @@ export function inventoryCommand(ctx) {
     result.marketplaces = s.marketplaces.map(trimMarketplace);
     result.mcpServers = s.mcpServers.map(trimMcpServer);
   }
-  return { result, diagnostics: s.diagnostics.slice() };
+  const diagnostics = s.diagnostics.slice();
+  // --by-category: ADD a purpose-grouped view of the components for the TUI/Web-UI
+  // (writing/development/self-iteration/… + uncategorized). Pure enrichment over the
+  // already-scanned components — no new I/O or secret surface. See analysis/categorize.mjs.
+  if (ctx.args && ctx.args['by-category']) {
+    const cat = categorizeComponents(s.components);
+    result.categories = { summary: cat.summary, byCategory: cat.byCategory };
+    diagnostics.push(...cat.diagnostics);
+  }
+  return { result, diagnostics };
 }
 
 /**
