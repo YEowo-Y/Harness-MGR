@@ -28,7 +28,7 @@
  * Zero npm dependencies. Node stdlib only.
  */
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeSource } from '../lib/source.mjs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
@@ -119,6 +119,25 @@ function collectSkills(rootDir, source, bag) {
   for (const ent of safeReaddir(skillsDir, bag)) {
     if (!ent.isDirectory()) continue;
     const file = join(skillsDir, ent.name, 'SKILL.md');
+    // SECURITY: refuse to follow a symlinked SKILL.md. existsSync + readFileSync
+    // both FOLLOW links, so a planted SKILL.md -> ~/.ssh/id_rsa (or any token
+    // file) would read FOREIGN content into ComponentRecord.frontmatter, which
+    // flows to `inventory --format json`. The lstat guard must run first.
+    // Mirrors the symlink-never-follow rule in src/ops/snapshot-walk.mjs and
+    // src/discovery/probe-state.mjs. (A top-level skill DIR-symlink is already
+    // skipped above by !ent.isDirectory(); a symlinked agents/commands .md by the
+    // ent.isFile() gate in collectFlat.)
+    if (isSymlinkPath(file)) {
+      bag.add({
+        severity: 'warn',
+        code: 'component-symlink-skipped',
+        message: `skipped symlinked SKILL.md (refusing to follow a link out of the config dir): ${ent.name}`,
+        path: file,
+        phase: 'components',
+        fix: 'replace the symlinked SKILL.md with a real file inside the config dir',
+      });
+      continue;
+    }
     if (!existsSync(file)) continue;
     out.push({ kind: 'skill', name: ent.name, path: file, source, frontmatter: readFrontmatterFile(file, bag) });
   }
@@ -184,6 +203,23 @@ function readFrontmatterFile(file, bag) {
     });
   }
   return parsed.data;
+}
+
+/**
+ * True if `p` is a symbolic link. lstatSync does NOT follow the link, so a
+ * planted link is detected whether or not its target exists. Never throws: a
+ * missing path (the common not-yet-created case) returns false, leaving the
+ * existing existsSync/ENOENT handling to run. The discovery layer must not read
+ * foreign file CONTENT via a link — same guard as src/ops/snapshot-walk.mjs.
+ * @param {string} p
+ * @returns {boolean}
+ */
+function isSymlinkPath(p) {
+  try {
+    return lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 /**
