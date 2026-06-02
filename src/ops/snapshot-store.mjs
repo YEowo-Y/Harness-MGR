@@ -37,10 +37,12 @@ import { readdirSync, unlinkSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { readManifest } from './snapshot-manifest-io.mjs';
+import { SNAPSHOTS_DIRNAME, isValidSnapshotId } from './snapshot-manifest.mjs';
+import { isPinned } from './snapshot-pin.mjs';
 import {
-  SNAPSHOTS_DIRNAME, isValidSnapshotId, snapshotDir,
-} from './snapshot-manifest.mjs';
-import { toEpochMs } from './audit.mjs';
+  partitionRetention, computePinnedIds, deleteSnapshotDir,
+  normalizeKeep, normalizeOlderThan,
+} from './snapshot-gc.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -54,6 +56,7 @@ const PHASE = 'snapshot';
  * @property {string} [reason]      manifest reason (only when complete)
  * @property {number} [fileCount]   manifest files.length (only when complete)
  * @property {boolean} complete     true iff a readable, parseable manifest was found
+ * @property {boolean} pinned       true iff a `.pin` marker exists (gc force-retains)
  */
 
 /** Message from an unknown thrown value; never throws. */
@@ -98,23 +101,29 @@ function listSnapshotDirNames(mgrStateDir, readdirFn, bag) {
  * surfaced here — an incomplete snapshot is a fact for the user to see, not an
  * error condition for the list command.
  *
+ * The `pinned` flag is set from the `.pin` marker for BOTH complete and incomplete
+ * summaries — an incomplete-but-pinned dir must still report pinned:true.
+ *
  * @param {string} mgrStateDir
  * @param {string} id          (already validated against SNAPSHOT_ID_RE)
  * @param {(p:string)=>string} [readFn]   injectable manifest reader
+ * @param {(p:string)=>boolean} [existsFn] injectable pin-marker probe
  * @returns {SnapshotSummary}
  */
-function summarizeSnapshotDir(mgrStateDir, id, readFn) {
+function summarizeSnapshotDir(mgrStateDir, id, readFn, existsFn) {
+  const pinned = isPinned({ mgrStateDir, snapshotId: id, existsFn });
   const { manifest } = readManifest({ stateDir: mgrStateDir, snapshotId: id, readFn });
-  if (!manifest || typeof manifest !== 'object') return { id, complete: false };
+  if (!manifest || typeof manifest !== 'object') return { id, complete: false, pinned };
   const files = Array.isArray(manifest.files) ? manifest.files : null;
   // A usable summary needs at least the file list; createdAt/reason are best-effort.
-  if (!files) return { id, complete: false };
+  if (!files) return { id, complete: false, pinned };
   return {
     id,
     createdAt: typeof manifest.createdAt === 'string' ? manifest.createdAt : '',
     reason: typeof manifest.reason === 'string' ? manifest.reason : '',
     fileCount: files.length,
     complete: true,
+    pinned,
   };
 }
 
@@ -133,10 +142,11 @@ function summarizeSnapshotDir(mgrStateDir, id, readFn) {
  * @param {string} opts.mgrStateDir            absolute path to the .mgr-state dir
  * @param {(p:string)=>string[]} [opts.readdirFn]  injectable dir reader (tests)
  * @param {(p:string)=>string} [opts.readFn]       injectable manifest reader (tests)
+ * @param {(p:string)=>boolean} [opts.existsFn]    injectable pin-marker probe (tests)
  * @returns {{ snapshots: SnapshotSummary[], diagnostics: Diagnostic[] }}
  */
 export function listSnapshots(opts) {
-  const { mgrStateDir, readdirFn, readFn } = opts ?? {};
+  const { mgrStateDir, readdirFn, readFn, existsFn } = opts ?? {};
   const bag = new DiagnosticBag();
   if (!isNonEmptyStr(mgrStateDir)) {
     bag.add({ severity: 'error', code: 'snapshot-bad-state-dir', phase: PHASE,
@@ -150,7 +160,7 @@ export function listSnapshots(opts) {
   const snapshots = [];
   for (const name of names) {
     if (!isValidSnapshotId(name)) continue; // ignore non-snapshot entries
-    snapshots.push(summarizeSnapshotDir(mgrStateDir, name, readFn));
+    snapshots.push(summarizeSnapshotDir(mgrStateDir, name, readFn, existsFn));
   }
   // Newest first: the id is a lexicographically-sortable UTC timestamp.
   snapshots.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
@@ -168,139 +178,6 @@ export function listSnapshots(opts) {
  */
 
 /**
- * Compute the RETAIN decision for an ordered (newest-first) snapshot list.
- *
- * `keep`:        retain the N NEWEST (the first N in newest-first order).
- * `olderThanMs`: retain those whose effective time is NEWER than `now - olderThanMs`
- *                (so "older than" deletes the OLD ones). A snapshot's effective time
- *                is its manifest createdAt epoch, falling back to its id-timestamp
- *                epoch; an unresolvable time is treated as VERY OLD (epoch -Infinity)
- *                so an unparseable/incomplete snapshot is a prune CANDIDATE under
- *                --older-than rather than retained forever.
- * BOTH given:    retain only if BOTH say retain (the stricter intersection).
- *
- * @param {SnapshotSummary[]} ordered   newest-first
- * @param {number|null} keep            count to keep, or null
- * @param {number|null} olderThanMs     age window in ms, or null
- * @param {number} nowMs                current epoch ms
- * @returns {{ retained: string[], toDelete: string[] }}
- */
-function partitionRetention(ordered, keep, olderThanMs, nowMs) {
-  const cutoff = olderThanMs !== null ? nowMs - olderThanMs : null;
-  /** @type {string[]} */
-  const retained = [];
-  /** @type {string[]} */
-  const toDelete = [];
-  for (let i = 0; i < ordered.length; i++) {
-    const snap = ordered[i];
-    const byKeep = keep !== null ? i < keep : true;            // among the N newest
-    let byAge = true;
-    if (cutoff !== null) {
-      const epoch = snapshotEpoch(snap);
-      byAge = epoch > cutoff;                                  // newer than the window
-    }
-    // Retain only if EVERY active criterion retains (stricter intersection).
-    if (byKeep && byAge) retained.push(snap.id);
-    else toDelete.push(snap.id);
-  }
-  return { retained, toDelete };
-}
-
-/**
- * The effective epoch-ms of a snapshot for age comparison: manifest createdAt,
- * else the id timestamp, else -Infinity (treat as very old → a prune candidate).
- * @param {SnapshotSummary} snap
- * @returns {number}
- */
-function snapshotEpoch(snap) {
-  const fromCreated = toEpochMs(snap && snap.createdAt);
-  if (fromCreated !== null) return fromCreated;
-  const fromId = toEpochMs(idToIso(snap && snap.id));
-  if (fromId !== null) return fromId;
-  return -Infinity;
-}
-
-/**
- * Convert a snapshot id (YYYY-MM-DDTHH-MM-SSZ) back into a parseable ISO string
- * (YYYY-MM-DDTHH:MM:SSZ) by restoring the time-segment colons. Returns '' for a
- * non-id input so toEpochMs yields null. Never throws.
- * @param {unknown} id
- * @returns {string}
- */
-function idToIso(id) {
-  if (!isValidSnapshotId(id)) return '';
-  // Split on 'T'; only the time half's '-' separators become ':'.
-  const [date, time] = id.split('T');
-  return `${date}T${time.replace(/-/g, ':')}`;
-}
-
-/**
- * BOUNDED DELETE of ONE snapshot dir (the security-critical helper). Re-validates
- * the id, RECONSTRUCTS the dir via `snapshotDir(...)`, readdir's that ONE dir, and
- * `unlink`s each DIRECT REGULAR FILE; a subdir or symlink entry is SKIPPED + warned
- * (never followed, never recursed). Then `rmdir` removes the dir ONLY if it is now
- * empty. NEVER recursive / rm-rf. A delete error → a warn (the caller continues
- * with the next id). Returns true iff the dir was removed. Never throws.
- *
- * @param {string} mgrStateDir
- * @param {string} id
- * @param {{ readdirFn:(p:string)=>import('node:fs').Dirent[], unlinkFn:(p:string)=>void, rmdirFn:(p:string)=>void }} seams
- * @param {DiagnosticBag} bag
- * @returns {boolean}
- */
-function deleteSnapshotDir(mgrStateDir, id, seams, bag) {
-  // Defense-in-depth: refuse a corrupted id rather than touch an unexpected path.
-  if (!isValidSnapshotId(id)) {
-    bag.add({ severity: 'warn', code: 'gc-delete-skipped', phase: PHASE,
-      message: 'gc skipped an entry whose id failed re-validation (refusing to remove an unexpected path)' });
-    return false;
-  }
-  const dir = snapshotDir(mgrStateDir, id);
-
-  /** @type {import('node:fs').Dirent[]} */
-  let entries;
-  try {
-    const r = seams.readdirFn(dir);
-    entries = Array.isArray(r) ? r : [];
-  } catch (e) {
-    if (e && e.code === 'ENOENT') return false; // already gone
-    bag.add({ severity: 'warn', code: 'gc-delete-failed', phase: PHASE, path: id,
-      message: `could not read snapshot dir for deletion: ${errMsg(e)}` });
-    return false;
-  }
-
-  // Unlink each DIRECT regular file only. A subdir or symlink is never followed
-  // or recursed — it is skipped + warned, and will keep the dir non-empty so the
-  // rmdir below fails safe (the dir survives).
-  for (const ent of entries) {
-    const name = ent && typeof ent.name === 'string' ? ent.name : String(ent);
-    if (!ent || typeof ent.isFile !== 'function' || !ent.isFile() || ent.isSymbolicLink()) {
-      bag.add({ severity: 'warn', code: 'gc-delete-skipped-entry', phase: PHASE, path: `${id}/${name}`,
-        message: 'gc left a non-regular-file entry untouched (no recursion / no symlink follow)' });
-      continue;
-    }
-    try { seams.unlinkFn(join(dir, name)); }
-    catch (e) {
-      if (!(e && e.code === 'ENOENT')) {
-        bag.add({ severity: 'warn', code: 'gc-delete-failed', phase: PHASE, path: `${id}/${name}`,
-          message: `could not remove snapshot file: ${errMsg(e)}` });
-      }
-    }
-  }
-
-  // rmdir removes the dir ONLY if empty (never recursive). A leftover (an
-  // untouched subdir/symlink) makes this fail → warn, leave the dir in place.
-  try { seams.rmdirFn(dir); return true; }
-  catch (e) {
-    if (!(e && e.code === 'ENOENT')) {
-      bag.add({ severity: 'warn', code: 'gc-delete-failed', phase: PHASE, path: id,
-        message: `could not remove snapshot dir (left in place): ${errMsg(e)}` });
-    }
-    return false;
-  }
-}
-
-/**
  * Garbage-collect snapshots per a retention policy. DRY-RUN BY DEFAULT.
  *
  * Lists ids newest-first, partitions them into retain vs delete by the criteria,
@@ -312,6 +189,11 @@ function deleteSnapshotDir(mgrStateDir, id, seams, bag) {
  * a `gc-no-criterion` warn and deletes NOTHING (refusing to treat "no criteria"
  * as "delete all").
  *
+ * PIN-AWARE (P3.U21): a pinned snapshot (one with a `.pin` marker) is ALWAYS
+ * retained — a pin force-retains, overriding `keep`/`olderThanMs`, so a pinned id
+ * never reaches `wouldDelete`/`deleted`. A pin that saves an otherwise-pruned
+ * snapshot surfaces one `gc-pin-retained` info diagnostic.
+ *
  * @param {object} opts
  * @param {string}  opts.mgrStateDir            absolute path to the .mgr-state dir
  * @param {number}  [opts.keep]                 retain the N newest (>=0 integer)
@@ -321,6 +203,9 @@ function deleteSnapshotDir(mgrStateDir, id, seams, bag) {
  * @param {object}  [opts.seams]                injectable seams (tests):
  *   `listFn`     override the whole list step ({mgrStateDir,readdirFn,readFn}->{snapshots,diagnostics})
  *   `readdirFn`  / `readFn`  passed to the real listSnapshots when listFn is absent
+ *   `existsFn`   passed to the pin probe (and the real listSnapshots) when listFn is absent
+ *   `isPinnedFn` override the pin check (defaults to isPinned) — tests control pins
+ *                without real `.pin` files
  *   `direntFn(dir)->Dirent[]`  the delete-side dir reader (withFileTypes) — distinct
  *                from the name-listing `readdirFn` so a test can spy on deletes alone
  *   `unlinkFn` / `rmdirFn`   the bounded-delete file/dir removers
@@ -349,16 +234,23 @@ export function gcSnapshots(opts) {
       message: 'gc requires at least one of --keep or --older-than; nothing deleted' });
     // Still surface the full list as retained (nothing pruned).
     const listed = (typeof seams.listFn === 'function' ? seams.listFn : listSnapshots)
-      ({ mgrStateDir, readdirFn: seams.readdirFn, readFn: seams.readFn });
+      ({ mgrStateDir, readdirFn: seams.readdirFn, readFn: seams.readFn, existsFn: seams.existsFn });
     return { deleted: [], retained: listed.snapshots.map((s) => s.id), wouldDelete: [], diagnostics: bag.all() };
   }
 
   // List (newest-first) and surface listing diagnostics.
   const listed = (typeof seams.listFn === 'function' ? seams.listFn : listSnapshots)
-    ({ mgrStateDir, readdirFn: seams.readdirFn, readFn: seams.readFn });
+    ({ mgrStateDir, readdirFn: seams.readdirFn, readFn: seams.readFn, existsFn: seams.existsFn });
   for (const d of listed.diagnostics) bag.add(d);
 
-  const { retained, toDelete } = partitionRetention(listed.snapshots, keep, olderThanMs, nowFn());
+  // Determine which listed ids are pinned (force-retained), then partition.
+  const pinnedIds = computePinnedIds(mgrStateDir, listed.snapshots, seams);
+  const { retained, toDelete, pinSaved } = partitionRetention(listed.snapshots, keep, olderThanMs, nowFn(), pinnedIds);
+  // Surface each pin that saved an otherwise-prunable snapshot (overrides criteria).
+  for (const id of pinSaved) {
+    bag.add({ severity: 'info', code: 'gc-pin-retained', phase: PHASE, path: id,
+      message: `snapshot ${id} retained by pin (overrides retention criteria)` });
+  }
 
   // DRY-RUN (default): preview only — delete nothing.
   if (!apply) {
@@ -381,24 +273,4 @@ export function gcSnapshots(opts) {
     if (deleteSnapshotDir(mgrStateDir, id, delSeams, bag)) deleted.push(id);
   }
   return { deleted, retained, wouldDelete: [], diagnostics: bag.all() };
-}
-
-/**
- * Normalize the `keep` option: a finite integer >= 0, else null (criterion absent).
- * @param {unknown} keep
- * @returns {number|null}
- */
-function normalizeKeep(keep) {
-  if (typeof keep !== 'number' || !Number.isInteger(keep) || keep < 0) return null;
-  return keep;
-}
-
-/**
- * Normalize the `olderThanMs` option: a finite number > 0, else null (absent).
- * @param {unknown} ms
- * @returns {number|null}
- */
-function normalizeOlderThan(ms) {
-  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return null;
-  return ms;
 }
