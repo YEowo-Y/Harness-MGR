@@ -137,6 +137,28 @@ function makeAtomicWrite(result = {}) {
   return fn;
 }
 
+/** A recording atomicApplyDelete seam (async). Defaults to a clean successful delete. */
+function makeAtomicDelete(result = {}) {
+  const calls = [];
+  const fn = (opts) => {
+    calls.push(opts);
+    if (result.throw) return Promise.reject(result.throw);
+    if (result.ok === false) {
+      return Promise.resolve({ ok: false, deleted: false,
+        leftovers: result.leftovers ?? { oldPath: null },
+        diagnostics: result.diagnostics ?? [] });
+    }
+    return Promise.resolve({ ok: true, deleted: true, leftovers: { oldPath: null }, diagnostics: [] });
+  };
+  fn.calls = calls;
+  return fn;
+}
+
+/** A single delete op removing a settings.json target (no content). */
+function deleteOp(target = `${TARGET}\\agents\\foo.md`) {
+  return { kind: 'delete', target, summary: 'remove agent foo' };
+}
+
 /** A real-state-machine transition seam (delegates to the actual transition). */
 function realTransition() {
   const calls = [];
@@ -155,6 +177,7 @@ function happySeams(over = {}) {
     transitionFn: over.transitionFn ?? makeTransition(),
     writeJournalFn: over.writeJournalFn ?? makeWriteJournal(),
     atomicWriteFn: over.atomicWriteFn ?? makeAtomicWrite(),
+    atomicDeleteFn: over.atomicDeleteFn ?? makeAtomicDelete(),
   };
 }
 
@@ -838,4 +861,129 @@ test('applyPlan paranoid: an unreadable re-read after a landed write → failed,
   assert.equal(readFileFn.calls.length, 1, 'paranoid attempted the re-read exactly once');
   const states = seams.transitionFn.calls.map((c) => c.toState);
   assert.deepEqual(states, ['snapshotted', 'applying', 'failed']);
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+//  P4a.U1c — delete ops (the remove feature's mechanism) via the atomic-delete seam
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── (D1) enableWrites + single delete op → committed, applied:true, opsWritten:1 ──
+
+test('applyPlan enableWrites: single delete op reaches committed (applied, opsWritten:1) (D1)', async () => {
+  const seams = happySeams();
+  const target = `${TARGET}\\agents\\foo.md`;
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([deleteOp(target)]) }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 1);
+  // the full lifecycle tail ran.
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
+  // atomicDeleteFn called ONCE with the op's target + the SAME injected gate.
+  assert.equal(seams.atomicDeleteFn.calls.length, 1);
+  assert.equal(seams.atomicDeleteFn.calls[0].target, target);
+  assert.equal(seams.atomicDeleteFn.calls[0].assertWritable, PASS);
+  // CRITICAL: a delete must NOT route through the write primitive.
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'atomicWriteFn must NEVER be called for a delete op');
+  // journal persisted three times: snapshotted, applying, committed; lock released.
+  assert.equal(seams.writeJournalFn.calls.length, 3);
+  assert.equal(seams.releaseFn.calls.length, 1);
+});
+
+// ── (D2) enableWrites + a failed atomicDeleteFn → failed, applied:false, apply-op-delete-failed ──
+
+test('applyPlan enableWrites: a failed atomicDeleteFn → journal failed, applied:false, apply-op-delete-failed (D2)', async () => {
+  const atomicDeleteFn = makeAtomicDelete({ ok: false, leftovers: { oldPath: null },
+    diagnostics: [{ severity: 'error', code: 'apply-delete-failed', message: 'EBUSY', phase: 'apply' }] });
+  const seams = happySeams({ atomicDeleteFn });
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([deleteOp()]) }));
+  assert.equal(res.ok, false);
+  assert.equal(res.applied, false);
+  assert.equal(res.state, 'failed');
+  // the delete-specific rollup code (NOT apply-op-failed, which is the write path).
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-delete-failed'), 'delete-specific rollup code');
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-op-failed'), 'the write-path code must NOT be used for a delete');
+  // the primitive's own diagnostic is aggregated.
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-delete-failed'), 'aggregates the delete-primitive diag');
+  // transitions reached applying then failed (not committed).
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'failed']);
+  assert.equal(seams.releaseFn.calls.length, 1, 'lock released');
+});
+
+// ── (D3) enableWrites + mixed plan [overwrite, delete] → committed, opsWritten:2 ──
+
+test('applyPlan enableWrites: mixed plan [overwrite, delete] → committed, opsWritten:2, both primitives called in order (D3)', async () => {
+  const seams = happySeams();
+  const wt = `${TARGET}\\settings.json`;
+  const dt = `${TARGET}\\agents\\foo.md`;
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, plan: planWith([writeOp('overwrite'), deleteOp(dt)]),
+  }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 2);
+  // each primitive called exactly once, on its own target.
+  assert.equal(seams.atomicWriteFn.calls.length, 1, 'the overwrite op routed to the write primitive');
+  assert.equal(seams.atomicWriteFn.calls[0].target, wt);
+  assert.equal(seams.atomicDeleteFn.calls.length, 1, 'the delete op routed to the delete primitive');
+  assert.equal(seams.atomicDeleteFn.calls[0].target, dt);
+  // the full lifecycle tail ran.
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
+});
+
+// ── (D4) enableWrites + a delete op with no target → refused before applying, NO delete ──
+
+test('applyPlan enableWrites: a delete op with no target → failed + apply-op-invalid, no delete (D4)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true,
+    plan: planWith([{ kind: 'delete', summary: 'no target' }]), // no `target`
+  }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'),
+    'apply-op-invalid must be present: ' + JSON.stringify(res.diagnostics));
+  // CRITICAL: refused while snapshotted — never transitioned to applying, never deleted.
+  assert.equal(seams.atomicDeleteFn.calls.length, 0, 'atomicDeleteFn NEVER called when the op is invalid');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.ok(!states.includes('applying'), 'never transitions to applying on an invalid-op refusal');
+  assert.deepEqual(states, ['snapshotted', 'failed']);
+});
+
+// ── (D5) WITHOUT enableWrites: a delete op stops at snapshotted, atomicDeleteFn NEVER called ──
+
+test('applyPlan WITHOUT enableWrites: a delete op stops at snapshotted, atomicDeleteFn NEVER called (D5)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([deleteOp()]) })); // no enableWrites
+  assert.equal(res.ok, true);
+  assert.equal(res.state, 'snapshotted');
+  assert.equal(res.applied, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-writes-disabled'), 'writes-disabled info present');
+  // the default path performs NO mutation of any kind.
+  assert.equal(seams.atomicDeleteFn.calls.length, 0, 'no delete on the default (writes-disabled) path');
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'no write on the default path');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted'], 'never transitions past snapshotted');
+});
+
+// ── (D6) paranoid + delete: a delete op is NOT re-read (paranoid skipped) → committed ──
+
+test('applyPlan paranoid + delete: a delete op is NOT re-read (paranoid skipped) → committed (D6)', async () => {
+  // A delete writes no file, so even under --paranoid the readFileFn must never run.
+  const readFileFn = makeReadFile('{ would-be broken if read }');
+  const seams = { ...happySeams(), readFileFn };
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, paranoid: true, plan: planWith([deleteOp()]),
+  }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  assert.equal(seams.atomicDeleteFn.calls.length, 1, 'the delete op was executed');
+  // CRITICAL: paranoid never re-reads a deleted target (nothing to re-parse).
+  assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a delete op under paranoid');
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'), 'no paranoid failure for a delete');
 });
