@@ -41,6 +41,7 @@ import { selftestCommand } from './selftest-command.mjs';
 import { rollbackCommand } from './rollback-command.mjs';
 import { recoverCommand } from './recover-command.mjs';
 import { lockCommand } from './lock-command.mjs';
+import { removeCommand } from './remove-command.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -434,10 +435,17 @@ export const COMMANDS = Object.freeze({
   'rollback': (ctx) => rollbackCommand(ctx),
   'recover': (ctx) => recoverCommand(ctx),
   'lock': (ctx) => lockCommand(ctx),
+  // remove (P4a.U5): delete ONE user-level single-file component (agent|command),
+  // DRY-RUN by default + held behind the two-factor write gate (--apply AND
+  // CLAUDE_MGR_ENABLE_WRITES=1). The auto-snapshot runs BEFORE the delete so every
+  // remove is reversible via `rollback`. Takes an optional second `deps` arg; the
+  // registry passes only ctx so it uses the default (real engine + real process.env
+  // + real `import('../paths.mjs')`) deps.
+  'remove': (ctx) => removeCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
 export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
 export { snapshotListCommand, snapshotGcCommand };
 export { snapshotPinCommand, snapshotUnpinCommand };
-export { rollbackCommand, recoverCommand, lockCommand };
+export { rollbackCommand, recoverCommand, lockCommand, removeCommand };
