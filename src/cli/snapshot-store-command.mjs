@@ -30,23 +30,69 @@ import { resolveWriteIntent } from './write-gate.mjs';
 
 /**
  * Read-only snapshot listing. Surfaces every snapshot under `.mgr-state/snapshots/`
- * newest-first: each as `{ id, createdAt, reason, fileCount, complete }`. An
- * incomplete dir (no/invalid manifest) is listed with `complete:false`. A missing
- * snapshots dir is benign (empty list). Never throws.
+ * newest-first: each as `{ id, createdAt, reason, fileCount, complete, pinned }`.
+ * An incomplete dir (no/invalid manifest) is listed with `complete:false`. A
+ * missing snapshots dir is benign (empty list). Never throws.
  *
- * `seams` is an injectable test seam: a fake `listFn` lets the command be unit-
- * tested without a real `.mgr-state` on disk.
+ * RETENTION PREVIEW: when `--keep` or `--older-than` is present, a DRY-RUN
+ * gcSnapshots is run and each snapshot is annotated with `wouldPrune:boolean`.
+ * A pinned snapshot is ALWAYS `wouldPrune:false` regardless of what gc returns.
+ * A `summary` is always included: `{ total, pinnedCount, wouldPruneCount,
+ * keptCount }` — `wouldPruneCount`/`keptCount` are omitted when no criterion.
+ *
+ * `seams` is an injectable test seam: fake `listFn` / `gcFn` enable unit testing
+ * without a real `.mgr-state` on disk.
  *
  * @param {import('./commands.mjs').CommandContext} ctx
- * @param {{ listFn?: typeof listSnapshots }} [seams]
+ * @param {{ listFn?: typeof listSnapshots, gcFn?: typeof gcSnapshots }} [seams]
  * @returns {import('./commands.mjs').CommandOutput}
  */
 export function snapshotListCommand(ctx, seams = {}) {
   const listFn = seams.listFn ?? listSnapshots;
-  const { snapshots, diagnostics } = listFn({ mgrStateDir: ctx && ctx.mgrStateDir });
+  const gcFn   = seams.gcFn   ?? gcSnapshots;
+  const mgrStateDir = ctx && ctx.mgrStateDir;
+  const args = (ctx && ctx.args) || {};
+
+  /** @type {{severity:string,code:string,message:string,phase:string}[]} */
+  const extraDiags = [];
+  const keep       = coerceKeep(args.keep, extraDiags);
+  const olderThanMs = coerceOlderThan(args['older-than'], extraDiags);
+  const hasCriterion = keep !== undefined || olderThanMs !== undefined;
+
+  const { snapshots: raw, diagnostics: listDiags } = listFn({ mgrStateDir });
+  const snapshots = Array.isArray(raw) ? raw : [];
+
+  // Compute per-snapshot wouldPrune annotation when a criterion is present.
+  /** @type {Set<string>} */
+  let wouldDeleteSet = new Set();
+  if (hasCriterion) {
+    const gc = gcFn({ mgrStateDir, keep, olderThanMs, apply: false });
+    const wd = Array.isArray(gc.wouldDelete) ? gc.wouldDelete : [];
+    wouldDeleteSet = new Set(wd);
+    for (const d of (gc.diagnostics ?? [])) extraDiags.push(d);
+  }
+
+  // Annotate each snapshot; build summary counts.
+  const annotated = snapshots.map((s) => {
+    if (!s || typeof s !== 'object') return s;
+    if (!hasCriterion) return s;
+    // A pinned snapshot is ALWAYS wouldPrune:false — gc force-retains pins.
+    const wouldPrune = s.pinned ? false : wouldDeleteSet.has(s.id);
+    return { ...s, wouldPrune };
+  });
+
+  const pinnedCount = snapshots.filter((s) => s && s.pinned).length;
+  /** @type {Record<string, number>} */
+  const summary = { total: snapshots.length, pinnedCount };
+  if (hasCriterion) {
+    const pruneCount = annotated.filter((s) => s && s.wouldPrune).length;
+    summary.wouldPruneCount = pruneCount;
+    summary.keptCount = snapshots.length - pruneCount;
+  }
+
   return {
-    result: { snapshots, count: Array.isArray(snapshots) ? snapshots.length : 0 },
-    diagnostics: diagnostics.slice(),
+    result: { snapshots: annotated, count: snapshots.length, summary },
+    diagnostics: [...listDiags, ...extraDiags],
   };
 }
 
