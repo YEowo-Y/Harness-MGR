@@ -56,7 +56,7 @@ const FAKE_APPLY_WRITABLE_FILES = ['settings.json', 'settings.local.json', '.mcp
  */
 function fakeAssertWritable(target, context = 'apply') {
   const { targetClaudeDir, mgrStateDir } = fakeRoots;
-  const ctx = (context === 'rollback' || context === 'probe') ? context : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove') ? context : 'apply';
 
   // Always writable: under mgrStateDir
   if (isUnderFake(target, mgrStateDir)) {
@@ -91,6 +91,21 @@ function fakeAssertWritable(target, context = 'apply') {
       return target;
     }
     throw Object.assign(new Error('probe-only: ' + target), { code: 'write-probe-only' });
+  }
+
+  // 'remove' context: allow ONLY a plain .md leaf directly in agents/ or commands/.
+  // NOTE: string-only, no canonical()/realpath — mirrors the probe branch above.
+  if (ctx === 'remove') {
+    const agentsDir = join(targetClaudeDir, 'agents');
+    const commandsDir = join(targetClaudeDir, 'commands');
+    const parentDir = target.slice(0, target.lastIndexOf(sep));
+    const filename = target.slice(target.lastIndexOf(sep) + 1);
+    const FAKE_REMOVABLE_LEAF_RE = /^[A-Za-z0-9._-]+\.md$/i;
+    const directChild = parentDir === agentsDir || parentDir === commandsDir;
+    if (directChild && FAKE_REMOVABLE_LEAF_RE.test(filename) && !FAKE_PROBE_NAME_RE.test(filename)) {
+      return target;
+    }
+    throw Object.assign(new Error('remove-only: ' + target), { code: 'write-remove-only' });
   }
 
   // Always-writable governed settings files (plan line 432): exact basename,
