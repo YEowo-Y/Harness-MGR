@@ -42,6 +42,12 @@ export { getClaudeConfigDir };
  *  'probe' write context permits in agents/. */
 const PROBE_NAME_RE = /^__mgr-probe-[0-9a-f-]+\.md$/i;
 
+/** A removable single-file component leaf: a plain `.md` filename with no path
+ *  separators or traversal. The ONLY basename shape the 'remove' context permits
+ *  directly in agents/ or commands/. A probe artifact name (PROBE_NAME_RE) is
+ *  explicitly excluded — those are mgr's own transient files, not user components. */
+const REMOVABLE_LEAF_RE = /^[A-Za-z0-9._-]+\.md$/i;
+
 /**
  * The governed settings files writable in BOTH 'apply' and 'rollback' contexts,
  * each ONLY when placed DIRECTLY under the governed config dir (NOT nested).
@@ -67,10 +73,11 @@ export const MGR_STATE_DIRNAME = '.mgr-state';
  */
 
 /**
- * @typedef {'apply'|'rollback'|'probe'} WriteContext
+ * @typedef {'apply'|'rollback'|'probe'|'remove'} WriteContext
  *   - 'apply'    — normal apply operation (default)
  *   - 'rollback' — snapshot restore: may write to governed content surfaces
  *   - 'probe'    — transient loader-probe artifact: ONLY agents/__mgr-probe-<uuid>.md
+ *   - 'remove'   — single-file component delete: ONLY a direct-child .md leaf in agents/ or commands/
  */
 
 /**
@@ -211,19 +218,21 @@ function isApplyWritableFile(canonicalTarget, claudeDir) {
  *     writable in BOTH 'apply' and 'rollback' (see APPLY_WRITABLE_FILES).
  *   - Probe-only: context === 'probe' permits ONLY agents/__mgr-probe-<uuid>.md
  *     (the transient loader-probe artifact, P2.U7c) — nothing else.
+ *   - Remove-only: context === 'remove' permits ONLY a direct-child `.md` component
+ *     leaf in agents/ or commands/ (single-file remove, P4a) — nothing else.
  *
  * Per P1-10, U3 is apply-centric; the rollback context is recognized here per
  * the documented signature so P3 can wire it without reshaping the API.
  *
  * @param {string} target            absolute path intended for writing
- * @param {WriteContext} [context]   'apply' (default), 'rollback', or 'probe'
+ * @param {WriteContext} [context]   'apply' (default), 'rollback', 'probe', or 'remove'
  * @returns {string} the canonical target path
  */
 export function assertWritable(target, context = 'apply') {
   if (typeof target !== 'string' || target.length === 0) {
     throw new WriteForbiddenError('write target must be a non-empty string', 'write-target-invalid');
   }
-  const ctx = (context === 'rollback' || context === 'probe') ? context : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove') ? context : 'apply';
   const claudeDir = targetClaudeDir();
   const stateDir = mgrStateDir(claudeDir);
 
@@ -265,6 +274,28 @@ export function assertWritable(target, context = 'apply') {
     throw new WriteForbiddenError(
       `probe context permits only agents/__mgr-probe-*.md: ${target}`,
       'write-probe-only',
+    );
+  }
+
+  // 'remove' context: permit ONLY a single-file component leaf — a plain `.md`
+  // file DIRECTLY in agents/ or commands/ (NOT nested, NOT a probe artifact, NOT
+  // any other governed surface). Mirrors the 'probe' pattern (least authority).
+  // Reached only AFTER the .mgr-state / outside-target / forbidden-subtree / probe
+  // checks above, so it can never touch plugins/marketplaces, projects, or escape
+  // via a symlinked agents/ (canonical() also defeats agents/../, NTFS ADS, 8.3
+  // short-names, trailing-dot). Anything else in 'remove' context is refused.
+  if (ctx === 'remove') {
+    const canonicalTarget = canonical(target);
+    const parent = dirname(canonicalTarget);
+    const leaf = basename(canonicalTarget);
+    const directChild = parent === canonical(join(claudeDir, 'agents'))
+      || parent === canonical(join(claudeDir, 'commands'));
+    if (directChild && REMOVABLE_LEAF_RE.test(leaf) && !PROBE_NAME_RE.test(leaf)) {
+      return canonicalTarget;
+    }
+    throw new WriteForbiddenError(
+      `remove context permits only a single .md component directly in agents/ or commands/: ${target}`,
+      'write-remove-only',
     );
   }
 
