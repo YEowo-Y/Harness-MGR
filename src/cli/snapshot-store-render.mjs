@@ -14,27 +14,60 @@ import { formatTable } from '../output/table.mjs';
 
 /**
  * snapshot:list → one row per snapshot (newest-first), with its id, createdAt,
- * reason, fileCount, and completeness. Defensive — a missing/incomplete record
- * renders empty cells.
+ * reason, fileCount, completeness, pin status, and (when present) retention
+ * preview. Defensive — a missing/incomplete record renders empty cells.
+ *
+ * Columns:
+ *   `status`  — PIN when pinned; PRUNE/KEEP when wouldPrune is present; else blank.
+ *   `id`      — snapshot id (timestamp)
+ *   `createdAt`, `reason`, `files`, `complete` — as before.
+ *
+ * A summary line is appended: total / pinned / (would-prune when a criterion ran).
+ *
  * @param {Record<string, unknown>} r
  * @returns {string}
  */
 export function snapshotListTable(r) {
   const snapshots = Array.isArray(r.snapshots) ? r.snapshots : [];
-  const rows = snapshots.map((s) => ({
-    id: s && s.id,
-    createdAt: s && s.createdAt,
-    reason: s && s.reason,
-    files: s && typeof s.fileCount === 'number' ? s.fileCount : '',
-    complete: s && s.complete ? 'yes' : 'no',
-  }));
-  return formatTable([
+  const hasRetention = snapshots.some((s) => s && typeof s.wouldPrune === 'boolean');
+
+  const rows = snapshots.map((s) => {
+    let status = '';
+    if (s && s.pinned) {
+      status = 'PIN';
+    } else if (hasRetention && s && typeof s.wouldPrune === 'boolean') {
+      status = s.wouldPrune ? 'PRUNE' : 'KEEP';
+    }
+    return {
+      status,
+      id: s && s.id,
+      createdAt: s && s.createdAt,
+      reason: s && s.reason,
+      files: s && typeof s.fileCount === 'number' ? s.fileCount : '',
+      complete: s && s.complete ? 'yes' : 'no',
+    };
+  });
+
+  const cols = [
+    { key: 'status', header: '' },
     { key: 'id', header: 'id' },
     { key: 'createdAt', header: 'createdAt' },
     { key: 'reason', header: 'reason' },
     { key: 'files', header: 'files', align: 'right' },
     { key: 'complete', header: 'complete' },
-  ], rows);
+  ];
+  const table = formatTable(cols, rows);
+
+  // Summary line.
+  const summary = r.summary && typeof r.summary === 'object' ? r.summary : {};
+  const total = num(summary.total) || snapshots.length;
+  const pinnedCount = num(summary.pinnedCount);
+  let summaryLine = `total: ${total}  pinned: ${pinnedCount}`;
+  if (typeof summary.wouldPruneCount === 'number') {
+    summaryLine += `  would-prune: ${num(summary.wouldPruneCount)}  kept: ${num(summary.keptCount)}`;
+  }
+
+  return table ? `${table}\n${summaryLine}` : summaryLine;
 }
 
 /**
