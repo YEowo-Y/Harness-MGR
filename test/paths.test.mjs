@@ -251,6 +251,133 @@ test('assertWritable probe context: uppercase variant of probe name matches (reg
   }
 });
 
+// --- assertWritable: 'remove' context tests (P4a.U1a) ---
+test('assertWritable remove context: agents/foo.md -> returns canonical path', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const result = assertWritable(join(dir, 'agents', 'foo.md'), 'remove');
+    assert.ok(typeof result === 'string' && result.length > 0, 'returns canonical path string');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove context: commands/bar.md -> returns canonical path', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const result = assertWritable(join(dir, 'commands', 'bar.md'), 'remove');
+    assert.ok(typeof result === 'string' && result.length > 0);
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove context: non-.md leaf -> throws write-remove-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'agents', 'foo.txt'), 'remove'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove context: nested subdir -> throws write-remove-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'agents', 'sub', 'foo.md'), 'remove'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove context: probe-named file -> throws write-remove-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'agents', '__mgr-probe-0000.md'), 'remove'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove context: CLAUDE.md (not in agents/commands) -> throws write-remove-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'CLAUDE.md'), 'remove'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove context: agents/../settings.json traversal -> NOT write-remove-only allow (refused)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // canonical() collapses agents/../settings.json to <dir>/settings.json, whose
+    // parent is the config dir (NOT agents/) -> refused with write-remove-only.
+    assert.throws(
+      () => assertWritable(join(dir, 'agents', '..', 'settings.json'), 'remove'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove context: plugins/marketplaces target -> throws write-forbidden (forbidden wins)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'plugins', 'marketplaces', 'm', 'agents', 'x.md'), 'remove'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-forbidden',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1) ---
 test('assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
