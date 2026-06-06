@@ -1,0 +1,190 @@
+/**
+ * CLI handler for `remove <kind>:<name> [--reason <msg>] [--apply]` (P4a.U5).
+ *
+ * Wires the already-built `removeComponent` engine (src/ops/remove.mjs) into the
+ * CLI behind the SAME two-factor write gate every write command uses:
+ * `resolveWriteIntent` requires BOTH `--apply` AND `CLAUDE_MGR_ENABLE_WRITES=1`.
+ *
+ * DRY-RUN BY DEFAULT: a bare `remove agent:foo` previews the operation (builds the
+ * Plan, resolves the target, confirms it exists) and writes NOTHING. With `--apply`
+ * + the env factor the remove actually runs: auto-snapshot first, then the governed
+ * atomic delete. The snapshot makes every remove reversible via `rollback`.
+ *
+ * M2-SAFETY: this module never STATICALLY imports src/paths.mjs. The write gate
+ * (`assertWritable`) is resolved via a DYNAMIC `import()` ONLY on the real --apply
+ * path (mirrors rollback-command.mjs); on import failure the command degrades
+ * gracefully to a `remove-write-unavailable` warn. The dry-run path never touches
+ * paths.mjs.
+ *
+ * `deps` is the injectable test seam (mirrors rollback-command.mjs): fake
+ * `loadPaths` + `removeFn` + `env` make every path hermetically unit-testable
+ * without a real gate / lock / snapshot / delete / fs.
+ *
+ * Never throws — removeComponent is ops-pure/never-throws, the dynamic import is
+ * guarded, and the summary helper is fully defensive.
+ *
+ * Spec: docs/phase-4a-design.md §5; plan claude-mgr-v5.md Phase 4a.U5.
+ *
+ * Zero npm dependencies. Node stdlib only.
+ */
+
+import { removeComponent } from '../ops/remove.mjs';
+import { resolveWriteIntent } from './write-gate.mjs';
+
+/** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
+/** @typedef {import('./commands.mjs').CommandContext} CommandContext */
+/** @typedef {import('./commands.mjs').CommandOutput} CommandOutput */
+/** @typedef {import('../ops/remove.mjs').RemoveResult} RemoveResult */
+
+/**
+ * Map a RemoveResult to a CLI exit code. Mirrors the design §5 exit-code table:
+ *   0 — clean dry-run preview or successful apply
+ *   2 — validation refused (bad spec, unsupported kind, target not found, …)
+ *   3 — invalid args / writes-disabled gate (handled upstream; here for completeness)
+ *   4 — snapshot integrity failure during apply
+ *   6 — apply lock could not be acquired
+ *   1 — any other apply failure
+ *
+ * @param {RemoveResult} r
+ * @returns {number}
+ */
+function removeExitCode(r) {
+  if (r.refused) return 2;
+  if (r.ok) return 0;
+  // Apply path failed — inspect the ApplyResult for a more specific code.
+  const ar = r.apply;
+  if (ar && ar.lock && ar.lock.acquired === false) return 6;
+  if (ar && Array.isArray(ar.diagnostics) &&
+      ar.diagnostics.some((d) => d && d.code === 'apply-snapshot-failed')) return 4;
+  return 1;
+}
+
+/**
+ * Shape a RemoveResult into a LEAN, flat summary for the table renderer. Fully
+ * defensive — a dry-run has no `apply`, and every field is coerced to a safe
+ * scalar / null. GENUINELY TOTAL: the body is wrapped so even a pathological
+ * result (a property that is a throwing getter) degrades to a constant summary
+ * instead of throwing (mirrors summarizeRollback in rollback-command.mjs).
+ *
+ * @param {RemoveResult} r
+ * @returns {object}
+ */
+function summarizeRemove(r) {
+  const o = r && typeof r === 'object' ? r : {};
+  try {
+    return {
+      status: o.refused ? 'refused' : (o.dryRun ? 'dry-run' : (o.ok ? 'removed' : 'failed')),
+      ok: !!o.ok,
+      dryRun: !!o.dryRun,
+      kind: o.kind ?? null,
+      name: o.name ?? null,
+      target: o.target ?? null,
+      applied: o.apply ? !!o.apply.applied : false,
+      snapshotId: o.apply ? (o.apply.snapshotId ?? null) : null,
+      lockAcquired: o.apply && o.apply.lock ? !!o.apply.lock.acquired : null,
+    };
+  } catch {
+    return {
+      status: 'summary-error', ok: false, dryRun: false,
+      kind: null, name: null, target: null,
+      applied: false, snapshotId: null, lockAcquired: null,
+    };
+  }
+}
+
+/**
+ * Drive `removeComponent` from the CLI. Reads the spec from
+ * `ctx.args.positionals[0]`, applies the two-factor write gate, and (only on the
+ * real --apply path) dynamically resolves the governed-write gate.
+ *
+ * @param {CommandContext} ctx  { configDir, mgrStateDir, args }
+ * @param {{
+ *   loadPaths?: () => Promise<{assertWritable: Function}>,
+ *   removeFn?: typeof removeComponent,
+ *   env?: Record<string, string|undefined>
+ * }} [deps]
+ * @returns {Promise<CommandOutput & {code: number}>}
+ */
+export async function removeCommand(ctx, deps = {}) {
+  const args = ctx && ctx.args ? ctx.args : {};
+  const spec = args && Array.isArray(args.positionals) ? args.positionals[0] : undefined;
+
+  if (typeof spec !== 'string' || spec.length === 0) {
+    return {
+      result: { status: 'no-spec' },
+      diagnostics: [{
+        severity: 'error', code: 'remove-no-spec', phase: 'cli',
+        message: 'remove requires a target: remove <kind>:<name> (kind = agent|command)',
+      }],
+      code: 3,
+    };
+  }
+
+  const reason = typeof args.reason === 'string' ? args.reason : undefined;
+  const apply = !!(args && args.apply);
+  const env = deps.env ?? process.env;
+
+  // Two-factor gate: --apply alone is not enough; CLAUDE_MGR_ENABLE_WRITES=1 is
+  // the second factor. A closed gate REFUSES here — the engine is never called.
+  const intent = resolveWriteIntent({ apply, env });
+  if (intent.refusal) {
+    return {
+      result: { status: 'refused', mode: 'apply-requested' },
+      diagnostics: [intent.refusal],
+      code: intent.code,
+    };
+  }
+
+  // Resolve the governed-write gate ONLY on the real --apply path. The dry-run
+  // path performs no write, so assertWritable stays undefined (the engine's
+  // dry-run path needs no gate). paths.mjs is imported DYNAMICALLY (M2-safe).
+  let assertWritable;
+  if (intent.enableWrites) {
+    try {
+      const paths = await (deps.loadPaths ?? (() => import('../paths.mjs')))();
+      assertWritable = paths.assertWritable;
+    } catch (err) {
+      return {
+        result: { status: 'write-unavailable' },
+        diagnostics: [{
+          severity: 'warn', code: 'remove-write-unavailable', phase: 'cli',
+          message: `~/.claude/hooks/lib unloadable; remove --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+        }],
+        code: 1,
+      };
+    }
+  }
+
+  const removeFn = deps.removeFn ?? removeComponent;
+  // The engine boundary is a seam: removeComponent is proven never-throws/never-
+  // rejects, but guarding the await keeps the handler total even against a buggy
+  // or injected seam — a throw/reject degrades to a clean error result.
+  let r;
+  try {
+    r = await removeFn({
+      spec,
+      targetClaudeDir: ctx.configDir,
+      mgrStateDir: ctx.mgrStateDir,
+      assertWritable,
+      enableWrites: intent.enableWrites,
+      reason,
+      pid: process.pid,
+    });
+  } catch (err) {
+    return {
+      result: { status: 'error' },
+      diagnostics: [{
+        severity: 'error', code: 'remove-unexpected-error', phase: 'cli',
+        message: `remove failed unexpectedly: ${err instanceof Error ? err.message : String(err)}`,
+      }],
+      code: 1,
+    };
+  }
+
+  const o = r && typeof r === 'object' ? r : {};
+  return {
+    result: summarizeRemove(o),
+    diagnostics: Array.isArray(o.diagnostics) ? o.diagnostics.slice() : [],
+    code: removeExitCode(o),
+  };
+}
