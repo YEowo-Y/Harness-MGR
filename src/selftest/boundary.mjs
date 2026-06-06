@@ -25,8 +25,10 @@ export { buildAllowlistCases } from './boundary-cases.mjs';
 export { snapshotDirHashes, checkSpawnWriteBoundary } from '../lib/spawn-write-boundary.mjs';
 export { checkSpawnSpecGuardrail, MUTATION_FLAGS, LEGIT_POSIX_PATH } from './spawn-spec-guardrail.mjs';
 export { checkSpawnSpecCompleteness } from './spawn-spec-completeness.mjs';
+export { checkWriteGateCompleteness, MUTATION_SEAMS, EXEMPT_MODULES } from './write-gate-completeness.mjs';
 import { checkSpawnSpecGuardrail } from './spawn-spec-guardrail.mjs';
 import { checkSpawnSpecCompleteness } from './spawn-spec-completeness.mjs';
+import { checkWriteGateCompleteness } from './write-gate-completeness.mjs';
 import { SPAWN_SPECS } from './spawn-spec-registry.mjs';
 import { buildAllowlistCases } from './boundary-cases.mjs';
 
@@ -247,6 +249,10 @@ export function checkBoundary({ srcDir, assertWritable, roots } = {}) {
       SPAWN_SPECS.map((s) => (s && typeof s.id === 'string' ? s.id : '')),
     );
     for (const d of checkSpawnSpecCompleteness(srcFiles, registeredIds)) diags.push(d);
+    // Write-gate completeness: static backstop — every src/ module that CALLS an
+    // fs-mutation seam must reference assertWritable (gated) or be in EXEMPT_MODULES
+    // (an audited non-governed writer). Runs when srcDir was provided.
+    for (const d of checkWriteGateCompleteness(srcFiles)) diags.push(d);
   }
   return { diagnostics: diags };
 }
