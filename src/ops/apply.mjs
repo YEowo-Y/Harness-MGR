@@ -13,11 +13,15 @@
  * back, a persisted journal recording that we got that far). That default path is
  * byte-identical to P3.U12 and proven to touch nothing under the governed config.
  *
- * With `enableWrites === true` the lifecycle CONTINUES past `snapshotted`: EVERY
- * create/overwrite op is written via the atomic-write primitive (sub-unit B), IN
- * PLAN ORDER, driving the journal `applying`→`committed` (or `→ failed`). All ops
- * are validated BEFORE any write — if ANY op is invalid the apply REFUSES (marks
- * the journal `failed`) without an `applying` transition or a single write.
+ * With `enableWrites === true` the lifecycle CONTINUES past `snapshotted`: EVERY op
+ * is executed via its primitive, IN PLAN ORDER, driving the journal
+ * `applying`→`committed` (or `→ failed`). A create/overwrite op is WRITTEN via the
+ * atomic-write primitive (sub-unit B, gate context 'apply'); a delete op (no
+ * `content`; the target file is removed) is DELETED via the atomic-delete primitive
+ * (P4a.U1b, gate context 'remove') — the remove feature's mechanism. All ops are
+ * validated BEFORE any write/delete — if ANY op is invalid the apply REFUSES (marks
+ * the journal `failed`) without an `applying` transition or a single mutation. The
+ * partial-failure / recover semantics are IDENTICAL for both op classes.
  *
  * --paranoid: after each governed write of a *.json target, the file is re-read
  * from disk and re-parsed with the tolerant JSONC parser. A parse failure ABORTS
@@ -31,13 +35,16 @@
  * ops that already wrote; the snapshot + `recover --rollback` is the recovery path.
  *
  * SECURITY / SAFETY invariants (each mirrors the sibling ops modules):
- *   1. The ONLY governed-config writes are the atomic writes of the ops, and they
- *      happen ONLY under `enableWrites === true`. Every governed write routes
- *      through atomicApplyWrite, which calls assertWritable(target,'apply')
- *      internally — there is NO local path allowlist; the gate is the single
- *      source of truth (an op targeting CLAUDE.md / marketplaces is denied → the
- *      write fails → the journal moves to `failed`). All .mgr-state writes (lock,
- *      snapshot, journal) are likewise gated by the INJECTED assertWritable.
+ *   1. The ONLY governed-config mutations are the atomic write/delete of the ops,
+ *      and they happen ONLY under `enableWrites === true`. A create/overwrite routes
+ *      through atomicApplyWrite (assertWritable(target,'apply')); a delete routes
+ *      through atomicApplyDelete (assertWritable(target,'remove')) — each primitive
+ *      calls the gate INTERNALLY. There is NO local path allowlist; the gate is the
+ *      single source of truth (an op targeting CLAUDE.md / marketplaces is denied →
+ *      the op fails → the journal moves to `failed`; the 'remove' context only
+ *      permits a single-file `.md` leaf in agents/ or commands/). All .mgr-state
+ *      writes (lock, snapshot, journal) are likewise gated by the INJECTED
+ *      assertWritable.
  *   2. assertWritable is INJECTED + REQUIRED (fail-safe: refuse if absent, never
  *      silently bypass), exactly like lock.mjs / snapshot.mjs / apply-journal-writer.
  *      It is threaded into acquireLock, createSnapshot, writeJournal, AND the
@@ -75,11 +82,12 @@
 
 import { readFileSync } from 'node:fs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
-import { parseJsonc } from '../lib/jsonc-parser.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
 import { createSnapshot } from './snapshot.mjs';
 import { createJournal, transition, writeJournal } from './apply-journal-writer.mjs';
 import { atomicApplyWrite } from './atomic-write.mjs';
+import { atomicApplyDelete } from './atomic-delete.mjs';
+import { paranoidVerify } from './apply-paranoid.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('../lib/plan.mjs').Plan} Plan */
@@ -87,6 +95,9 @@ import { atomicApplyWrite } from './atomic-write.mjs';
 
 /** The op kinds this unit can write (they carry `content`). */
 const WRITABLE_KINDS = Object.freeze(['create', 'overwrite']);
+
+/** The op kinds this unit can DELETE (no `content`; the target file is removed). */
+const DELETABLE_KINDS = Object.freeze(['delete']);
 
 /** Stable diagnostic phase tag for this module's own findings. */
 const PHASE = 'apply';
@@ -111,8 +122,12 @@ const PHASE = 'apply';
  *                                   a no-op apply; N for N committed ops). Also
  *                                   present on a PARTIAL-FAILURE result, where it is
  *                                   the number of ops written before the failure.
- * @property {{newPath:string|null, oldPath:string|null}} [leftovers]  sidecar files
- *                                   stranded by a catastrophic atomic-write failure.
+ * @property {{newPath?:string|null, oldPath:string|null}} [leftovers]  sidecar files
+ *                                   stranded by a catastrophic op failure, passed
+ *                                   through verbatim from the primitive: a write
+ *                                   failure carries {newPath,oldPath}; a delete
+ *                                   failure carries only {oldPath} (atomic-delete
+ *                                   never strands a newPath).
  * @property {string|null} snapshotId
  * @property {string|null} journalPath
  * @property {string|null} manifestPath
@@ -211,13 +226,15 @@ async function persistJournal(args) {
 }
 
 /**
- * Validate EVERY op is a writable create/overwrite op (P3.U19 multi-op), drive
- * `snapshotted`→`applying`, then write each op IN PLAN ORDER (via the atomic-write
- * primitive, gated internally), then →`committed`. A single invalid op refuses the
- * whole apply (journal `failed`) WITHOUT an 'applying' transition or a write. A
- * failed write — or, under `--paranoid`, a *.json re-parse failure — STOPS the
- * sequence (op N+1.. never attempted) and marks the journal `failed`, with
- * `applied`/`opsWritten` reflecting how many ops' bytes landed first. Never throws.
+ * Validate EVERY op is a supported create/overwrite/delete op (P3.U19 multi-op +
+ * P4a.U1c delete), drive `snapshotted`→`applying`, then execute each op IN PLAN
+ * ORDER (create/overwrite via the atomic-write primitive, delete via the
+ * atomic-delete primitive, each gated internally), then →`committed`. A single
+ * invalid op refuses the whole apply (journal `failed`) WITHOUT an 'applying'
+ * transition or a mutation. A failed write/delete — or, under `--paranoid`, a *.json
+ * re-parse failure of a written file — STOPS the sequence (op N+1.. never attempted)
+ * and marks the journal `failed`, with `applied`/`opsWritten` reflecting how many
+ * ops landed first. Never throws.
  *
  * @param {object} a  { plan, mgrStateDir, assertWritable, now, paranoid, retry,
  *                       snap, fns, bag, base, journal, journalPath }
@@ -245,20 +262,25 @@ async function performApply(a) {
   const wp = persistAt(a, t.journal);
   if (!wp.written) return stuck('apply-journal-write-failed', "could not persist the apply journal at 'applying'");
 
-  // Write each op in plan order; a write or paranoid failure stops the sequence.
+  // Write/delete each op in plan order; a failure (or, for a written op under
+  // --paranoid, a *.json re-parse failure) stops the sequence.
   const journal = t.journal;
   let opsWritten = 0;
   for (const op of ops) {
-    const res = await fns.atomicWriteFn({ target: op.target, content: op.content, assertWritable, retry: a.retry });
+    const isDelete = DELETABLE_KINDS.includes(op.kind);
+    const res = isDelete
+      ? await fns.atomicDeleteFn({ target: op.target, assertWritable, retry: a.retry })
+      : await fns.atomicWriteFn({ target: op.target, content: op.content, assertWritable, retry: a.retry });
     for (const d of res.diagnostics ?? []) bag.add(d);
     if (!res.ok) {
-      return toFailed(a, journal, 'apply-op-failed',
-        `the governed write failed at op ${opsWritten + 1} of ${ops.length}; the journal is marked failed ` +
+      return toFailed(a, journal, isDelete ? 'apply-op-delete-failed' : 'apply-op-failed',
+        `the governed ${isDelete ? 'delete' : 'write'} failed at op ${opsWritten + 1} of ${ops.length}; the journal is marked failed ` +
           '(snapshot intact — run recover --rollback to restore)',
         { applied: opsWritten > 0, opsWritten, leftovers: res.leftovers, journalPath: wp.path });
     }
     opsWritten += 1;
-    if (a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
+    // paranoid re-parse applies ONLY to written *.json files — a delete has nothing to re-read.
+    if (!isDelete && a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
       return toFailed(a, journal, 'apply-paranoid-failed',
         `op ${opsWritten} of ${ops.length} wrote an unparseable file (paranoid re-parse failed); ` +
           'the journal is marked failed (snapshot intact — run recover --rollback to restore)',
@@ -293,56 +315,28 @@ function commitApply(a) {
 }
 
 /**
- * Reason a single op is not a writable create/overwrite op, or null when it is
- * valid. Kind errors and missing-field errors carry distinct codes. Pure.
+ * Reason a single op is not a supported create/overwrite/delete op, or null when it
+ * is valid. A create/overwrite needs a non-empty `target` AND a string `content`; a
+ * delete needs a non-empty `target` and NO content. Kind errors and missing-field
+ * errors carry distinct codes. Pure.
  * @param {unknown} op
  * @returns {{code:string, message:string}|null}
  */
 function invalidOpReason(op) {
-  if (!op || typeof op !== 'object' || !WRITABLE_KINDS.includes(op.kind)) {
+  const obj = op && typeof op === 'object';
+  const isWrite = obj && WRITABLE_KINDS.includes(op.kind);
+  const isDelete = obj && DELETABLE_KINDS.includes(op.kind);
+  if (!isWrite && !isDelete) {
     return { code: 'apply-op-kind-unsupported',
-      message: `apply supports only ${WRITABLE_KINDS.join('/')} ops` };
+      message: `apply supports only ${[...WRITABLE_KINDS, ...DELETABLE_KINDS].join('/')} ops` };
   }
-  if (!isNonEmptyStr(op.target) || typeof op.content !== 'string') {
-    return { code: 'apply-op-invalid', message: 'op must have a non-empty string target and a string content' };
+  if (!isNonEmptyStr(op.target)) {
+    return { code: 'apply-op-invalid', message: 'op must have a non-empty string target' };
+  }
+  if (isWrite && typeof op.content !== 'string') {
+    return { code: 'apply-op-invalid', message: 'create/overwrite op must have a string content' };
   }
   return null;
-}
-
-/**
- * --paranoid re-verification of a single just-written op target: if the target is a
- * *.json file, re-read it from disk and re-parse it with the tolerant JSONC parser;
- * any parse error (or an unreadable file) returns `{ok:false}` with an error
- * Diagnostic. A non-JSON target is never read and returns `{ok:true}`. Pure aside
- * from the injected read; never throws.
- * @param {string} target          the op's absolute target path
- * @param {(p:string)=>string} readFileFn  injected disk reader
- * @param {DiagnosticBag} bag
- * @returns {{ok:boolean}}
- */
-function paranoidVerify(target, readFileFn, bag) {
-  if (!isJsonTarget(target)) return { ok: true };
-  let text;
-  try {
-    text = readFileFn(target);
-  } catch (e) {
-    bag.add({ severity: 'error', code: 'apply-paranoid-unreadable', phase: PHASE, path: target,
-      message: `paranoid re-read failed: ${e instanceof Error ? e.message : String(e)}` });
-    return { ok: false };
-  }
-  const { errors } = parseJsonc(text);
-  if (errors && errors.length) {
-    const e0 = errors[0];
-    bag.add({ severity: 'error', code: 'apply-paranoid-parse-failed', phase: PHASE, path: target,
-      message: `paranoid re-parse found invalid JSON: ${e0.message} (line ${e0.line}, column ${e0.column})` });
-    return { ok: false };
-  }
-  return { ok: true };
-}
-
-/** True when `target`'s basename ends in `.json` (handles `\` and `/` separators). */
-function isJsonTarget(target) {
-  return String(target).split(/[\\/]/).pop().toLowerCase().endsWith('.json');
 }
 
 /**
@@ -401,7 +395,7 @@ function persistAt(a, journal) {
  *                                                  it; a parse failure aborts → failed
  * @param {object}  [opts.retry]                    retry schedule forwarded to the atomic write
  * @param {() => Date} [opts.now]                   clock injection (defaults to Date)
- * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, readFileFn }
+ * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, atomicDeleteFn, readFileFn }
  * @returns {Promise<ApplyResult>}
  */
 export async function applyPlan(opts) {
@@ -420,6 +414,7 @@ export async function applyPlan(opts) {
     transitionFn: seams.transitionFn ?? transition,
     writeJournalFn: seams.writeJournalFn ?? writeJournal,
     atomicWriteFn: seams.atomicWriteFn ?? atomicApplyWrite,
+    atomicDeleteFn: seams.atomicDeleteFn ?? atomicApplyDelete,
     readFileFn: seams.readFileFn ?? ((p) => readFileSync(p, 'utf8')),
   };
 
