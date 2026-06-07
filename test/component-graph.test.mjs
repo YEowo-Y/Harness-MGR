@@ -17,7 +17,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildComponentGraph, addEdge, EDGE_KINDS } from '../src/lib/component-graph.mjs';
+import { buildComponentGraph, addEdge, EDGE_KINDS,
+  REFERENCE_FIELDS, parseRefValue, extractEdges } from '../src/lib/component-graph.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -236,6 +237,240 @@ test('addEdge: never throws on junk graph argument', () => {
   assert.doesNotThrow(() => addEdge(undefined, 'a', 'b', 'frontmatter-ref'));
   assert.doesNotThrow(() => addEdge({}, 'a', 'b', 'frontmatter-ref'));
   assert.doesNotThrow(() => addEdge({ byId: null, edges: [] }, 'a', 'b', 'frontmatter-ref'));
+});
+
+// ── REFERENCE_FIELDS & parseRefValue ─────────────────────────────────────────
+
+test('REFERENCE_FIELDS is frozen and contains exactly the three expected rows', () => {
+  assert.ok(Object.isFrozen(REFERENCE_FIELDS));
+  assert.equal(REFERENCE_FIELDS.length, 3);
+  const keys = REFERENCE_FIELDS.map((r) => `${r.sourceKind}/${r.field}->${r.targetKind}`);
+  assert.deepEqual(keys, [
+    'skill/agent->agent',
+    'skill/next-skill->skill',
+    'skill/pipeline->skill',
+  ]);
+});
+
+test('parseRefValue: plain string returns single-element array', () => {
+  assert.deepEqual(parseRefValue('tracer'), ['tracer']);
+  assert.deepEqual(parseRefValue('  tracer  '), ['tracer']);
+});
+
+test('parseRefValue: bracket-wrapped comma list is split correctly', () => {
+  assert.deepEqual(parseRefValue('[deep-dive, plan, autopilot]'), ['deep-dive', 'plan', 'autopilot']);
+  assert.deepEqual(parseRefValue('[a,b,c]'), ['a', 'b', 'c']);
+});
+
+test('parseRefValue: path-like tokens (containing / or \\) are dropped', () => {
+  assert.deepEqual(parseRefValue('.omc/specs/x.md'), []);
+  assert.deepEqual(parseRefValue('foo/bar'), []);
+  assert.deepEqual(parseRefValue('foo\\bar'), []);
+});
+
+test('parseRefValue: tokens starting with "." are dropped', () => {
+  assert.deepEqual(parseRefValue('.hidden'), []);
+  assert.deepEqual(parseRefValue('[.hidden, good]'), ['good']);
+});
+
+test('parseRefValue: empty tokens are dropped', () => {
+  assert.deepEqual(parseRefValue('[a,,b]'), ['a', 'b']);
+  assert.deepEqual(parseRefValue(''), []);
+  assert.deepEqual(parseRefValue('   '), []);
+});
+
+test('parseRefValue: non-string returns []', () => {
+  assert.deepEqual(parseRefValue(42), []);
+  assert.deepEqual(parseRefValue(null), []);
+  assert.deepEqual(parseRefValue(undefined), []);
+  assert.deepEqual(parseRefValue({}), []);
+  assert.deepEqual(parseRefValue(['a', 'b']), []);
+});
+
+test('parseRefValue: bracket wrapping stripped only once (single outer pair)', () => {
+  // "[plan]" -> "plan"; "[[plan]]" -> "[plan]" which has no separator, stays "[plan]"
+  assert.deepEqual(parseRefValue('[plan]'), ['plan']);
+  // The inner "[plan]" would be treated as a bare token (no comma, not path-like)
+  // It does start with '[' but that's only stripped once, so the result is "[plan]"
+  assert.deepEqual(parseRefValue('[[plan]]'), ['[plan]']);
+});
+
+// ── extractEdges ──────────────────────────────────────────────────────────────
+
+/** Build a ComponentRecord with explicit frontmatter. */
+const recFm = (kind, name, frontmatter = {}) => ({
+  kind, name, path: `/fake/${kind}/${name}.md`,
+  source: { tier: 'user' }, frontmatter,
+});
+
+test('extractEdges: skill.agent -> agent edge', () => {
+  const components = [
+    recFm('skill', 'tracer-skill', { agent: 'tracer' }),
+    recFm('agent', 'tracer'),
+  ];
+  const g = extractEdges(buildComponentGraph(components));
+  assert.equal(g.edges.length, 1);
+  assert.deepEqual(g.edges[0], {
+    source: 'skill:tracer-skill',
+    target: 'agent:tracer',
+    kind: 'frontmatter-ref',
+  });
+});
+
+test('extractEdges: skill.next-skill -> skill edge', () => {
+  const components = [
+    recFm('skill', 'step-one', { 'next-skill': 'plan' }),
+    recFm('skill', 'plan'),
+  ];
+  const g = extractEdges(buildComponentGraph(components));
+  assert.equal(g.edges.length, 1);
+  assert.deepEqual(g.edges[0], {
+    source: 'skill:step-one',
+    target: 'skill:plan',
+    kind: 'frontmatter-ref',
+  });
+});
+
+test('extractEdges: skill.pipeline -> multiple skill edges; self-edge silently rejected', () => {
+  // pipeline includes 'p-skill' itself — that self-edge must be rejected
+  const components = [
+    recFm('skill', 'p-skill', { pipeline: '[a, p-skill, b, c]' }),
+    recFm('skill', 'a'),
+    recFm('skill', 'b'),
+    recFm('skill', 'c'),
+  ];
+  const g = extractEdges(buildComponentGraph(components));
+  // Expect edges to a, b, c — NOT to p-skill (self-edge rejected by addEdge)
+  assert.equal(g.edges.length, 3);
+  const targets = g.edges.map((e) => e.target).sort();
+  assert.deepEqual(targets, ['skill:a', 'skill:b', 'skill:c']);
+  assert.ok(g.edges.every((e) => e.source === 'skill:p-skill'));
+  assert.ok(g.edges.every((e) => e.kind === 'frontmatter-ref'));
+});
+
+test('extractEdges: dangling ref (no matching node) produces NO edge', () => {
+  const components = [
+    recFm('skill', 'lonely', { agent: 'ghost' }),
+    // no agent:ghost node
+  ];
+  const g = extractEdges(buildComponentGraph(components));
+  assert.equal(g.edges.length, 0);
+});
+
+test('extractEdges: handoff and handoff-policy fields do NOT produce edges', () => {
+  const components = [
+    recFm('skill', 'x', {
+      handoff: '.omc/specs/deep-dive-{slug}.md',
+      'handoff-policy': 'approval-required',
+    }),
+    recFm('agent', 'tracer'), // present but should NOT be reached
+  ];
+  const g = extractEdges(buildComponentGraph(components));
+  assert.equal(g.edges.length, 0, 'handoff/handoff-policy must not generate edges');
+});
+
+test('extractEdges: agents and commands with frontmatter produce NO edges (no REFERENCE_FIELDS rows)', () => {
+  const components = [
+    recFm('agent', 'my-agent', { agent: 'other', pipeline: '[a, b]' }),
+    recFm('command', 'my-cmd', { 'next-skill': 'plan' }),
+    recFm('agent', 'other'),
+    recFm('skill', 'plan'),
+    recFm('skill', 'a'),
+    recFm('skill', 'b'),
+  ];
+  const g = extractEdges(buildComponentGraph(components));
+  assert.equal(g.edges.length, 0, 'only skill nodes drive reference fields');
+});
+
+test('extractEdges: idempotent — calling twice does not duplicate edges', () => {
+  const components = [
+    recFm('skill', 'src', { agent: 'agt', 'next-skill': 'dst' }),
+    recFm('agent', 'agt'),
+    recFm('skill', 'dst'),
+  ];
+  const g = buildComponentGraph(components);
+  extractEdges(g);
+  const countAfterFirst = g.edges.length;
+  extractEdges(g);
+  assert.equal(g.edges.length, countAfterFirst, 'second extractEdges must not add duplicates');
+});
+
+test('extractEdges: deterministic edge order — iterates nodes (sorted by id) then fields in table order', () => {
+  const components = [
+    recFm('skill', 'z-skill', { agent: 'b-agent', 'next-skill': 'a-skill' }),
+    recFm('skill', 'a-skill', { agent: 'a-agent' }),
+    recFm('agent', 'a-agent'),
+    recFm('agent', 'b-agent'),
+  ];
+  const g = extractEdges(buildComponentGraph(components));
+  // Nodes sorted: skill:a-skill, skill:z-skill
+  // skill:a-skill has agent:a-agent -> 1 edge
+  // skill:z-skill has agent:b-agent + next-skill:a-skill -> 2 edges
+  assert.equal(g.edges.length, 3);
+  assert.equal(g.edges[0].source, 'skill:a-skill');
+  assert.equal(g.edges[0].target, 'agent:a-agent');
+  assert.equal(g.edges[1].source, 'skill:z-skill');
+  assert.equal(g.edges[1].target, 'agent:b-agent');
+  assert.equal(g.edges[2].source, 'skill:z-skill');
+  assert.equal(g.edges[2].target, 'skill:a-skill');
+});
+
+test('extractEdges: never throws on undefined graph', () => {
+  assert.doesNotThrow(() => extractEdges(undefined));
+});
+
+test('extractEdges: never throws on null graph', () => {
+  assert.doesNotThrow(() => extractEdges(null));
+});
+
+test('extractEdges: never throws on graph with malformed nodes array', () => {
+  const g = { nodes: [null, 42, undefined], edges: [], byId: new Map(), byName: new Map() };
+  assert.doesNotThrow(() => extractEdges(g));
+  assert.equal(g.edges.length, 0);
+});
+
+test('extractEdges: never throws on graph with node missing frontmatter', () => {
+  const badNode = { id: 'skill:x', kind: 'skill', name: 'x', path: '/x.md', source: {} };
+  // no frontmatter field
+  const g = { nodes: [badNode], edges: [], byId: new Map([['skill:x', badNode]]), byName: new Map() };
+  assert.doesNotThrow(() => extractEdges(g));
+  assert.equal(g.edges.length, 0);
+});
+
+// ── real-harness smoke ────────────────────────────────────────────────────────
+
+test('real-harness smoke: extractEdges over ~/.claude produces at least one frontmatter-ref edge', async () => {
+  // This test uses the REAL harness. It skips gracefully if CLAUDE_CONFIG_DIR is not set
+  // AND the default home dir has no components.
+  const { discoverComponents } = await import('../src/discovery/components.mjs');
+  const homeDir = process.env.CLAUDE_CONFIG_DIR ?? (
+    process.platform === 'win32'
+      ? `${process.env.USERPROFILE}\\.claude`
+      : `${process.env.HOME}/.claude`
+  );
+  let components;
+  try {
+    ({ components } = discoverComponents(homeDir));
+  } catch {
+    // If discovery fails (e.g. no harness on CI), skip gracefully.
+    return;
+  }
+  if (!components || components.length === 0) return; // nothing to test
+
+  const g = extractEdges(buildComponentGraph(components));
+
+  // There must be at least one frontmatter-ref edge on a real harness with skills.
+  const hasSkills = components.some((c) => c.kind === 'skill');
+  if (!hasSkills) return;
+
+  assert.ok(g.edges.length > 0, 'expected at least one frontmatter-ref edge on the real harness');
+  assert.ok(g.edges.every((e) => e.kind === 'frontmatter-ref'), 'all edges must be frontmatter-ref (only kind built in U2)');
+
+  // NO edge should originate from a handoff path (a token containing '/' would
+  // be the symptom of a false-positive path ref that parseRefValue should drop).
+  for (const e of g.edges) {
+    assert.ok(!e.target.includes('/'), `edge target "${e.target}" looks like a path — parseRefValue leak`);
+  }
 });
 
 // ── real-fixture smoke ────────────────────────────────────────────────────────
