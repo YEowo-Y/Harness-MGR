@@ -60,9 +60,10 @@ const PHASE = 'cascade';
  * Kind-spec table — identical to remove.mjs KIND_SPEC (single-sourced by copy
  * per the ops-layer constraint: sibling ops modules share no mutable state;
  * importing the private table from remove.mjs would couple internals). Kept in
- * sync by the P4b spec.
+ * sync by the P4b spec; a drift-guard test in cascade.test.mjs asserts the two
+ * tables remain deepEqual so a future divergence fails the gate immediately.
  */
-const KIND_SPEC = Object.freeze({
+export const KIND_SPEC = Object.freeze({
   agent:   Object.freeze({ dir: 'agents',   isDir: false, opKind: 'delete' }),
   command: Object.freeze({ dir: 'commands', isDir: false, opKind: 'delete' }),
   skill:   Object.freeze({ dir: 'skills',   isDir: true,  opKind: 'delete-dir' }),
