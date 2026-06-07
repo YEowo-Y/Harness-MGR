@@ -45,6 +45,7 @@ import { removeCommand } from './remove-command.mjs';
 import { updateCommand } from './update-command.mjs';
 import { mcpCommand } from './mcp-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
+import { completionCommand } from './completion.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -416,6 +417,10 @@ export const COMMANDS = Object.freeze({
   // it just reads two file paths and prints a unified diff. Two-word command
   // (`config diff` → `config:diff`). The handler returns an explicit `code`.
   'config:diff': (ctx) => configDiffCommand(ctx),
+  // completion (P4b.U9): emit a bash|powershell tab-completion script. PURE READ-ONLY.
+  // The command vocabulary is passed IN at call time (COMMANDS is fully built by now)
+  // so completion.mjs needn't import this module — avoiding a commands↔completion cycle.
+  'completion': (ctx) => completionCommand(ctx, { commandKeys: Object.keys(COMMANDS) }),
   'hooks': hooksCommand,
   'permissions': permissionsCommand,
   'selftest': selftestCommand,
@@ -468,8 +473,5 @@ export const COMMANDS = Object.freeze({
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
-export { snapshotListCommand, snapshotGcCommand };
-export { snapshotPinCommand, snapshotUnpinCommand };
-export { rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand };
-export { configDiffCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand };
+export { rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, configDiffCommand, completionCommand };
