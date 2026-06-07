@@ -40,7 +40,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
  */
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
-const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason', '--keep', '--older-than', '--lock-version']);
+const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason', '--keep', '--older-than', '--lock-version', '--scope']);
 const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth', '--break-lock', '--force', '--mark-failed', '--resume', '--rollback', '--from-manifest', '--by-category', '--cascade']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
@@ -136,6 +136,7 @@ function parseArgs(argv) {
  *   `snapshot gc`           → `snapshot:gc`            (consumed 2)
  *   `snapshot pin`          → `snapshot:pin`           (consumed 2)
  *   `snapshot unpin`        → `snapshot:unpin`         (consumed 2)
+ *   `mcp remove`            → `mcp:remove`             (consumed 2)
  * A bare `snapshot` (no sub-verb) stays `snapshot` (consumed 1, the create command).
  * Otherwise the first positional is the canonical name verbatim (consumed 1;
  * membership checked later).
@@ -151,6 +152,7 @@ function canonicalize(positionals) {
   if (first === 'snapshot' && positionals[1] === 'gc') return { canonical: 'snapshot:gc', consumed: 2 };
   if (first === 'snapshot' && positionals[1] === 'pin') return { canonical: 'snapshot:pin', consumed: 2 };
   if (first === 'snapshot' && positionals[1] === 'unpin') return { canonical: 'snapshot:unpin', consumed: 2 };
+  if (first === 'mcp' && positionals[1] === 'remove') return { canonical: 'mcp:remove', consumed: 2 };
   return { canonical: first, consumed: 1 };
 }
 
@@ -247,7 +249,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\nwrite commands (DRY-RUN by default; require BOTH --apply AND the env var\nCLAUDE_MGR_ENABLE_WRITES=1 to touch governed config):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n\ncommands:\n${commandList()}`;
+  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\nwrite commands (DRY-RUN by default; require BOTH --apply AND the env var\nCLAUDE_MGR_ENABLE_WRITES=1 to touch governed config):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n\ncommands:\n${commandList()}`;
 }
 
 /**
