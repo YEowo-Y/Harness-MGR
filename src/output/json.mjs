@@ -133,28 +133,52 @@ function isPlainObject(v) {
 }
 
 /**
- * Render a command response as NDJSON: a `type:'result'` line followed by one
- * `type:'diagnostic'` line per diagnostic. Each line is compact (indent:0),
- * key-stable (stableStringify), and never-throws (stableStringify degrades a
- * bad value to the error envelope string). Lines are joined by '\n' with NO
- * trailing newline — the executable entry guard adds the final one.
+ * The streaming seam: lazily YIELD each NDJSON line of a command response, in
+ * order. FIRST the `type:'result'` line, THEN one `type:'diagnostic'` line per
+ * diagnostic. Each line is compact (indent:0), key-stable (stableStringify), and
+ * never-throws (stableStringify degrades a bad value to the error envelope string).
+ *
+ * A consumer (a future TUI, a server, a `for ... of` loop) can iterate the lines
+ * one at a time WITHOUT re-buffering the whole joined output — the generator does
+ * not materialize a joined string. Diagnostics are emitted in DISCOVERY ORDER
+ * (the DiagnosticBag insertion order), so the line stream mirrors the order facts
+ * were gathered.
+ *
+ * Honest architecture note: the pure-handler design COLLECTS every diagnostic
+ * first, then this generator emits them as a line-delimited, discovery-ordered
+ * stream. It is NOT real-time per-gatherer emission — surfacing each diagnostic
+ * the instant a gatherer produces it would require threading emit-callbacks
+ * through every pure gatherer, which is out of scope (and would break the
+ * never-throws/pure-handler boundary). "Streaming" here means a first-class line
+ * generator a consumer can pull lazily, not live event emission.
  *
  * The result is nested under a `result` key (not spread) so a result payload
  * that itself carries a `type` or `command` key cannot collide with the
- * envelope fields.
+ * envelope fields. A non-array `diagnostics` is coerced to `[]`.
+ *
+ * @param {{ command: string, result: unknown, diagnostics: unknown[] }} opts
+ * @yields {string} one NDJSON line (no trailing newline)
+ */
+export function* ndjsonLines({ command, result, diagnostics } = {}) {
+  yield stableStringify({ type: 'result', command, result, version: JSON_ENVELOPE_VERSION }, { indent: 0 });
+  const diags = Array.isArray(diagnostics) ? diagnostics : [];
+  for (const d of diags) {
+    yield stableStringify({ ...d, type: 'diagnostic' }, { indent: 0 });
+  }
+}
+
+/**
+ * Render a command response as NDJSON: a `type:'result'` line followed by one
+ * `type:'diagnostic'` line per diagnostic. A thin buffering wrapper over the
+ * first-class `ndjsonLines` generator — its output is byte-identical to joining
+ * that stream with '\n' (NO trailing newline; the executable entry guard adds
+ * the final one). Never throws.
  *
  * @param {{ command: string, result: unknown, diagnostics: unknown[] }} opts
  * @returns {string}
  */
-export function formatNdjson({ command, result, diagnostics }) {
-  const lines = [
-    stableStringify({ type: 'result', command, result, version: JSON_ENVELOPE_VERSION }, { indent: 0 }),
-  ];
-  const diags = Array.isArray(diagnostics) ? diagnostics : [];
-  for (const d of diags) {
-    lines.push(stableStringify({ ...d, type: 'diagnostic' }, { indent: 0 }));
-  }
-  return lines.join('\n');
+export function formatNdjson({ command, result, diagnostics } = {}) {
+  return [...ndjsonLines({ command, result, diagnostics })].join('\n');
 }
 
 /**
