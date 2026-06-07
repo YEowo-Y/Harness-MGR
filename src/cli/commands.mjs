@@ -42,6 +42,7 @@ import { rollbackCommand } from './rollback-command.mjs';
 import { recoverCommand } from './recover-command.mjs';
 import { lockCommand } from './lock-command.mjs';
 import { removeCommand } from './remove-command.mjs';
+import { updateCommand } from './update-command.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -442,10 +443,17 @@ export const COMMANDS = Object.freeze({
   // registry passes only ctx so it uses the default (real engine + real process.env
   // + real `import('../paths.mjs')`) deps.
   'remove': (ctx) => removeCommand(ctx),
+  // update (P4b.U5): update ONE installed plugin to latest by DELEGATING to the
+  // external `claude plugin update <key>` via safeSpawn, DRY-RUN by default + held
+  // behind the two-factor write gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). The
+  // auto-snapshot runs BEFORE the delegated update so it is reversible via `rollback`.
+  // Takes an optional second `deps` arg; the registry passes only ctx so it uses the
+  // default (real engine + real process.env + real `import('../paths.mjs')`) deps.
+  'update': (ctx) => updateCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
 export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
 export { snapshotListCommand, snapshotGcCommand };
 export { snapshotPinCommand, snapshotUnpinCommand };
-export { rollbackCommand, recoverCommand, lockCommand, removeCommand };
+export { rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand };
