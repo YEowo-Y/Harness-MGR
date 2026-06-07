@@ -43,6 +43,7 @@ import { recoverCommand } from './recover-command.mjs';
 import { lockCommand } from './lock-command.mjs';
 import { removeCommand } from './remove-command.mjs';
 import { updateCommand } from './update-command.mjs';
+import { mcpCommand } from './mcp-command.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -450,10 +451,18 @@ export const COMMANDS = Object.freeze({
   // Takes an optional second `deps` arg; the registry passes only ctx so it uses the
   // default (real engine + real process.env + real `import('../paths.mjs')`) deps.
   'update': (ctx) => updateCommand(ctx),
+  // mcp remove (P4b.U6): remove ONE MCP server by DELEGATING to the external
+  // `claude mcp remove <name> [--scope …]` via safeSpawn, DRY-RUN by default + held
+  // behind the two-factor write gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). The
+  // auto-snapshot runs BEFORE the delegated remove so a project-scope change is
+  // reversible via `rollback`. Two-word command (`mcp remove` → `mcp:remove`). Takes
+  // an optional second `deps` arg; the registry passes only ctx so it uses the default
+  // (real engine + real process.env + real `import('../paths.mjs')`) deps.
+  'mcp:remove': (ctx) => mcpCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
 export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
 export { snapshotListCommand, snapshotGcCommand };
 export { snapshotPinCommand, snapshotUnpinCommand };
-export { rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand };
+export { rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand };
