@@ -18,10 +18,12 @@
  * `applying`→`committed` (or `→ failed`). A create/overwrite op is WRITTEN via the
  * atomic-write primitive (sub-unit B, gate context 'apply'); a delete op (no
  * `content`; the target file is removed) is DELETED via the atomic-delete primitive
- * (P4a.U1b, gate context 'remove') — the remove feature's mechanism. All ops are
- * validated BEFORE any write/delete — if ANY op is invalid the apply REFUSES (marks
- * the journal `failed`) without an `applying` transition or a single mutation. The
- * partial-failure / recover semantics are IDENTICAL for both op classes.
+ * (P4a.U1b, gate context 'remove'); a delete-dir op (no `content`; the target skill
+ * directory is removed) is DELETED via the atomic-dir-delete primitive (P4b.S2, gate
+ * context 'remove-skill'). All ops are validated BEFORE any write/delete — if ANY op
+ * is invalid the apply REFUSES (marks the journal `failed`) without an `applying`
+ * transition or a single mutation. The partial-failure / recover semantics are
+ * IDENTICAL for all op classes.
  *
  * --paranoid: after each governed write of a *.json target, the file is re-read
  * from disk and re-parsed with the tolerant JSONC parser. A parse failure ABORTS
@@ -38,13 +40,11 @@
  *   1. The ONLY governed-config mutations are the atomic write/delete of the ops,
  *      and they happen ONLY under `enableWrites === true`. A create/overwrite routes
  *      through atomicApplyWrite (assertWritable(target,'apply')); a delete routes
- *      through atomicApplyDelete (assertWritable(target,'remove')) — each primitive
- *      calls the gate INTERNALLY. There is NO local path allowlist; the gate is the
- *      single source of truth (an op targeting CLAUDE.md / marketplaces is denied →
- *      the op fails → the journal moves to `failed`; the 'remove' context only
- *      permits a single-file `.md` leaf in agents/ or commands/). All .mgr-state
- *      writes (lock, snapshot, journal) are likewise gated by the INJECTED
- *      assertWritable.
+ *      through atomicApplyDelete (assertWritable(target,'remove')); a delete-dir
+ *      routes through atomicApplyDirDelete (assertWritable(target,'remove-skill')) —
+ *      each primitive calls the gate INTERNALLY. There is NO local path allowlist;
+ *      the gate is the single source of truth. All .mgr-state writes (lock, snapshot,
+ *      journal) are likewise gated by the INJECTED assertWritable.
  *   2. assertWritable is INJECTED + REQUIRED (fail-safe: refuse if absent, never
  *      silently bypass), exactly like lock.mjs / snapshot.mjs / apply-journal-writer.
  *      It is threaded into acquireLock, createSnapshot, writeJournal, AND the
@@ -87,6 +87,7 @@ import { createSnapshot } from './snapshot.mjs';
 import { createJournal, transition, writeJournal } from './apply-journal-writer.mjs';
 import { atomicApplyWrite } from './atomic-write.mjs';
 import { atomicApplyDelete } from './atomic-delete.mjs';
+import { atomicApplyDirDelete } from './atomic-dir-delete.mjs';
 import { paranoidVerify } from './apply-paranoid.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
@@ -98,6 +99,9 @@ const WRITABLE_KINDS = Object.freeze(['create', 'overwrite']);
 
 /** The op kinds this unit can DELETE (no `content`; the target file is removed). */
 const DELETABLE_KINDS = Object.freeze(['delete']);
+
+/** The op kinds this unit can DELETE as a DIRECTORY (no `content`; the dir is removed). */
+const DIR_DELETABLE_KINDS = Object.freeze(['delete-dir']);
 
 /** Stable diagnostic phase tag for this module's own findings. */
 const PHASE = 'apply';
@@ -268,19 +272,26 @@ async function performApply(a) {
   let opsWritten = 0;
   for (const op of ops) {
     const isDelete = DELETABLE_KINDS.includes(op.kind);
-    const res = isDelete
-      ? await fns.atomicDeleteFn({ target: op.target, assertWritable, retry: a.retry })
-      : await fns.atomicWriteFn({ target: op.target, content: op.content, assertWritable, retry: a.retry });
+    const isDirDelete = DIR_DELETABLE_KINDS.includes(op.kind);
+    let res;
+    if (isDirDelete) {
+      res = await fns.atomicDirDeleteFn({ target: op.target, assertWritable, retry: a.retry });
+    } else if (isDelete) {
+      res = await fns.atomicDeleteFn({ target: op.target, assertWritable, retry: a.retry });
+    } else {
+      res = await fns.atomicWriteFn({ target: op.target, content: op.content, assertWritable, retry: a.retry });
+    }
     for (const d of res.diagnostics ?? []) bag.add(d);
     if (!res.ok) {
-      return toFailed(a, journal, isDelete ? 'apply-op-delete-failed' : 'apply-op-failed',
-        `the governed ${isDelete ? 'delete' : 'write'} failed at op ${opsWritten + 1} of ${ops.length}; the journal is marked failed ` +
+      const failCode = isDirDelete ? 'apply-op-dir-delete-failed' : (isDelete ? 'apply-op-delete-failed' : 'apply-op-failed');
+      return toFailed(a, journal, failCode,
+        `the governed ${isDirDelete ? 'dir-delete' : (isDelete ? 'delete' : 'write')} failed at op ${opsWritten + 1} of ${ops.length}; the journal is marked failed ` +
           '(snapshot intact — run recover --rollback to restore)',
         { applied: opsWritten > 0, opsWritten, leftovers: res.leftovers, journalPath: wp.path });
     }
     opsWritten += 1;
-    // paranoid re-parse applies ONLY to written *.json files — a delete has nothing to re-read.
-    if (!isDelete && a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
+    // paranoid re-parse applies ONLY to written *.json files — deletes have nothing to re-read.
+    if (!isDelete && !isDirDelete && a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
       return toFailed(a, journal, 'apply-paranoid-failed',
         `op ${opsWritten} of ${ops.length} wrote an unparseable file (paranoid re-parse failed); ` +
           'the journal is marked failed (snapshot intact — run recover --rollback to restore)',
@@ -326,9 +337,10 @@ function invalidOpReason(op) {
   const obj = op && typeof op === 'object';
   const isWrite = obj && WRITABLE_KINDS.includes(op.kind);
   const isDelete = obj && DELETABLE_KINDS.includes(op.kind);
-  if (!isWrite && !isDelete) {
+  const isDirDelete = obj && DIR_DELETABLE_KINDS.includes(op.kind);
+  if (!isWrite && !isDelete && !isDirDelete) {
     return { code: 'apply-op-kind-unsupported',
-      message: `apply supports only ${[...WRITABLE_KINDS, ...DELETABLE_KINDS].join('/')} ops` };
+      message: `apply supports only ${[...WRITABLE_KINDS, ...DELETABLE_KINDS, ...DIR_DELETABLE_KINDS].join('/')} ops` };
   }
   if (!isNonEmptyStr(op.target)) {
     return { code: 'apply-op-invalid', message: 'op must have a non-empty string target' };
@@ -395,7 +407,7 @@ function persistAt(a, journal) {
  *                                                  it; a parse failure aborts → failed
  * @param {object}  [opts.retry]                    retry schedule forwarded to the atomic write
  * @param {() => Date} [opts.now]                   clock injection (defaults to Date)
- * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, atomicDeleteFn, readFileFn }
+ * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, atomicDeleteFn, atomicDirDeleteFn, readFileFn }
  * @returns {Promise<ApplyResult>}
  */
 export async function applyPlan(opts) {
@@ -415,6 +427,7 @@ export async function applyPlan(opts) {
     writeJournalFn: seams.writeJournalFn ?? writeJournal,
     atomicWriteFn: seams.atomicWriteFn ?? atomicApplyWrite,
     atomicDeleteFn: seams.atomicDeleteFn ?? atomicApplyDelete,
+    atomicDirDeleteFn: seams.atomicDirDeleteFn ?? atomicApplyDirDelete,
     readFileFn: seams.readFileFn ?? ((p) => readFileSync(p, 'utf8')),
   };
 
