@@ -616,6 +616,119 @@ test('assertWritable ALLOWS Settings.JSON (case-insensitive NTFS) on win32 (Low-
   }
 });
 
+// --- assertWritable: 'remove-skill' context tests (P4b) ---
+test('assertWritable remove-skill context: skills/foo -> returns canonical path', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const result = assertWritable(join(dir, 'skills', 'foo'), 'remove-skill');
+    assert.ok(typeof result === 'string' && result.length > 0, 'returns canonical path string');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove-skill context: skills/foo in remove -> throws write-remove-only (leaf .md remove does not cover skill dir)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo'), 'remove'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove-skill context: skills/foo in apply -> throws write-rollback-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove-skill context: nested skills/sub/foo -> throws write-remove-skill-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'sub', 'foo'), 'remove-skill'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-skill-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove-skill context: skills/foo.mgr-old sidecar -> throws write-remove-skill-only', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo.mgr-old'), 'remove-skill'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-skill-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove-skill context: skills/../settings.json traversal -> refused (canonical collapses; parent !== skills/)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // canonical() collapses skills/../settings.json to <dir>/settings.json,
+    // whose parent is the config dir (NOT skills/) -> refused with write-remove-skill-only.
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', '..', 'settings.json'), 'remove-skill'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-remove-skill-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable remove-skill context: outside path -> throws write-outside-target', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(tmpdir(), 'outside', 'myskill'), 'remove-skill'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-outside-target',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- security L1: a symlink/junction inside the allowed dir that resolves
 // OUTSIDE the allowlist must be DENIED (realpathSync-before-allowlist). ---
 test('assertWritable DENIES a junction that escapes the allowlist', () => {
