@@ -391,7 +391,16 @@ detective-only controls today, not a victory lap.
   deliberately excluded), so a `rollback` restores the manifest but NOT the downloaded
   code — partial reversibility, surfaced as `update-cache-not-snapshotted`. The
   network I/O is `claude`'s, not the tool's; the zero-network property holds for
-  claude-mgr's own code.
+  claude-mgr's own code. **`mcp remove <name>` (P4b.U6) shares this exact boundary:**
+  it delegates `claude mcp remove <name> [--scope ...]` via safeSpawn with its own
+  deny-by-default `MCP_REMOVE_SCHEMA` (`allowedFlags:['--scope']`, `positionalPattern`
+  `/^[A-Za-z0-9._-]+$/`, `maxArgs:5`); the server NAME is validated TWICE (the engine's
+  `NAME_RE` additionally rejects a leading dash, so a flag-shaped name like `--scope`
+  can't be smuggled past the gate's one allowed flag) and the SCOPE is enum-restricted
+  to `local|user|project` before becoming an argv token. Reversibility is
+  **scope-dependent**: `--scope project` mutates `.mcp.json` (snapshot-captured →
+  reversible), but `--scope user`/`local` mutates `~/.claude.json` (outside the governed
+  tree, NOT snapshot-captured) — surfaced as `mcp-user-scope-not-snapshotted`.
 - **The Windows ACL check (#24) is advisory and read-only.** `icacls` is invoked
   read-only (`probe-access.mjs:195-206`); the tool **reports** broad principals
   but does not *fix* permissions. The parser also has a known false-positive:
