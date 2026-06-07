@@ -24,10 +24,11 @@
  *
  * --- Edges ---
  * Edges are DIRECTED: source REFERENCES / DEPENDS-ON target. An edge (A→B) means
- * "removing B may break A". Edges are EMPTY in U1 — the four extraction passes
- * (frontmatter-ref, settings-pointer, hook-command-path, manifest-include) land
- * in P4b.U2/U3. The addEdge primitive is provided now so U2 only fills edges.
- * Duplicate (source, target, kind) triples are silently deduped.
+ * "removing B may break A". buildComponentGraph returns empty edges; call
+ * extractEdges(graph) (re-exported from component-graph-edges.mjs) to populate
+ * frontmatter-ref edges from the REFERENCE_FIELDS table.  The two are kept separate
+ * so each is independently testable and the build step never forces extraction.
+ * Duplicate (source, target, kind) triples are silently deduped by addEdge.
  *
  * --- Duplicate id behaviour ---
  * When two ComponentRecords share the same `kind:name` (a genuine conflict,
@@ -218,3 +219,6 @@ export function addEdge(graph, sourceId, targetId, kind) {
     return false;
   }
 }
+
+// Re-export the U2 edge-extraction API so callers only need to import this module.
+export { REFERENCE_FIELDS, parseRefValue, extractEdges } from './component-graph-edges.mjs';
