@@ -1,7 +1,7 @@
 /**
  * Spawnable native `claude` executable resolver (P4b.U5 prerequisite).
  *
- * Used by `src/ops/update.mjs` (P4b.U5) and `src/ops/mcp-update.mjs` (U6)
+ * Used by `src/ops/update.mjs` (P4b.U5) and `src/ops/mcp-write.mjs` (U6)
  * when they need a native binary to hand to safeSpawn. This module lives in
  * src/lib/ (not src/discovery/) so the ops layer can import it without
  * crossing the ops→discovery boundary.
