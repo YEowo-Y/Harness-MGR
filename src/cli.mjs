@@ -41,7 +41,7 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
 
 /** Value flags consume the NEXT token; boolean flags are presence-only. */
 const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason', '--keep', '--older-than']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth', '--break-lock', '--force', '--mark-failed', '--resume', '--rollback', '--from-manifest', '--by-category']);
+const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth', '--break-lock', '--force', '--mark-failed', '--resume', '--rollback', '--from-manifest', '--by-category', '--cascade']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
