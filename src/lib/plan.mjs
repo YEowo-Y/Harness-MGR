@@ -23,7 +23,7 @@
 import { createHash } from 'node:crypto';
 
 /**
- * @typedef {'create'|'overwrite'|'delete'|'rename'|'symlink'|'patch'|'spawn'} OpKind
+ * @typedef {'create'|'overwrite'|'delete'|'delete-dir'|'rename'|'symlink'|'patch'|'spawn'} OpKind
  */
 
 /**
