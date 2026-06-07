@@ -36,6 +36,12 @@ import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs'
  * @returns {string}
  */
 export function renderTable(canonical, result) {
+  // completion (P4b.U9) returns the RAW shell script with NO title line — a title
+  // would corrupt a `source <(claude-mgr completion bash)`. Special-cased here.
+  if (canonical === 'completion') {
+    const r = isObject(result) ? result : {};
+    return typeof r.script === 'string' ? r.script : '';
+  }
   const title = `claude-mgr ${canonical}`;
   const body = renderBody(canonical, result);
   return body ? `${title}\n${body}` : title;
