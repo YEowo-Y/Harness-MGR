@@ -13,7 +13,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { cascadeRemove } from '../src/ops/cascade.mjs';
+import { cascadeRemove, KIND_SPEC as CASCADE_KIND_SPEC } from '../src/ops/cascade.mjs';
+import { KIND_SPEC as REMOVE_KIND_SPEC } from '../src/ops/remove.mjs';
 
 // ── synthetic fixtures ─────────────────────────────────────────────────────────
 
@@ -267,4 +268,25 @@ test('preview and plan are populated even on cascade-needs-force refusal', async
   });
   assert.ok(r.preview !== null, 'preview should be set even on cascade-needs-force');
   assert.ok(r.plan !== null, 'plan should be set even on cascade-needs-force');
+});
+
+// ── drift-guard ────────────────────────────────────────────────────────────────
+//
+// CASCADE_KIND_SPEC and REMOVE_KIND_SPEC are copy-duplicated across cascade.mjs
+// and remove.mjs (ops-layer constraint: sibling modules share no mutable state).
+// This test asserts they remain deepEqual so a future divergence fails the gate
+// immediately rather than silently mis-gating a remove or cascade operation.
+
+test('drift-guard: cascade.KIND_SPEC deepEquals remove.KIND_SPEC', () => {
+  const cKinds = Object.keys(CASCADE_KIND_SPEC).sort();
+  const rKinds = Object.keys(REMOVE_KIND_SPEC).sort();
+  assert.deepEqual(cKinds, rKinds,
+    `KIND_SPEC key sets differ — cascade has [${cKinds}], remove has [${rKinds}]`);
+  for (const kind of cKinds) {
+    assert.deepEqual(
+      { ...CASCADE_KIND_SPEC[kind] },
+      { ...REMOVE_KIND_SPEC[kind] },
+      `KIND_SPEC["${kind}"] differs between cascade.mjs and remove.mjs`
+    );
+  }
 });
