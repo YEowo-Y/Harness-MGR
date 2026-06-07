@@ -28,6 +28,7 @@ import { COMMANDS } from './cli/commands.mjs';
 import { resolveConfigDir } from './cli/resolve-config.mjs';
 import { formatJson, formatNdjson } from './output/json.mjs';
 import { renderTable, renderQuiet } from './cli/render.mjs';
+import { VALUE_FLAGS, BOOLEAN_FLAGS } from './cli/flags.mjs';
 
 /**
  * @typedef {import('./lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -38,10 +39,6 @@ import { renderTable, renderQuiet } from './cli/render.mjs';
  * @property {number} code     process exit code (0 ok, 1 error-diagnostic, 2 usage/throw)
  * @property {string} stdout   the rendered output to print (no trailing write here)
  */
-
-/** Value flags consume the NEXT token; boolean flags are presence-only. */
-const VALUE_FLAGS = Object.freeze(['--format', '--config-dir', '--name', '--key', '--type', '--since', '--base', '--reason', '--keep', '--older-than', '--lock-version', '--scope', '--context']);
-const BOOLEAN_FLAGS = Object.freeze(['--explain', '--order', '--detail', '--lint', '--invariants', '--boundary', '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log', '--schema-canary', '--update-baseline', '--apply', '--include-auth', '--break-lock', '--force', '--mark-failed', '--resume', '--rollback', '--from-manifest', '--by-category', '--cascade']);
 
 /** The output formats run() understands; anything else falls back to 'table'. */
 const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
@@ -251,7 +248,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\nread commands:\n  config diff <a> <b> [--context N]   unified line-diff of two files\n\nwrite commands (DRY-RUN by default; require BOTH --apply AND the env var\nCLAUDE_MGR_ENABLE_WRITES=1 to touch governed config):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n\ncommands:\n${commandList()}`;
+  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n\nwrite commands (DRY-RUN by default; require BOTH --apply AND the env var\nCLAUDE_MGR_ENABLE_WRITES=1 to touch governed config):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n\ncommands:\n${commandList()}`;
 }
 
 /**
