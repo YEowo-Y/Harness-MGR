@@ -56,7 +56,7 @@ const FAKE_APPLY_WRITABLE_FILES = ['settings.json', 'settings.local.json', '.mcp
  */
 function fakeAssertWritable(target, context = 'apply') {
   const { targetClaudeDir, mgrStateDir } = fakeRoots;
-  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove') ? context : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill') ? context : 'apply';
 
   // Always writable: under mgrStateDir
   if (isUnderFake(target, mgrStateDir)) {
@@ -106,6 +106,21 @@ function fakeAssertWritable(target, context = 'apply') {
       return target;
     }
     throw Object.assign(new Error('remove-only: ' + target), { code: 'write-remove-only' });
+  }
+
+  // 'remove-skill' context: allow ONLY a plain dir name directly in skills/.
+  // NOTE: string-only, no canonical()/realpath — mirrors the remove branch above.
+  if (ctx === 'remove-skill') {
+    const skillsDir = join(targetClaudeDir, 'skills');
+    const parentDir = target.slice(0, target.lastIndexOf(sep));
+    const filename = target.slice(target.lastIndexOf(sep) + 1);
+    const FAKE_SKILL_DIR_NAME_RE = /^[A-Za-z0-9._-]+$/;
+    const FAKE_LEFTOVER_SUFFIXES = ['.mgr-new', '.mgr-old'];
+    const isLeftover = FAKE_LEFTOVER_SUFFIXES.some((s) => filename.endsWith(s));
+    if (parentDir === skillsDir && FAKE_SKILL_DIR_NAME_RE.test(filename) && !isLeftover && !FAKE_PROBE_NAME_RE.test(filename)) {
+      return target;
+    }
+    throw Object.assign(new Error('remove-skill-only: ' + target), { code: 'write-remove-skill-only' });
   }
 
   // Always-writable governed settings files (plan line 432): exact basename,
