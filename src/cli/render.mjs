@@ -56,6 +56,9 @@ function renderBody(canonical, result) {
     case 'conflicts': return conflictsTable(r);
     case 'orphans': return orphansTable(r);
     case 'config:show-effective': return effectiveTable(r);
+    // config diff renders the raw unified-diff text for the table format; the json
+    // envelope already serializes the structured result (hunks/stats) on its own.
+    case 'config:diff': return typeof r.unified === 'string' ? r.unified : '';
     case 'hooks': return hooksTable(r);
     case 'permissions': return permissionsTable(r);
     case 'selftest': return selftestTable(r);
