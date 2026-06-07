@@ -30,6 +30,7 @@
 
 import { removeComponent } from '../ops/remove.mjs';
 import { resolveWriteIntent } from './write-gate.mjs';
+import { cascadeCommand } from './cascade-command.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('./commands.mjs').CommandContext} CommandContext */
@@ -107,6 +108,12 @@ function summarizeRemove(r) {
  */
 export async function removeCommand(ctx, deps = {}) {
   const args = ctx && ctx.args ? ctx.args : {};
+
+  // Route --cascade to the cascade handler (same ctx + deps shape).
+  if (args && args.cascade) {
+    return cascadeCommand(ctx, deps);
+  }
+
   const spec = args && Array.isArray(args.positionals) ? args.positionals[0] : undefined;
 
   if (typeof spec !== 'string' || spec.length === 0) {
