@@ -371,6 +371,27 @@ detective-only controls today, not a victory lap.
   sha256 snapshot of the dir around the tar spawn and REFUSES the snapshot
   (`snapshot-tar-wrote-undeclared`) on any undeclared write. A race between the
   spawned process and that check is a documented detective control (plan **P1-7**).
+- **`update <plugin>` delegates a governed mutation to the external `claude` CLI
+  (P4b.U5) — bounded, not syscall-gated.** Unlike every other write, "updating a
+  plugin" requires refetching code from a marketplace (network + git), which this
+  zero-network tool cannot do; so `update --apply` spawns `claude plugin update
+  <key>` ([`src/ops/update.mjs`](../src/ops/update.mjs)). That spawn is bounded by
+  (a) the deny-by-default argv schema `CLAUDE_PLUGIN_UPDATE_SCHEMA` (`allowedFlags:[]`
+  so NO flag — incl. `--lock-version` — can reach the CLI, `positionalPattern`
+  `/^[A-Za-z0-9._@-]+$/`, `maxArgs:3`, `allowSlashPositionals` unset so `/grant`-style
+  flags are denied); (b) the spawn target resolved ONLY by
+  [`resolveClaudeExe`](../src/lib/resolve-claude-exe.mjs) to an absolute, isFile,
+  isSpawnable native exe (the Windows npm shim is unspawnable → REFUSE-with-guidance,
+  never a guessed binary); (c) a defense-in-depth re-validation of the resolved
+  `record.key` (not just the raw spec) BEFORE any snapshot/spawn; (d) an auto-snapshot
+  of `installed_plugins.json` taken FIRST as the undo point; (e) the two-factor write
+  gate + dry-run-by-default. **Residual (deliberate, user-chosen — Option A):** the
+  actual code fetch + `plugins/cache/**` mutation + the required restart are performed
+  by `claude`, *outside* `assertWritable` and *outside* the snapshot scope (cache is
+  deliberately excluded), so a `rollback` restores the manifest but NOT the downloaded
+  code — partial reversibility, surfaced as `update-cache-not-snapshotted`. The
+  network I/O is `claude`'s, not the tool's; the zero-network property holds for
+  claude-mgr's own code.
 - **The Windows ACL check (#24) is advisory and read-only.** `icacls` is invoked
   read-only (`probe-access.mjs:195-206`); the tool **reports** broad principals
   but does not *fix* permissions. The parser also has a known false-positive:
