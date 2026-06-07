@@ -44,6 +44,7 @@ import { lockCommand } from './lock-command.mjs';
 import { removeCommand } from './remove-command.mjs';
 import { updateCommand } from './update-command.mjs';
 import { mcpCommand } from './mcp-command.mjs';
+import { configDiffCommand } from './config-diff-command.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -410,6 +411,11 @@ export const COMMANDS = Object.freeze({
   'conflicts': conflictsCommand,
   'orphans': orphansCommand,
   'config:show-effective': configShowEffectiveCommand,
+  // config diff (P4b.U7b): READ-ONLY unified line-diff of two files via the pure
+  // Myers engine (src/output/diff.mjs). No write gate, no paths.mjs, no snapshot —
+  // it just reads two file paths and prints a unified diff. Two-word command
+  // (`config diff` → `config:diff`). The handler returns an explicit `code`.
+  'config:diff': (ctx) => configDiffCommand(ctx),
   'hooks': hooksCommand,
   'permissions': permissionsCommand,
   'selftest': selftestCommand,
@@ -466,3 +472,4 @@ export { auditCommand, driftCommand, snapshotCommand, selftestCommand };
 export { snapshotListCommand, snapshotGcCommand };
 export { snapshotPinCommand, snapshotUnpinCommand };
 export { rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand };
+export { configDiffCommand };
