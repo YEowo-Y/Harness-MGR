@@ -1,13 +1,13 @@
 /**
- * Remove command-level builder/orchestrator (P4a.U1d) — the user-facing entry for
- * `remove <kind>:<name>` (delete ONE user-level, single-file component).
+ * Remove command-level builder/orchestrator (P4a.U1d + P4b.S3) — the user-facing
+ * entry for `remove <kind>:<name>` (delete ONE user-level component).
  *
  * This is the THIN command layer that sits ABOVE the apply lifecycle (apply.mjs):
- * it parses + validates `<kind>:<name>`, resolves the absolute target file, builds
- * a one-op `{kind:'delete', target}` Plan, and (for the --apply path) hands it to
- * applyPlan — which auto-snapshots first (the undo), then deletes via the
- * atomic-delete primitive under the 'remove' gate context. It has NO lifecycle
- * logic of its own; lock / snapshot / journal / audit all live in apply.mjs.
+ * it parses + validates `<kind>:<name>`, resolves the absolute target, builds a
+ * one-op Plan (kind:'delete' for agents/commands, kind:'delete-dir' for skills),
+ * and (for the --apply path) hands it to applyPlan — which auto-snapshots first
+ * (the undo), then deletes via the appropriate primitive under the correct gate
+ * context. It has NO lifecycle logic of its own.
  *
  *   removeComponent(opts)
  *      ├─ validate spec + target (the §1 refusal matrix)  →  clean refusal, never
@@ -20,13 +20,14 @@
  * REFUSAL MATRIX (docs/phase-4a-design.md §1) — each is a clean refusal with a
  * clear error Diagnostic + `{ ok:false, refused:true }`; applyPlan is NEVER called:
  *   - no `:` / empty spec or kind                 → remove-bad-spec
- *   - kind ∉ {agent, command} (skill/plugin/…)    → remove-kind-unsupported
+ *   - kind ∉ {agent, command, skill}              → remove-kind-unsupported
  *   - invalid name (namespaced ns/name, traversal
  *     ../x, ADS foo:bar, separators, '.'/'..',
  *     spaces, unicode — anything ∉ /^[A-Za-z0-9._-]+$/) → remove-name-invalid
  *   - target does not exist                        → remove-target-not-found
  *   - target is a SYMLINK                          → remove-target-is-symlink
- *   - target exists but is not a regular file      → remove-target-not-a-file
+ *   - FILE kind: target is not a regular file      → remove-target-not-a-file
+ *   - DIR kind: target is not a directory          → remove-target-not-a-dir
  *
  * SECURITY / SAFETY:
  *   - DRY-RUN BY DEFAULT. Without `enableWrites` it builds the Plan + previews and
@@ -67,8 +68,19 @@ import { applyPlan } from './apply.mjs';
 /** Stable diagnostic phase tag for this module's own findings. */
 const PHASE = 'remove';
 
-/** The single-file component kinds removable in 4a → their top-level dir. */
-const KIND_DIR = Object.freeze({ agent: 'agents', command: 'commands' });
+/**
+ * Kind-spec table: each kind → { dir, isDir, opKind }.
+ *   isDir:false  → FILE kind (agents/commands): the target is a single .md file,
+ *                  gate context 'remove', op kind 'delete'.
+ *   isDir:true   → DIR kind (skills): the target is a directory, gate context
+ *                  'remove-skill', op kind 'delete-dir'.
+ * Proto-safe: accessed only via hasOwnProperty, never bare property lookup.
+ */
+const KIND_SPEC = Object.freeze({
+  agent:   Object.freeze({ dir: 'agents',   isDir: false, opKind: 'delete' }),
+  command: Object.freeze({ dir: 'commands', isDir: false, opKind: 'delete' }),
+  skill:   Object.freeze({ dir: 'skills',   isDir: true,  opKind: 'delete-dir' }),
+});
 
 /** A valid component leaf base: no separators, no traversal, no ADS, no spaces. */
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
@@ -102,13 +114,13 @@ function buildResult(fields, bag) {
 }
 
 /**
- * Validate `<kind>:<name>` and resolve the absolute target file (§1 refusal
- * matrix). Returns `{ kind, base, target }` on success, or `{ refusal }` (a code +
- * message) on any refusal. Pure except for a single read-only lstatSync probe of
- * the target. Never throws (the lstat is try/caught).
+ * Validate `<kind>:<name>` and resolve the absolute target (§1 refusal matrix).
+ * Returns `{ kind, base, target, spec: kindSpec }` on success, or `{ refusal }`
+ * on any refusal. Pure except for a read-only lstatSync probe of the target.
+ * Never throws (the lstat is try/caught).
  * @param {unknown} spec
  * @param {string} targetClaudeDir
- * @returns {{kind:string, base:string, target:string}|{refusal:{code:string, message:string}}}
+ * @returns {{kind:string, base:string, target:string, spec:{dir:string,isDir:boolean,opKind:string}}|{refusal:{code:string,message:string}}}
  */
 function validateSpec(spec, targetClaudeDir) {
   const refuse = (code, message) => ({ refusal: { code, message } });
@@ -127,28 +139,34 @@ function validateSpec(spec, targetClaudeDir) {
     return refuse('remove-bad-spec', 'spec must name a kind before the colon (e.g. "agent:foo")');
   }
 
-  // Kind must be one of the 4a single-file kinds; skills (directories) + plugins
-  // are deferred to Phase 4b / out of scope.
-  if (!Object.prototype.hasOwnProperty.call(KIND_DIR, kind)) {
+  // Kind must be one of the known kinds. Plugins/marketplaces are out of scope.
+  if (!Object.prototype.hasOwnProperty.call(KIND_SPEC, kind)) {
     return refuse('remove-kind-unsupported',
-      `remove supports only agent/command in 4a; "${kind}" is not removable here ` +
-      '(skills are directories and plugins/marketplaces are out of scope — deferred to Phase 4b)');
+      `remove supports agent/command/skill; "${kind}" is not removable here ` +
+      '(plugins/marketplaces are out of scope — deferred to Phase 4b)');
   }
+  const kindSpec = KIND_SPEC[kind];
 
-  // Name: strip a single trailing `.md` (case-insensitive), then the base must be
-  // a plain leaf — non-empty, no path separator, not '.'/'..', NAME_RE only. This
-  // rejects namespaced ns/name, traversal ../x, ADS foo:bar, spaces, unicode.
-  const base = rawName.replace(/\.md$/i, '');
+  // Name validation — behaviour differs by kind:
+  //   FILE kinds (agent/command): strip a trailing .md, then validate NAME_RE.
+  //   DIR  kinds (skill): NO .md strip; the name IS the directory base as-is.
+  // In both cases: non-empty, no path separator, not '.'/'..', NAME_RE only.
+  // This rejects namespaced ns/name, traversal ../x, ADS foo:bar, spaces, unicode.
+  const base = kindSpec.isDir ? rawName : rawName.replace(/\.md$/i, '');
   if (base.length === 0 || base === '.' || base === '..'
       || base.includes('/') || base.includes('\\') || !NAME_RE.test(base)) {
     return refuse('remove-name-invalid',
       `invalid component name "${rawName}"; must be a plain leaf matching ${NAME_RE} (no path, traversal, or special chars)`);
   }
 
-  // Resolve the absolute target file directly in agents/ or commands/.
-  const target = join(targetClaudeDir, KIND_DIR[kind], base + '.md');
+  // Resolve the absolute target:
+  //   FILE: agents/<base>.md  or  commands/<base>.md
+  //   DIR:  skills/<base>  (the directory itself, no extension)
+  const target = kindSpec.isDir
+    ? join(targetClaudeDir, kindSpec.dir, base)
+    : join(targetClaudeDir, kindSpec.dir, base + '.md');
 
-  // Existence / symlink / regular-file refusals (read-only lstat probe).
+  // Existence / symlink / type refusals (read-only lstat probe).
   let st;
   try {
     st = lstatSync(target);
@@ -159,25 +177,33 @@ function validateSpec(spec, targetClaudeDir) {
     return refuse('remove-target-is-symlink',
       `refusing to remove a symlinked component: ${target} is a symlink`);
   }
-  if (!st.isFile()) {
-    return refuse('remove-target-not-a-file', `refusing to remove ${target}: not a regular file`);
+  if (kindSpec.isDir) {
+    if (!st.isDirectory()) {
+      return refuse('remove-target-not-a-dir',
+        `refusing to remove ${target}: expected a directory for skill kind`);
+    }
+  } else {
+    if (!st.isFile()) {
+      return refuse('remove-target-not-a-file', `refusing to remove ${target}: not a regular file`);
+    }
   }
 
-  return { kind, base, target };
+  return { kind, base, target, spec: kindSpec };
 }
 
 /**
  * Build the one-op delete Plan for a validated target.
- * @param {string} kind  'agent' | 'command'
- * @param {string} base  validated leaf base (no `.md`)
- * @param {string} target  absolute target file
+ * @param {string} kind       'agent' | 'command' | 'skill'
+ * @param {string} base       validated leaf base (no `.md` for FILE; bare dir name for DIR)
+ * @param {string} target     absolute target path
+ * @param {string} opKind     'delete' (FILE) | 'delete-dir' (DIR)
  * @param {boolean} enableWrites
  * @returns {Plan}
  */
-function buildDeletePlan(kind, base, target, enableWrites) {
+function buildDeletePlan(kind, base, target, opKind, enableWrites) {
   const label = 'remove ' + kind + ':' + base;
   const plan = emptyPlan(label, { apply: enableWrites === true });
-  addOp(plan, { kind: 'delete', target, summary: label });
+  addOp(plan, { kind: opKind, target, summary: label });
   return plan;
 }
 
@@ -222,10 +248,11 @@ export async function removeComponent(opts) {
     if ('refusal' in v) {
       return refuse(bag, v.refusal.code, v.refusal.message, {});
     }
-    const { kind, base, target } = v;
+    const { kind, base, target, spec: kindSpec } = v;
 
     // 2. Build the single-op delete plan (shared by both the preview + apply paths).
-    const plan = buildDeletePlan(kind, base, target, enableWrites);
+    // opKind is 'delete' for FILE kinds, 'delete-dir' for DIR kinds (skill).
+    const plan = buildDeletePlan(kind, base, target, kindSpec.opKind, enableWrites);
 
     // 3a. DRY-RUN (default): preview only — write NOTHING (no lock/snapshot/applyFn).
     if (!enableWrites) {
