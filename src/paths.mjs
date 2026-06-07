@@ -31,6 +31,7 @@
 import { basename, dirname, join, resolve, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
+import { isLeftoverSidecar } from './lib/leftover-sidecars.mjs';
 
 // Re-export the borrowed resolver so callers get it through paths.mjs too,
 // reinforcing "one source of truth for config-dir". (reexport BEFORE paths:
@@ -47,6 +48,11 @@ const PROBE_NAME_RE = /^__mgr-probe-[0-9a-f-]+\.md$/i;
  *  directly in agents/ or commands/. A probe artifact name (PROBE_NAME_RE) is
  *  explicitly excluded — those are mgr's own transient files, not user components. */
 const REMOVABLE_LEAF_RE = /^[A-Za-z0-9._-]+\.md$/i;
+
+/** A removable skill DIRECTORY name: a plain dir name with no extension, no path
+ *  separators, and no traversal. The ONLY basename shape the 'remove-skill' context
+ *  permits directly in skills/. */
+const SKILL_DIR_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
 /**
  * The governed settings files writable in BOTH 'apply' and 'rollback' contexts,
@@ -73,11 +79,12 @@ export const MGR_STATE_DIRNAME = '.mgr-state';
  */
 
 /**
- * @typedef {'apply'|'rollback'|'probe'|'remove'} WriteContext
- *   - 'apply'    — normal apply operation (default)
- *   - 'rollback' — snapshot restore: may write to governed content surfaces
- *   - 'probe'    — transient loader-probe artifact: ONLY agents/__mgr-probe-<uuid>.md
- *   - 'remove'   — single-file component delete: ONLY a direct-child .md leaf in agents/ or commands/
+ * @typedef {'apply'|'rollback'|'probe'|'remove'|'remove-skill'} WriteContext
+ *   - 'apply'        — normal apply operation (default)
+ *   - 'rollback'     — snapshot restore: may write to governed content surfaces
+ *   - 'probe'        — transient loader-probe artifact: ONLY agents/__mgr-probe-<uuid>.md
+ *   - 'remove'       — single-file component delete: ONLY a direct-child .md leaf in agents/ or commands/
+ *   - 'remove-skill' — single skill-DIRECTORY delete: ONLY a direct-child dir in skills/
  */
 
 /**
@@ -203,6 +210,29 @@ function isApplyWritableFile(canonicalTarget, claudeDir) {
 }
 
 /**
+ * Inner guard for the 'remove-skill' context: permit ONLY a single skill
+ * DIRECTORY placed DIRECTLY in skills/ (NOT nested, NOT a leftover sidecar, NOT
+ * a probe artifact). canonical() defeats skills/../, NTFS ADS, 8.3 short-names,
+ * trailing-dot, and a symlinked skills/ that escapes the config dir.
+ * @param {string} target @param {string} claudeDir @returns {string}
+ */
+function assertRemoveSkillContext(target, claudeDir) {
+  const canonicalTarget = canonical(target);
+  const parent = dirname(canonicalTarget);
+  const leaf = basename(canonicalTarget);
+  if (parent === canonical(join(claudeDir, 'skills'))
+    && SKILL_DIR_NAME_RE.test(leaf)
+    && !isLeftoverSidecar(leaf)
+    && !PROBE_NAME_RE.test(leaf)) {
+    return canonicalTarget;
+  }
+  throw new WriteForbiddenError(
+    `remove-skill context permits only a direct-child skill directory in skills/: ${target}`,
+    'write-remove-skill-only',
+  );
+}
+
+/**
  * Enforce the write-allowlist. Throws WriteForbiddenError when `target` is not
  * writable in the given context. Returns the canonical path on success.
  *
@@ -220,19 +250,21 @@ function isApplyWritableFile(canonicalTarget, claudeDir) {
  *     (the transient loader-probe artifact, P2.U7c) — nothing else.
  *   - Remove-only: context === 'remove' permits ONLY a direct-child `.md` component
  *     leaf in agents/ or commands/ (single-file remove, P4a) — nothing else.
+ *   - Remove-skill-only: context === 'remove-skill' permits ONLY a direct-child skill
+ *     DIRECTORY in skills/ (skill-directory remove, P4b) — nothing else.
  *
  * Per P1-10, U3 is apply-centric; the rollback context is recognized here per
  * the documented signature so P3 can wire it without reshaping the API.
  *
  * @param {string} target            absolute path intended for writing
- * @param {WriteContext} [context]   'apply' (default), 'rollback', 'probe', or 'remove'
+ * @param {WriteContext} [context]   'apply' (default), 'rollback', 'probe', 'remove', or 'remove-skill'
  * @returns {string} the canonical target path
  */
 export function assertWritable(target, context = 'apply') {
   if (typeof target !== 'string' || target.length === 0) {
     throw new WriteForbiddenError('write target must be a non-empty string', 'write-target-invalid');
   }
-  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove') ? context : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill') ? context : 'apply';
   const claudeDir = targetClaudeDir();
   const stateDir = mgrStateDir(claudeDir);
 
@@ -298,6 +330,10 @@ export function assertWritable(target, context = 'apply') {
       'write-remove-only',
     );
   }
+
+  // 'remove-skill' context: least-authority skill-DIRECTORY delete (P4b).
+  // Reached only AFTER .mgr-state / outside / forbidden / probe / remove checks.
+  if (ctx === 'remove-skill') return assertRemoveSkillContext(target, claudeDir);
 
   // Always-writable governed settings files (plan line 432, "Forbidden vs
   // Rollback-Writable" — the "Always writable (with --apply)" row): exactly
