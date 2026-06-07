@@ -94,5 +94,41 @@ export function buildAllowlistCases(targetClaudeDir, mgrStateDir) {
     { label: 'targetClaudeDir/agents/foo.md apply -> THROW write-rollback-only (remove did NOT widen apply)',
       target: join(targetClaudeDir, 'agents', 'foo.md'), context: 'apply',
       expectAllow: false, expectedCode: 'write-rollback-only' },
+    // 'remove-skill' context (P4b) — single skill-DIRECTORY delete surface.
+    ...buildRemoveSkillCases(targetClaudeDir),
+  ];
+}
+
+/**
+ * 'remove-skill' context cases (P4b) — extracted to keep buildAllowlistCases
+ * under the 80-SLOC function ceiling.
+ * @param {string} targetClaudeDir
+ * @returns {Array<{label:string, target:string, context:string, expectAllow:boolean, expectedCode?:string}>}
+ */
+function buildRemoveSkillCases(targetClaudeDir) {
+  return [
+    { label: 'targetClaudeDir/skills/foo remove-skill -> ALLOW',
+      target: join(targetClaudeDir, 'skills', 'foo'), context: 'remove-skill', expectAllow: true },
+    { label: 'targetClaudeDir/skills/foo apply -> THROW write-rollback-only (remove-skill did NOT widen apply)',
+      target: join(targetClaudeDir, 'skills', 'foo'), context: 'apply',
+      expectAllow: false, expectedCode: 'write-rollback-only' },
+    { label: 'targetClaudeDir/skills/foo remove -> THROW write-remove-only (leaf .md remove does NOT cover skill dir)',
+      target: join(targetClaudeDir, 'skills', 'foo'), context: 'remove',
+      expectAllow: false, expectedCode: 'write-remove-only' },
+    { label: 'targetClaudeDir/skills/sub/foo remove-skill -> THROW write-remove-skill-only (nested)',
+      target: join(targetClaudeDir, 'skills', 'sub', 'foo'), context: 'remove-skill',
+      expectAllow: false, expectedCode: 'write-remove-skill-only' },
+    { label: 'targetClaudeDir/skills/foo.mgr-old remove-skill -> THROW write-remove-skill-only (sidecar excluded)',
+      target: join(targetClaudeDir, 'skills', 'foo.mgr-old'), context: 'remove-skill',
+      expectAllow: false, expectedCode: 'write-remove-skill-only' },
+    { label: 'targetClaudeDir/agents/foo remove-skill -> THROW write-remove-skill-only (not under skills/)',
+      target: join(targetClaudeDir, 'agents', 'foo'), context: 'remove-skill',
+      expectAllow: false, expectedCode: 'write-remove-skill-only' },
+    { label: 'targetClaudeDir/CLAUDE.md remove-skill -> THROW write-remove-skill-only',
+      target: join(targetClaudeDir, 'CLAUDE.md'), context: 'remove-skill',
+      expectAllow: false, expectedCode: 'write-remove-skill-only' },
+    { label: 'targetClaudeDir/plugins/marketplaces/m/skills/x remove-skill -> THROW write-forbidden (forbidden wins)',
+      target: join(targetClaudeDir, 'plugins', 'marketplaces', 'm', 'skills', 'x'), context: 'remove-skill',
+      expectAllow: false, expectedCode: 'write-forbidden' },
   ];
 }
