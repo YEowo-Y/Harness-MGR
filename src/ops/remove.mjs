@@ -76,7 +76,7 @@ const PHASE = 'remove';
  *                  'remove-skill', op kind 'delete-dir'.
  * Proto-safe: accessed only via hasOwnProperty, never bare property lookup.
  */
-const KIND_SPEC = Object.freeze({
+export const KIND_SPEC = Object.freeze({
   agent:   Object.freeze({ dir: 'agents',   isDir: false, opKind: 'delete' }),
   command: Object.freeze({ dir: 'commands', isDir: false, opKind: 'delete' }),
   skill:   Object.freeze({ dir: 'skills',   isDir: true,  opKind: 'delete-dir' }),
