@@ -44,11 +44,12 @@ function makeApply(result = {}) {
   return fn;
 }
 
-/** Make a fresh temp ~/.claude-like tree with agents/ + commands/ dirs. */
+/** Make a fresh temp ~/.claude-like tree with agents/ + commands/ + skills/ dirs. */
 function makeTree() {
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-remove-unit-'));
   mkdirSync(join(tmp, 'agents'), { recursive: true });
   mkdirSync(join(tmp, 'commands'), { recursive: true });
+  mkdirSync(join(tmp, 'skills'), { recursive: true });
   return tmp;
 }
 
@@ -58,18 +59,7 @@ function codes(res) {
 
 // ── refusal matrix — each refuses with the exact code, applyFn NEVER called ──
 
-test('refuse skill:foo → remove-kind-unsupported, applyFn never called', async () => {
-  const tmp = makeTree();
-  const applyFn = makeApply();
-  try {
-    const res = await removeComponent({ spec: 'skill:foo', targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'), seams: { applyFn } });
-    assert.equal(res.ok, false);
-    assert.equal(res.refused, true);
-    assert.ok(codes(res).includes('remove-kind-unsupported'), `codes: ${codes(res)}`);
-    assert.equal(applyFn.calls.length, 0);
-  } finally { rmSync(tmp, { recursive: true, force: true }); }
-});
-
+// skill is now SUPPORTED — plugin/marketplace remain unsupported
 test('refuse plugin:foo and weird:foo → remove-kind-unsupported', async () => {
   const tmp = makeTree();
   const applyFn = makeApply();
@@ -231,6 +221,98 @@ test('command:greet → target commands/greet.md', async () => {
     assert.equal(res.ok, true);
     assert.equal(res.kind, 'command');
     assert.equal(res.target, greetPath);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+// ── skill (DIR) kind tests ──
+
+test('skill:foo dry-run: builds delete-dir plan, no .md extension, never calls applyFn', async () => {
+  const tmp = makeTree();
+  const applyFn = makeApply();
+  try {
+    mkdirSync(join(tmp, 'skills', 'foo'), { recursive: true });
+    writeFileSync(join(tmp, 'skills', 'foo', 'SKILL.md'), '---\nname: foo\n---\nbody\n');
+    const res = await removeComponent({ spec: 'skill:foo', targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'), seams: { applyFn } });
+    assert.equal(res.ok, true);
+    assert.equal(res.dryRun, true);
+    assert.equal(res.kind, 'skill');
+    assert.equal(res.name, 'foo');
+    // target ends in skills/foo — NO .md extension
+    assert.ok(res.target.endsWith(join('skills', 'foo')), `target: ${res.target}`);
+    assert.ok(!res.target.endsWith('.md'), 'DIR target must not have .md extension');
+    // plan op kind is delete-dir
+    assert.equal(res.plan.ops.length, 1);
+    assert.equal(res.plan.ops[0].kind, 'delete-dir');
+    assert.equal(res.plan.ops[0].target, res.target);
+    assert.equal(applyFn.calls.length, 0);
+    assert.ok(codes(res).includes('remove-dry-run'), `codes: ${codes(res)}`);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('skill:foo missing → remove-target-not-found, applyFn never called', async () => {
+  const tmp = makeTree();
+  const applyFn = makeApply();
+  try {
+    const res = await removeComponent({ spec: 'skill:foo', targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'), seams: { applyFn } });
+    assert.equal(res.ok, false);
+    assert.equal(res.refused, true);
+    assert.ok(codes(res).includes('remove-target-not-found'), `codes: ${codes(res)}`);
+    assert.equal(applyFn.calls.length, 0);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('skill:foo when skills/foo is a FILE → remove-target-not-a-dir, applyFn never called', async () => {
+  const tmp = makeTree();
+  const applyFn = makeApply();
+  try {
+    writeFileSync(join(tmp, 'skills', 'foo'), 'not a dir');
+    const res = await removeComponent({ spec: 'skill:foo', targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'), seams: { applyFn } });
+    assert.equal(res.ok, false);
+    assert.equal(res.refused, true);
+    assert.ok(codes(res).includes('remove-target-not-a-dir'), `codes: ${codes(res)}`);
+    assert.equal(applyFn.calls.length, 0);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('skill:foo when skills/foo is a SYMLINK → remove-target-is-symlink, applyFn never called', async (t) => {
+  const tmp = makeTree();
+  const applyFn = makeApply();
+  try {
+    mkdirSync(join(tmp, 'skills', 'real-foo'), { recursive: true });
+    try {
+      symlinkSync(join(tmp, 'skills', 'real-foo'), join(tmp, 'skills', 'foo'));
+    } catch (e) {
+      t.skip(`symlink creation failed (${e.code ?? e.message}) — skipping`);
+      return;
+    }
+    const res = await removeComponent({ spec: 'skill:foo', targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'), seams: { applyFn } });
+    assert.equal(res.ok, false);
+    assert.ok(codes(res).includes('remove-target-is-symlink'), `codes: ${codes(res)}`);
+    assert.equal(applyFn.calls.length, 0);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('--apply skill:foo calls applyFn with delete-dir op, enableWrites:true', async () => {
+  const tmp = makeTree();
+  const applyFn = makeApply();
+  try {
+    mkdirSync(join(tmp, 'skills', 'foo'), { recursive: true });
+    writeFileSync(join(tmp, 'skills', 'foo', 'SKILL.md'), 'x');
+    const fooDir = join(tmp, 'skills', 'foo');
+    const res = await removeComponent({
+      spec: 'skill:foo', targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'),
+      assertWritable: PASS, enableWrites: true, pid: 4242, seams: { applyFn },
+    });
+    assert.equal(applyFn.calls.length, 1, 'applyFn must be called exactly once');
+    const call = applyFn.calls[0];
+    assert.equal(call.enableWrites, true);
+    assert.equal(call.assertWritable, PASS);
+    assert.equal(call.plan.ops.length, 1);
+    assert.equal(call.plan.ops[0].kind, 'delete-dir');
+    assert.equal(call.plan.ops[0].target, fooDir);
+    assert.equal(res.ok, true);
+    assert.equal(res.dryRun, false);
+    assert.equal(res.kind, 'skill');
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
