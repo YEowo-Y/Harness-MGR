@@ -154,6 +154,23 @@ function makeAtomicDelete(result = {}) {
   return fn;
 }
 
+/** A recording atomicApplyDirDelete seam (async). Same shape as makeAtomicDelete. */
+function makeAtomicDirDelete(result = {}) {
+  const calls = [];
+  const fn = (opts) => {
+    calls.push(opts);
+    if (result.throw) return Promise.reject(result.throw);
+    if (result.ok === false) {
+      return Promise.resolve({ ok: false, deleted: false,
+        leftovers: result.leftovers ?? { oldPath: null },
+        diagnostics: result.diagnostics ?? [] });
+    }
+    return Promise.resolve({ ok: true, deleted: true, leftovers: { oldPath: null }, diagnostics: [] });
+  };
+  fn.calls = calls;
+  return fn;
+}
+
 /** A single delete op removing a settings.json target (no content). */
 function deleteOp(target = `${TARGET}\\agents\\foo.md`) {
   return { kind: 'delete', target, summary: 'remove agent foo' };
@@ -178,6 +195,7 @@ function happySeams(over = {}) {
     writeJournalFn: over.writeJournalFn ?? makeWriteJournal(),
     atomicWriteFn: over.atomicWriteFn ?? makeAtomicWrite(),
     atomicDeleteFn: over.atomicDeleteFn ?? makeAtomicDelete(),
+    atomicDirDeleteFn: over.atomicDirDeleteFn ?? makeAtomicDirDelete(),
   };
 }
 
@@ -986,4 +1004,90 @@ test('applyPlan paranoid + delete: a delete op is NOT re-read (paranoid skipped)
   // CRITICAL: paranoid never re-reads a deleted target (nothing to re-parse).
   assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a delete op under paranoid');
   assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'), 'no paranoid failure for a delete');
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+//  P4b.S3 — delete-dir ops (skill directory removal) via the atomicDirDelete seam
+// ════════════════════════════════════════════════════════════════════════════════
+
+/** A single delete-dir op for a skill directory. */
+function deleteDirOp(target = `${TARGET}\\skills\\foo`) {
+  return { kind: 'delete-dir', target, summary: 'remove skill foo' };
+}
+
+// ── (DD1) enableWrites + single delete-dir op → committed, applied:true ──
+
+test('applyPlan enableWrites: single delete-dir op reaches committed (DD1)', async () => {
+  const seams = happySeams();
+  const target = `${TARGET}\\skills\\foo`;
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([deleteDirOp(target)]) }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.applied, true);
+  assert.equal(res.opsWritten, 1);
+  // atomicDirDeleteFn called ONCE with the op's target + the injected gate.
+  assert.equal(seams.atomicDirDeleteFn.calls.length, 1);
+  assert.equal(seams.atomicDirDeleteFn.calls[0].target, target);
+  assert.equal(seams.atomicDirDeleteFn.calls[0].assertWritable, PASS);
+  // CRITICAL: a delete-dir must NOT route through the file-delete or write primitives.
+  assert.equal(seams.atomicDeleteFn.calls.length, 0, 'atomicDeleteFn must NOT be called for delete-dir');
+  assert.equal(seams.atomicWriteFn.calls.length, 0, 'atomicWriteFn must NOT be called for delete-dir');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
+});
+
+// ── (DD2) failed atomicDirDeleteFn → failed, apply-op-dir-delete-failed ──
+
+test('applyPlan enableWrites: a failed atomicDirDeleteFn → failed, apply-op-dir-delete-failed (DD2)', async () => {
+  const atomicDirDeleteFn = makeAtomicDirDelete({ ok: false, diagnostics:
+    [{ severity: 'error', code: 'apply-dir-delete-failed', message: 'EBUSY', phase: 'apply' }] });
+  const seams = happySeams({ atomicDirDeleteFn });
+  const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([deleteDirOp()]) }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.equal(res.applied, false);
+  // dir-delete-specific rollup code (NOT apply-op-delete-failed / apply-op-failed).
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-dir-delete-failed'),
+    'dir-delete-specific rollup code expected: ' + JSON.stringify(res.diagnostics.map((d) => d.code)));
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-op-delete-failed'), 'file-delete code must NOT appear');
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-op-failed'), 'write-path code must NOT appear');
+  // primitive's own diagnostic is aggregated.
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-dir-delete-failed'), 'aggregates the primitive diag');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'applying', 'failed']);
+  assert.equal(seams.releaseFn.calls.length, 1, 'lock released');
+});
+
+// ── (DD3) delete-dir op with no target → apply-op-invalid, never deletes (DD3) ──
+
+test('applyPlan enableWrites: delete-dir op with no target → apply-op-invalid, atomicDirDeleteFn never called (DD3)', async () => {
+  const seams = happySeams();
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true,
+    plan: planWith([{ kind: 'delete-dir', summary: 'no target' }]), // no `target`
+  }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'),
+    'apply-op-invalid expected: ' + JSON.stringify(res.diagnostics.map((d) => d.code)));
+  assert.equal(seams.atomicDirDeleteFn.calls.length, 0, 'atomicDirDeleteFn NEVER called for invalid op');
+  const states = seams.transitionFn.calls.map((c) => c.toState);
+  assert.deepEqual(states, ['snapshotted', 'failed']);
+});
+
+// ── (DD4) paranoid + delete-dir: readFileFn NEVER called (DD4) ──
+
+test('applyPlan paranoid + delete-dir: readFileFn is never called (DD4)', async () => {
+  const readFileFn = makeReadFile('{ would-be broken if read }');
+  const seams = { ...happySeams(), readFileFn };
+  const res = await applyPlan(baseOpts(seams, {
+    enableWrites: true, paranoid: true, plan: planWith([deleteDirOp()]),
+  }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  assert.equal(seams.atomicDirDeleteFn.calls.length, 1, 'the delete-dir op was executed');
+  // CRITICAL: paranoid never re-reads a deleted directory (nothing to re-parse).
+  assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a delete-dir op under paranoid');
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'), 'no paranoid failure for delete-dir');
 });
