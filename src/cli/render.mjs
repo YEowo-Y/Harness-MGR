@@ -62,9 +62,11 @@ function renderBody(canonical, result) {
     case 'conflicts': return conflictsTable(r);
     case 'orphans': return orphansTable(r);
     case 'config:show-effective': return effectiveTable(r);
-    // config diff renders the raw unified-diff text for the table format; the json
-    // envelope already serializes the structured result (hunks/stats) on its own.
-    case 'config:diff': return typeof r.unified === 'string' ? r.unified : '';
+    // config diff: mode-aware rendering.
+    //   manifest mode → a readable added/removed/modified file-list block.
+    //   content mode  → the raw unified-diff text (same as the old file mode).
+    //   file mode (no .mode) → the raw unified-diff text (unchanged from P4b.U7b).
+    case 'config:diff': return configDiffTable(r);
     case 'hooks': return hooksTable(r);
     case 'permissions': return permissionsTable(r);
     case 'selftest': return selftestTable(r);
@@ -247,6 +249,24 @@ function snapshotTable(r) {
 
 // snapshot:list + snapshot:gc bodies live in snapshot-store-render.mjs (imported
 // above) so this module stays under the 200-SLOC lint ceiling.
+
+/**
+ * config:diff — mode-aware. manifest → file-list summary; else → unified text.
+ * @param {Record<string, unknown>} r @returns {string}
+ */
+function configDiffTable(r) {
+  if (r.mode !== 'manifest') return typeof r.unified === 'string' ? r.unified : '';
+  const added = Array.isArray(r.added) ? r.added : [];
+  const removed = Array.isArray(r.removed) ? r.removed : [];
+  const modified = Array.isArray(r.modified) ? r.modified : [];
+  const lines = [`snapshot diff ${typeof r.idA === 'string' ? r.idA : '?'} -> ${typeof r.idB === 'string' ? r.idB : '?'}`];
+  for (const p of added) lines.push(`+ ${p}`);
+  for (const p of removed) lines.push(`- ${p}`);
+  for (const p of modified) lines.push(`~ ${p}`);
+  if (!added.length && !removed.length && !modified.length) lines.push('no file changes');
+  lines.push(`unchanged: ${typeof r.unchanged === 'number' ? r.unchanged : 0}`);
+  return lines.join('\n');
+}
 
 /**
  * Generic fallback: a 2-column key/value dump of an object's own enumerable
