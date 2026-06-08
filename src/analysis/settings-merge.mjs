@@ -279,3 +279,79 @@ function isSafeKey(key) {
 function layerName(layer) {
   return typeof layer.name === 'string' ? layer.name : String(layer.name ?? '');
 }
+
+/**
+ * A KeyMerge entry enriched with per-layer provenance. Adds two fields on top of
+ * KeyMerge:
+ *   - `perLayer` — uniformly present for ALL strategies (not just 'unknown');
+ *                  each entry is `{name, value}` for every valid layer that owns
+ *                  the key, in lowest→highest precedence order.
+ *   - `winner`   — the deciding layer NAME for 'scalar-highest' (the highest layer
+ *                  that defines the key); null for multi-contributor strategies.
+ *
+ * @typedef {KeyMerge & { perLayer: {name:string,value:unknown}[], winner: string|null }} KeyMergeExplained
+ */
+
+/**
+ * @typedef {Object} ExplainResult
+ * @property {Record<string, KeyMergeExplained>} keys
+ * @property {Diagnostic[]} diagnostics
+ */
+
+/**
+ * Enrich the merge result with per-key provenance (which layer set each value and,
+ * for scalar-highest keys, which layer's value won). Internally calls mergeSettings
+ * to obtain the canonical merged values and metadata, then adds:
+ *   - `perLayer`: an array of `{name, value}` for EVERY valid layer that owns the
+ *                 key (lowest→highest order), making provenance visible for all
+ *                 strategies — not just 'unknown' ones which already carry perLayer.
+ *   - `winner`:   the name of the LAST present layer for 'scalar-highest' (the one
+ *                 whose value was chosen); null for every other strategy (multiple
+ *                 layers contribute; no single winner is appropriate).
+ *
+ * Diagnostics: returns [] to avoid duplicating the diagnostics from mergeSettings
+ * — callers should keep using the diagnostics from their own mergeSettings call.
+ * This function shares the same layer validity filter and isSafeKey skip as
+ * mergeSettings so behaviour is always consistent.
+ *
+ * Pure, never throws, proto-safe, deterministic.
+ *
+ * @param {SettingsLayer[]} layers   ordered LOWEST→HIGHEST precedence (same as mergeSettings)
+ * @returns {ExplainResult}
+ */
+export function explainEffective(layers) {
+  // Call the canonical engine for merged values + metadata; do not recompute them.
+  const { keys } = mergeSettings(layers);
+
+  // Valid layer filter mirrors mergeSettings (must stay in sync).
+  const valid = Array.isArray(layers)
+    ? layers.filter((l) => l && typeof l === 'object' && isPlainObject(l.settings))
+    : [];
+
+  /** @type {Record<string, KeyMergeExplained>} */
+  const explained = {};
+
+  for (const topKey of Object.keys(keys)) {
+    if (!isSafeKey(topKey)) continue;
+    const km = keys[topKey];
+
+    // Per-layer values: collect from every valid layer that owns this key.
+    const perLayer = [];
+    for (const l of valid) {
+      if (Object.prototype.hasOwnProperty.call(l.settings, topKey)) {
+        perLayer.push({ name: layerName(l), value: l.settings[topKey] });
+      }
+    }
+
+    // Winner: for scalar-highest, the last present layer is the deciding one.
+    let winner = null;
+    if (km.strategy === 'scalar-highest' && perLayer.length > 0) {
+      winner = perLayer[perLayer.length - 1].name;
+    }
+
+    explained[topKey] = { ...km, perLayer, winner };
+  }
+
+  // Return diagnostics:[] — callers keep the m.diagnostics from their own merge call.
+  return { keys: explained, diagnostics: [] };
+}
