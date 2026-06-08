@@ -112,13 +112,28 @@ function orphansTable(r) {
 }
 
 /**
- * config:show-effective → one row per top-level key with its merge confidence.
- * When `--key` narrowed the result there is no `keys` map, so fall back to the
- * generic key/value dump of the narrowed `{key, merge, value}`.
+ * config:show-effective → per-key table. With `--explain` (result.explain===true):
+ * provenance block (winner/layers). Without: mergeConfidence table. Falls back to
+ * kvTable when `--key` narrowed the result (no `keys` map). Never throws.
  * @param {Record<string, unknown>} r
  */
 function effectiveTable(r) {
   if (!isObject(r.keys)) return kvTable(r);
+
+  if (r.explain === true) {
+    // Provenance block: one line per top-level key.
+    const lines = [];
+    for (const key of Object.keys(r.keys)) {
+      const km = isObject(r.keys[key]) ? r.keys[key] : {};
+      const perLayer = Array.isArray(km.perLayer) ? km.perLayer : [];
+      const layerNames = perLayer.map((e) => (isObject(e) && typeof e.name === 'string' ? e.name : '?'));
+      const winnerStr = typeof km.winner === 'string' ? `winner: ${km.winner}` : `merged from ${layerNames.length} layer(s)`;
+      const sourceStr = layerNames.length > 0 ? ` [${layerNames.join(', ')}]` : '';
+      lines.push(`${key}: ${winnerStr}${sourceStr}`);
+    }
+    return lines.join('\n');
+  }
+
   const rows = Object.keys(r.keys).map((key) => ({ key, mergeConfidence: r.keys[key] && r.keys[key].mergeConfidence }));
   return formatTable([
     { key: 'key', header: 'key' },
@@ -237,10 +252,7 @@ function snapshotTable(r) {
     { field: 'keptCount', value: r.keptCount },
     { field: 'droppedCount', value: r.droppedCount },
   ];
-  if (r.mode === 'applied') {
-    rows.push({ field: 'archivePath', value: r.archivePath });
-    rows.push({ field: 'manifestPath', value: r.manifestPath });
-  }
+  if (r.mode === 'applied') { rows.push({ field: 'archivePath', value: r.archivePath }); rows.push({ field: 'manifestPath', value: r.manifestPath }); }
   return formatTable([
     { key: 'field', header: 'field' },
     { key: 'value', header: 'value' },
@@ -301,16 +313,7 @@ export function renderQuiet(canonical, errCount, warnCount) {
  * @param {unknown} v
  * @returns {unknown}
  */
-function scalarize(v) {
-  if (v === null || typeof v !== 'object') return v;
-  try { return JSON.stringify(v); } catch { return String(v); }
-}
+function scalarize(v) { if (v === null || typeof v !== 'object') return v; try { return JSON.stringify(v); } catch { return String(v); } }
 
-/**
- * True for a non-null, non-array object — the shape every table reader expects.
- * @param {unknown} v
- * @returns {v is Record<string, unknown>}
- */
-function isObject(v) {
-  return v !== null && typeof v === 'object' && !Array.isArray(v);
-}
+/** True for a non-null, non-array object. @param {unknown} v @returns {v is Record<string, unknown>} */
+function isObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }
