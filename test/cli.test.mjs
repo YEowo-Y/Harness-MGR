@@ -72,8 +72,8 @@ test('config show-effective --key model: narrows to the scalar value', async () 
   assert.equal(env.result.value, 'sonnet');
 });
 
-test('hooks --order --format json: empty hooks on the minimal fixture', async () => {
-  const out = await run(['hooks', '--order', '--config-dir', MIN, '--format', 'json']);
+test('hooks --format json: empty hooks on the minimal fixture', async () => {
+  const out = await run(['hooks', '--config-dir', MIN, '--format', 'json']);
   assert.equal(out.code, 0);
   const env = JSON.parse(out.stdout);
   assert.deepEqual(env.result.hooks, {});
@@ -238,7 +238,7 @@ test('every recognized flag parses without an unknown-flag error', async () => {
     ['inventory', '--detail', '--config-dir', MIN, '--format', 'json'],
     ['inventory', '--type', 'skill', '--config-dir', MIN, '--format', 'json'],
     ['conflicts', '--name', 'x', '--config-dir', MIN, '--format', 'json'],
-    ['hooks', '--order', '--config-dir', MIN, '--format', 'json'],
+    ['hooks', '--config-dir', MIN, '--format', 'json'],
     ['doctor', '--active-probes', '--config-dir', MIN, '--format', 'json'],
     ['audit', '--since', '7d', '--config-dir', MIN, '--format', 'json'],
     ['snapshot', '--reason', 'r', '--include-auth', '--config-dir', MIN, '--format', 'json'],
