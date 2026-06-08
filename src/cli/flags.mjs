@@ -22,7 +22,7 @@ export const VALUE_FLAGS = Object.freeze([
 
 /** Boolean flags are presence-only (no value token). */
 export const BOOLEAN_FLAGS = Object.freeze([
-  '--explain', '--order', '--detail', '--lint', '--invariants', '--boundary',
+  '--explain', '--detail', '--lint', '--invariants', '--boundary',
   '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log',
   '--schema-canary', '--update-baseline', '--apply', '--include-auth',
   '--break-lock', '--force', '--mark-failed', '--resume', '--rollback',
