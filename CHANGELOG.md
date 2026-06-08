@@ -89,11 +89,13 @@ ALL of these hold:
   incidents** — actual `--apply` round-trips used and verified reversible, not just dry-runs;
 - the schema-fingerprint canary has survived at least one Claude Code version change with no
   write regression; and
-- a **not-before floor** of **2026-07-07** (~30 days after `phase-4b-stable`) has passed.
+- a **not-before floor** of **2026-06-10** has passed (shortened from the original 2026-07-07 by
+  the owner on 2026-06-08, given strong (a)+(b) evidence: 6 reversible `--apply` round-trips with
+  zero incidents, and the schema-canary surviving the CC 2.1.160 → 2.1.168 version change).
 
-If the evidence is solid, the review can happen as early as that floor — potentially well before
-the original 90-day mark. If it is not, the gate simply stays in force until it is: there is NO
-automatic calendar relaxation.
+As of 2026-06-08 conditions (a) and (b) are MET; only the (c) floor (now 2026-06-10) remains, so
+the off-ramp review can happen on 2026-06-10. If the evidence still holds then, the env-var factor
+may be relaxed; if not, the gate simply stays in force — there is NO automatic relaxation.
 
 - **Until the bar is met:** `CLAUDE_MGR_ENABLE_WRITES=1` stays **mandatory** for any governed
   write. Nothing changes.
