@@ -76,24 +76,33 @@ it is reversible with `rollback`.
 - A post-apply invariant (#44) pins that `doctor` still runs (exit ≤ 1, never a crash) after
   every write path; a full-command smoke pins that every command runs without an internal crash.
 
-### Deprecated — `CLAUDE_MGR_ENABLE_WRITES` second factor (90-day off-ramp)
+### Deprecated — `CLAUDE_MGR_ENABLE_WRITES` second factor (evidence-driven off-ramp)
 
 The `CLAUDE_MGR_ENABLE_WRITES=1` requirement is a deliberate belt-and-suspenders SECOND FACTOR
 for the beta period — it makes an accidental governed write essentially impossible.
 
-**Off-ramp — the countdown begins at the `phase-4b-stable` tag:** after a 90-day stability
-window — on or after **2026-09-05** — and subject to a clean governed-write track record, the
-env-var requirement MAY be relaxed to **optional**, leaving `--apply` as the primary (and still
-explicit) write gate.
+**Off-ramp — EVIDENCE-driven, not calendar-driven.** The env-var requirement MAY be relaxed to
+**optional** (leaving `--apply` as the primary, still-explicit write gate) once — and only once —
+ALL of these hold:
 
-- **Until 2026-09-05:** `CLAUDE_MGR_ENABLE_WRITES=1` stays **mandatory** for any governed write.
-  Nothing changes.
-- **On/after 2026-09-05:** subject to the stability review, the env var becomes optional. The
-  exact change will be recorded in a future release note. The env var will continue to WORK (and
-  to force-enable writes) for at least one further release after it becomes optional, so existing
-  scripts and CI never break without warning.
+- a clean stability review confirms a real governed-write track record with **zero write
+  incidents** — actual `--apply` round-trips used and verified reversible, not just dry-runs;
+- the schema-fingerprint canary has survived at least one Claude Code version change with no
+  write regression; and
+- a **not-before floor** of **2026-07-07** (~30 days after `phase-4b-stable`) has passed.
 
-This is a planned, reversible relaxation — **not** a removal of the `--apply` gate, which stays.
+If the evidence is solid, the review can happen as early as that floor — potentially well before
+the original 90-day mark. If it is not, the gate simply stays in force until it is: there is NO
+automatic calendar relaxation.
+
+- **Until the bar is met:** `CLAUDE_MGR_ENABLE_WRITES=1` stays **mandatory** for any governed
+  write. Nothing changes.
+- **When relaxed:** the env var becomes optional; the exact change is recorded in a future
+  release note, and the env var continues to WORK (and to force-enable writes) for at least one
+  further release, so existing scripts and CI never break without warning.
+
+This is a planned, conditional, reversible relaxation — **not** a removal of the `--apply` gate,
+which stays.
 
 ---
 
