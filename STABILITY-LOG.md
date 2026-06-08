@@ -205,3 +205,33 @@ now has 2 clean reps covering BOTH single-file kinds (agent + command). Conditio
 survives ≥1 CC version change" is OPEN — CC is updatable **2.1.160 → 2.1.168** (latest); a future
 session should re-baseline the drifted canary then soak it across that bump. Condition (c) the
 not-before floor **2026-07-07** is not yet reached. So the gate correctly stays in force.
+
+### 2026-06-08 (cont.) — reps #3 + #4: skill-directory + cascade write paths (4 reps total)
+
+Extended the (a) evidence to cover ALL reversible governed-write paths (user: "再补几次 (a)").
+
+**Rep #3 — `remove skill:__mgr-dogfood-skill --apply` (DIRECTORY recursive delete):** created a
+multi-file dummy skill (`SKILL.md` + `sub/helper.md`) → `--apply` recursively deleted the whole dir
+→ the auto-snapshot captured BOTH files byte-identical (manifest preSha256 == dummy AND a real
+tar-extract of each member == dummy bytes, **nested `sub/helper.md` included** = recursive capture
+proven) → bounded-clean → **PRISTINE** (skills 244==244, no leftover, snapshots empty). Exercises the
+`atomic-dir-delete` / `'remove-skill'` gate-context path (distinct from single-file delete).
+
+**Rep #4 — `remove agent:__mgr-dogfood-tracer --cascade --force --apply` (MULTI-OP):** a dummy skill
+(`skills/__mgr-dogfood-tracedep`, frontmatter `agent: __mgr-dogfood-tracer`) made the dummy agent's
+dependent. SAFETY-FIRST: a **dry-run cascade preview** first confirmed `wouldRemove` was EXACTLY the
+2 dummies (target agent + the 1 dependent skill), zero real components — only then `--apply`.
+**The `--force` gate was empirically confirmed on the live harness:** `--cascade --apply` WITHOUT
+`--force` → **exit 3, nothing deleted** (the aggressive multi-delete refuses without explicit
+`--force`). Then `--cascade --force --apply` → exit 0, BOTH the agent AND the skill dir deleted under
+**ONE** snapshot, both restorable byte-identical from that single snapshot (manifest + tar verified)
+→ bounded-clean → **PRISTINE** (agents 19==19, skills 244==244, no leftover, snapshots empty).
+
+**(a) status now: 4 clean real `--apply` round-trips, ZERO incidents, every reversible write path
+covered** — single-file delete (agent #1, command #2), directory recursive delete (skill #3), and
+cascade multi-delete (#4, + the `--force` refusal gate proven). The real `~/.claude` governed surface
+(19 agents / 79 commands / 244 skill dirs) is byte-for-byte unchanged after all four; `.mgr-state`
+back to empty each time; no `.mgr-new`/`.mgr-old` residue ever. `update`/`mcp remove` real writes
+remain DELIBERATELY un-run (they delegate to the external `claude` + are partially irreversible).
+Conditions (b) [CC-version canary soak — pending a fresh 2.1.168 session] and (c) [floor 2026-07-07]
+are unchanged.
