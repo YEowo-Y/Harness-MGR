@@ -42,33 +42,33 @@ function cannedReader(map) {
 
 // ── 1. missing args → code 2, config-diff-no-spec ────────────────────────────────
 
-test('configDiffCommand: no positionals → code 2, config-diff-no-spec', () => {
-  const out = configDiffCommand(makeCtx([]));
+test('configDiffCommand: no positionals → code 2, config-diff-no-spec', async () => {
+  const out = await configDiffCommand(makeCtx([]));
   assert.equal(out.code, 2);
   assert.equal(out.result.status, 'no-spec');
   assert.ok(out.diagnostics.some((d) => d.code === 'config-diff-no-spec'), 'expected config-diff-no-spec');
 });
 
-test('configDiffCommand: only one positional → code 2, config-diff-no-spec', () => {
-  const out = configDiffCommand(makeCtx(['onlyone']));
+test('configDiffCommand: only one positional → code 2, config-diff-no-spec', async () => {
+  const out = await configDiffCommand(makeCtx(['onlyone']));
   assert.equal(out.code, 2);
   assert.ok(out.diagnostics.some((d) => d.code === 'config-diff-no-spec'));
 });
 
-test('configDiffCommand: empty-string second arg → code 2, config-diff-no-spec', () => {
-  const out = configDiffCommand(makeCtx(['a', '']));
+test('configDiffCommand: empty-string second arg → code 2, config-diff-no-spec', async () => {
+  const out = await configDiffCommand(makeCtx(['a', '']));
   assert.equal(out.code, 2);
   assert.ok(out.diagnostics.some((d) => d.code === 'config-diff-no-spec'));
 });
 
 // ── 2. two DIFFERING files → code 0, expected ±/lines, stats, changed:true ───────
 
-test('configDiffCommand: differing files → code 0, unified ±lines, stats, changed:true', () => {
+test('configDiffCommand: differing files → code 0, unified ±lines, stats, changed:true', async () => {
   const deps = {
     readFn: cannedReader({ '/A': 'x\ny\nz', '/B': 'x\nY\nz' }),
     cwd: '/',
   };
-  const out = configDiffCommand(makeCtx(['/A', '/B']), deps);
+  const out = await configDiffCommand(makeCtx(['/A', '/B']), deps);
   assert.equal(out.code, 0, `expected code 0, got ${out.code}`);
   assert.equal(out.diagnostics.length, 0);
   assert.equal(out.result.changed, true, 'files differ → changed true');
@@ -83,12 +83,12 @@ test('configDiffCommand: differing files → code 0, unified ±lines, stats, cha
 
 // ── 3. IDENTICAL files → code 0, changed:false, header-only, stats 0/0 ───────────
 
-test('configDiffCommand: identical files → code 0, changed:false, header-only unified', () => {
+test('configDiffCommand: identical files → code 0, changed:false, header-only unified', async () => {
   const deps = {
     readFn: cannedReader({ '/A': 'same\ntext\n', '/B': 'same\ntext\n' }),
     cwd: '/',
   };
-  const out = configDiffCommand(makeCtx(['/A', '/B']), deps);
+  const out = await configDiffCommand(makeCtx(['/A', '/B']), deps);
   assert.equal(out.code, 0);
   assert.equal(out.result.changed, false, 'identical → changed false');
   assert.equal(out.result.stats.added, 0);
@@ -100,24 +100,24 @@ test('configDiffCommand: identical files → code 0, changed:false, header-only 
 
 // ── 4. unreadable file → code 1, config-diff-unreadable ──────────────────────────
 
-test('configDiffCommand: unreadable first file → code 1, config-diff-unreadable', () => {
+test('configDiffCommand: unreadable first file → code 1, config-diff-unreadable', async () => {
   const deps = {
     readFn: cannedReader({ '/A': { error: 'EACCES: permission denied' }, '/B': 'ok' }),
     cwd: '/',
   };
-  const out = configDiffCommand(makeCtx(['/A', '/B']), deps);
+  const out = await configDiffCommand(makeCtx(['/A', '/B']), deps);
   assert.equal(out.code, 1, `expected code 1, got ${out.code}`);
   assert.equal(out.result.status, 'unreadable');
   assert.ok(out.diagnostics.some((d) => d.code === 'config-diff-unreadable'), 'expected config-diff-unreadable');
   assert.ok(out.diagnostics[0].message.includes('/A'), 'message names the unreadable file');
 });
 
-test('configDiffCommand: both files unreadable → code 1, two diagnostics', () => {
+test('configDiffCommand: both files unreadable → code 1, two diagnostics', async () => {
   const deps = {
     readFn: cannedReader({ '/A': { error: 'ENOENT' }, '/B': { error: 'ENOENT' } }),
     cwd: '/',
   };
-  const out = configDiffCommand(makeCtx(['/A', '/B']), deps);
+  const out = await configDiffCommand(makeCtx(['/A', '/B']), deps);
   assert.equal(out.code, 1);
   assert.equal(out.diagnostics.filter((d) => d.code === 'config-diff-unreadable').length, 2);
 });
@@ -163,15 +163,15 @@ test('run(config diff a b): table format prints the raw unified diff', async () 
 
 // ── 6. --context threading reaches the engine (changes context line count) ───────
 
-test('configDiffCommand: --context threads through to the unified output', () => {
+test('configDiffCommand: --context threads through to the unified output', async () => {
   // 9 lines, a single change at line 5. context=1 shows 1 surrounding line each
   // side; context=3 shows 3. Compare the number of ' ' (context) body lines.
   const aText = 'l1\nl2\nl3\nl4\nOLD\nl6\nl7\nl8\nl9';
   const bText = 'l1\nl2\nl3\nl4\nNEW\nl6\nl7\nl8\nl9';
   const reader = cannedReader({ '/A': aText, '/B': bText });
 
-  const small = configDiffCommand(makeCtx(['/A', '/B'], { context: 1 }), { readFn: reader, cwd: '/' });
-  const large = configDiffCommand(makeCtx(['/A', '/B'], { context: 3 }), { readFn: reader, cwd: '/' });
+  const small = await configDiffCommand(makeCtx(['/A', '/B'], { context: 1 }), { readFn: reader, cwd: '/' });
+  const large = await configDiffCommand(makeCtx(['/A', '/B'], { context: 3 }), { readFn: reader, cwd: '/' });
 
   const ctxLines = (s) => s.split('\n').filter((ln) => ln.startsWith(' ')).length;
   // A symmetric single change → context lines split evenly above/below.
@@ -180,34 +180,31 @@ test('configDiffCommand: --context threads through to the unified output', () =>
   assert.equal(ctxLines(large.result.unified), 6, `context:3 → 6 surrounding lines, got:\n${large.result.unified}`);
 });
 
-test('configDiffCommand: garbage --context falls back to 3', () => {
+test('configDiffCommand: garbage --context falls back to 3', async () => {
   const aText = 'l1\nl2\nl3\nl4\nOLD\nl6\nl7\nl8\nl9';
   const bText = 'l1\nl2\nl3\nl4\nNEW\nl6\nl7\nl8\nl9';
   const reader = cannedReader({ '/A': aText, '/B': bText });
-  const out = configDiffCommand(makeCtx(['/A', '/B'], { context: 'notanumber' }), { readFn: reader, cwd: '/' });
+  const out = await configDiffCommand(makeCtx(['/A', '/B'], { context: 'notanumber' }), { readFn: reader, cwd: '/' });
   const ctxLines = out.result.unified.split('\n').filter((ln) => ln.startsWith(' ')).length;
   assert.equal(ctxLines, 6, 'garbage context → default 3 → 6 surrounding lines');
 });
 
 // ── 7. never-throws ──────────────────────────────────────────────────────────────
 
-test('configDiffCommand: empty args object → no throw, code 2', () => {
-  let out;
-  assert.doesNotThrow(() => { out = configDiffCommand({ args: {} }); });
+test('configDiffCommand: empty args object → no throw, code 2', async () => {
+  const out = await configDiffCommand({ args: {} });
   assert.equal(out.code, 2);
   assert.ok(out.diagnostics.some((d) => d.code === 'config-diff-no-spec'));
 });
 
-test('configDiffCommand: null ctx → no throw, code 2', () => {
-  let out;
-  assert.doesNotThrow(() => { out = configDiffCommand(null); });
+test('configDiffCommand: null ctx → no throw, code 2', async () => {
+  const out = await configDiffCommand(null);
   assert.equal(out.code, 2);
 });
 
-test('configDiffCommand: a throwing readFn → no throw, code 1, config-diff-error', () => {
+test('configDiffCommand: a throwing readFn → no throw, code 1, config-diff-error', async () => {
   const deps = { readFn: () => { throw new Error('boom'); }, cwd: '/' };
-  let out;
-  assert.doesNotThrow(() => { out = configDiffCommand(makeCtx(['/A', '/B']), deps); });
+  const out = await configDiffCommand(makeCtx(['/A', '/B']), deps);
   assert.equal(out.code, 1, `expected code 1, got ${out.code}`);
   assert.ok(out.diagnostics.some((d) => d.code === 'config-diff-error'), 'expected config-diff-error');
   assert.equal(out.result.status, 'error');
