@@ -24,11 +24,13 @@
  */
 
 import { pathToFileURL } from 'node:url';
+import { homedir } from 'node:os';
 import { COMMANDS } from './cli/commands.mjs';
 import { resolveConfigDir } from './cli/resolve-config.mjs';
 import { formatJson, formatNdjson } from './output/json.mjs';
 import { renderTable, renderQuiet } from './cli/render.mjs';
 import { VALUE_FLAGS, BOOLEAN_FLAGS } from './cli/flags.mjs';
+import { redactHomePaths } from './output/redact-paths.mjs';
 
 /**
  * @typedef {import('./lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -47,10 +49,13 @@ const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
  * Parse argv, resolve the config dir, dispatch to the command, and render. Never
  * throws and never touches process — returns `{code, stdout}` for the caller.
  *
- * @param {string[]} argv   already sliced (no node/script path)
+ * @param {string[]} argv        already sliced (no node/script path)
+ * @param {Object}  [opts]
+ * @param {()=>string} [opts.homeFn]  injectable seam for os.homedir() — tests
+ *   override this to avoid depending on the real home directory.
  * @returns {Promise<RunResult>}
  */
-export async function run(argv) {
+export async function run(argv, { homeFn } = {}) {
   try {
     const { canonical, args, unknownFlag } = parseArgs(Array.isArray(argv) ? argv : []);
 
@@ -66,13 +71,24 @@ export async function run(argv) {
 
     const cfg = await resolveConfigDir({ configDir: args.configDir });
     const out = await COMMANDS[canonical]({ configDir: cfg.configDir, mgrStateDir: cfg.mgrStateDir, args });
-    const diagnostics = [...cfg.diagnostics, ...out.diagnostics, ...formatDiagnostics(args.format)];
+    let diagnostics = [...cfg.diagnostics, ...out.diagnostics, ...formatDiagnostics(args.format)];
+    let result = out.result;
+
+    // --redact-paths (opt-in privacy): replace every home-dir prefix in strings
+    // with '~' so the OS username does not appear in the output. Applied AFTER
+    // the handler returns and BEFORE serialisation so ALL formats are covered.
+    // The exit code is not affected by redaction.
+    if (args['redact-paths']) {
+      const home = typeof homeFn === 'function' ? homeFn() : homedir();
+      result = redactHomePaths(result, home);
+      diagnostics = /** @type {typeof diagnostics} */ (redactHomePaths(diagnostics, home));
+    }
 
     // Honor an explicit numeric code from the handler (e.g. release-gate uses 0/1/2);
     // backward-compatible: existing handlers don't set code, so we fall back to the
     // standard exit-code logic.
     const code = typeof out.code === 'number' ? out.code : exitCode(diagnostics);
-    return { code, stdout: render(canonical, out.result, diagnostics, args.format) };
+    return { code, stdout: render(canonical, result, diagnostics, args.format) };
   } catch (err) {
     // The boundary guarantee: never a bare stack trace. Degrade to a JSON envelope.
     return { code: 2, stdout: formatJson({ error: 'internal', message: errMessage(err) }) };
@@ -248,7 +264,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n\nwrite commands (DRY-RUN by default; require BOTH --apply AND the env var\nCLAUDE_MGR_ENABLE_WRITES=1 to touch governed config):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n\ncommands:\n${commandList()}`;
+  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n  --redact-paths   replace the home-directory prefix in output paths with '~'\n                   (opt-in privacy; without this flag output is unchanged)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n\nwrite commands (DRY-RUN by default; require BOTH --apply AND the env var\nCLAUDE_MGR_ENABLE_WRITES=1 to touch governed config):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n\ncommands:\n${commandList()}`;
 }
 
 /**
