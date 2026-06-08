@@ -26,5 +26,5 @@ export const BOOLEAN_FLAGS = Object.freeze([
   '--all', '--audit', '--active-probes', '--update', '--release-gate', '--log',
   '--schema-canary', '--update-baseline', '--apply', '--include-auth',
   '--break-lock', '--force', '--mark-failed', '--resume', '--rollback',
-  '--from-manifest', '--by-category', '--cascade',
+  '--from-manifest', '--by-category', '--cascade', '--redact-paths',
 ]);
