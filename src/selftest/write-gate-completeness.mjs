@@ -106,6 +106,12 @@ export const EXEMPT_MODULES = Object.freeze(
     // dir (mkdtempSync + rmSync of that exact dir) to extract+hash an archive for
     // verification; removed in a finally. Never the governed config — no gate needed.
     'rollback-decompress-verify',
+    // snapshot-diff: the read-only snapshot↔snapshot diff engine. In CONTENT mode it
+    // writes ONLY into FRESH os.tmpdir() mkdtemp dir(s) (mkdtempSync + rmSync of those
+    // exact dirs) to extract the one member it diffs; each is removed in a finally.
+    // Never the governed config / .mgr-state — same non-governed temp-writer class as
+    // rollback-decompress-verify, so no assertWritable gate is needed.
+    'snapshot-diff',
     // stability-log: appendFileSync to STABILITY-LOG.jsonl in the repo root — a
     // plain repo soak-log file, NOT a governed-config write.
     'stability-log',
