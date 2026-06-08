@@ -235,3 +235,62 @@ back to empty each time; no `.mgr-new`/`.mgr-old` residue ever. `update`/`mcp re
 remain DELIBERATELY un-run (they delegate to the external `claude` + are partially irreversible).
 Conditions (b) [CC-version canary soak — pending a fresh 2.1.168 session] and (c) [floor 2026-07-07]
 are unchanged.
+
+## 2026-06-08 (cont.) — OFF-RAMP CONDITION (b) COMPLETE: schema-canary soak across CC 2.1.160 → 2.1.168, re-baselined clean
+
+**Found during:** the user-directed "把退场条件 canary 收尾" (finish the canary off-ramp condition).
+This is the FIRST schema-canary run in a FRESH session that actually launched under **CC 2.1.168**
+(the prior session updated CC on disk but ran in-memory as 2.1.160, so re-baselining then would have
+baked in the OLD surface — see the 2026-06-08 CC-update note in CLAUDE.md). Running under 2.1.168 means
+the on-disk `~/.claude` has now been migrated to the new version's shape, so the canary sees the real
+2.1.168 surface.
+
+**Observed — drift = 3 changes, ALL ADDITIVE (zero removals):** `selftest --schema-canary` vs the
+committed 2026-05-31 baseline reported exactly:
+- `settingsKeys: +[model]` — settings.json gained a top-level `model` key (persisted model pin).
+- `appKeys: +[pluginUsage, tipLifetimeShownCounts]` — two new CC-internal keys in `~/.claude.json`.
+- `topDirs: +[file-history]` — a new `file-history` directory under `~/.claude`.
+
+Every change is a NEW key/dir that CC 2.1.168 introduced — **nothing was removed**. A `removed` entry
+would be the danger signal (CC changed a format and discovery may have silently dropped a dimension);
+there were none. The canary even enumerated the brand-new `file-history` dir, which by itself proves
+topDir discovery still works on the new surface.
+
+**No write regression — verified three ways on the live `~/.claude` + the source tree (CC 2.1.168):**
+- `selftest --release-gate` → **pass:true, all 6 steps PASS, 0 error diagnostics**; the doctor-smoke
+  step = **25 checks, 0 errors** (synthetic fixture, deterministic); the schema-canary step correctly
+  reported "3 schema change(s) (WARN, non-blocking)" without flipping pass.
+- live read-only `doctor --format json` → **25 checks, probeLevel passive, 0 ERRORS** / 19 warn / 29
+  info (the warns/infos are the usual faithfully-reported facts — overbroad allow-wildcards + orphan
+  files incl. the new `file-history` dir — i.e. the tool WORKING, per the 2026-05-25 "clean = exit 0 +
+  0 ERROR-severity" rule). The 14→19 warn / 18→29 info drift vs the 2.1.146 baseline is all new
+  user-config rules + new CC runtime files, not a discovery regression.
+- full `node --test` suite → **2440 / 0 fail / 0 skipped** both BEFORE and AFTER the re-baseline.
+
+**Action — re-baselined:** `selftest --schema-canary --update-baseline` rewrote
+`src/selftest/schema-baseline.json` (status `baseline-updated`, 0 error diags). The `git diff` is
+exactly the 3 additive key/dir insertions + the fingerprint recompute
+(`006a0b51…` → `433ec45a…`) + the `generatedAt` timestamp — **no removals, no value leakage** (the
+baseline holds key NAMES only, by the canary's names-only privacy design). A re-run of
+`selftest --schema-canary` then reported **status `clean`, 0 changes, no `schema-drift-detected`
+WARN**. No test pins the committed baseline (the two canary test files are hermetic — they use
+injected fake seams + synthetic tmp baselines), so the re-baseline broke nothing.
+
+**Off-ramp status now — (a) ✅ + (b) ✅; only (c) the calendar floor remains:**
+- (a) clean real-write track record / zero incidents — **MET** (4 reversible `--apply` round-trips,
+  reps #1–#4 above, every reversible write path covered, zero incidents).
+- (b) schema-canary survives ≥1 CC version change with no write regression — **MET NOW** (survived the
+  CC 2.1.160 → 2.1.168 bump — and the whole 2.1.146 → 2.1.168 arc since the baseline — with zero
+  discovery errors; re-baselined to the 2.1.168 surface; release-gate green; 2440 tests green).
+- (c) not-before floor **2026-07-07** (~30d after `phase-4b-stable`) — **NOT YET REACHED** (today is
+  2026-06-08, ~29 days out).
+
+**Therefore the write-gate's `CLAUDE_MGR_ENABLE_WRITES` second factor STAYS MANDATORY.** Completing the
+canary does NOT open the off-ramp — it retires condition (b). The earliest the env-var could be relaxed
+to optional is 2026-07-07, and only then subject to a final clean stability review; `--apply` is never
+removed regardless.
+
+**Lesson:** re-baseline the canary ONLY from a session that genuinely launched under the new CC (not
+just a CC updated on disk under an old running process) — otherwise the baseline captures the pre-
+migration surface and immediately re-drifts on the next launch. The "3 additive / 0 removed" shape is
+the clean-soak signature: additions are CC adding features; a removal would be the format-break alarm.
