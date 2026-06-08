@@ -23,7 +23,7 @@ import { scan } from '../discovery/scan.mjs';
 import { detectOrphans } from '../discovery/orphan-detector.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
-import { mergeSettings } from '../analysis/settings-merge.mjs';
+import { mergeSettings, explainEffective } from '../analysis/settings-merge.mjs';
 import { auditPermissions } from '../analysis/permissions.mjs';
 import { loaderConfidence } from '../analysis/load-order.mjs';
 import { runDoctor } from '../analysis/doctor/index.mjs';
@@ -261,9 +261,7 @@ export function conflictsCommand(ctx) {
  * @param {string} src
  * @returns {RegExp|null}
  */
-function safeRegExp(src) {
-  try { return new RegExp(src); } catch { return null; }
-}
+function safeRegExp(src) { try { return new RegExp(src); } catch { return null; } }
 
 // ── orphans ─────────────────────────────────────────────────────────────────────
 
@@ -298,14 +296,19 @@ export function configShowEffectiveCommand(ctx) {
   const layers = readSettingsLayers(ctx.configDir);
   const m = mergeSettings(layers.layers);
   const diagnostics = [...layers.diagnostics, ...m.diagnostics];
+  const explain = !!(ctx.args && ctx.args.explain);
 
   const key = ctx.args && ctx.args.key;
   if (typeof key === 'string' && key.length > 0) {
     const segments = key.split('.');
-    const value = redactKeyedValue(segments, navigate(m.effective, segments));
-    const merge = redactMergeEntry(segments[0], m.keys[segments[0]] ?? null);
-    const result = { key, merge, value };
+    const sourceKeys = explain ? explainEffective(layers.layers).keys : m.keys;
+    const result = { key, merge: redactMergeEntry(segments[0], sourceKeys[segments[0]] ?? null), value: redactKeyedValue(segments, navigate(m.effective, segments)) };
     return { result, diagnostics };
+  }
+
+  if (explain) {
+    const ex = explainEffective(layers.layers);
+    return { result: { explain: true, effective: redactEffective(m.effective), keys: redactKeysMap(ex.keys) }, diagnostics };
   }
 
   return { result: { effective: redactEffective(m.effective), keys: redactKeysMap(m.keys) }, diagnostics };
@@ -331,8 +334,6 @@ function navigate(obj, segments) {
 
 /**
  * The merged per-event hooks order (the `hooks` key of effective settings).
- * Flag `args.order` is accepted for forward-compat but the data is identical in
- * Phase 1 (settings-merge already concatenates hooks in layer order).
  * @type {CommandHandler}
  */
 export function hooksCommand(ctx) {
@@ -412,14 +413,10 @@ export const COMMANDS = Object.freeze({
   'conflicts': conflictsCommand,
   'orphans': orphansCommand,
   'config:show-effective': configShowEffectiveCommand,
-  // config diff (P4b.U7b): READ-ONLY unified line-diff of two files via the pure
-  // Myers engine (src/output/diff.mjs). No write gate, no paths.mjs, no snapshot —
-  // it just reads two file paths and prints a unified diff. Two-word command
-  // (`config diff` → `config:diff`). The handler returns an explicit `code`.
+  // config diff (P4b.U7b): READ-ONLY Myers line-diff of two files. Two-word command.
   'config:diff': (ctx) => configDiffCommand(ctx),
   // completion (P4b.U9): emit a bash|powershell tab-completion script. PURE READ-ONLY.
-  // The command vocabulary is passed IN at call time (COMMANDS is fully built by now)
-  // so completion.mjs needn't import this module — avoiding a commands↔completion cycle.
+  // Vocabulary passed at call time to avoid a commands↔completion cycle.
   'completion': (ctx) => completionCommand(ctx, { commandKeys: Object.keys(COMMANDS) }),
   'hooks': hooksCommand,
   'permissions': permissionsCommand,
@@ -427,51 +424,22 @@ export const COMMANDS = Object.freeze({
   'doctor': doctorCommand,
   'audit': auditCommand,
   'drift': driftCommand,
-  // snapshotCommand takes an optional second `deps` arg; the registry passes only
-  // ctx, so wrap it to use the default (real) deps.
+  // snapshot: create (dry-run default); list/gc/pin/unpin: management.
+  // All take an optional deps arg; registry passes only ctx → default (real) deps.
   'snapshot': (ctx) => snapshotCommand(ctx),
-  // snapshot management: list (read-only) + gc (retention prune, DRY-RUN by default).
-  // Both take an optional second seam arg; the registry passes only ctx so they use
-  // the default (real) store functions.
   'snapshot:list': (ctx) => snapshotListCommand(ctx),
   'snapshot:gc': (ctx) => snapshotGcCommand(ctx),
-  // snapshot pin/unpin (P3.U21): write the/remove the `.pin` retention marker, DRY-RUN
-  // by default + held behind the two-factor write gate (pin is a CREATE → dynamic
-  // paths.mjs on --apply; unpin is a bounded DELETE → no paths.mjs). Each takes an
-  // optional second `deps` arg; the registry passes only ctx so they use the defaults.
   'snapshot:pin': (ctx) => snapshotPinCommand(ctx),
   'snapshot:unpin': (ctx) => snapshotUnpinCommand(ctx),
-  // Governed-config WRITE commands (P3.U22), DRY-RUN by default + held behind the
-  // two-factor write gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). Each takes an
-  // optional second `deps` arg; the registry passes only ctx so they use the default
-  // (real engine + real process.env + real `import('../paths.mjs')`) deps.
+  // Governed-config WRITE commands (P3.U22+), DRY-RUN by default + two-factor write
+  // gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). Each takes an optional deps arg.
   'rollback': (ctx) => rollbackCommand(ctx),
   'recover': (ctx) => recoverCommand(ctx),
   'lock': (ctx) => lockCommand(ctx),
-  // remove (P4a.U5): delete ONE user-level single-file component (agent|command),
-  // DRY-RUN by default + held behind the two-factor write gate (--apply AND
-  // CLAUDE_MGR_ENABLE_WRITES=1). The auto-snapshot runs BEFORE the delete so every
-  // remove is reversible via `rollback`. Takes an optional second `deps` arg; the
-  // registry passes only ctx so it uses the default (real engine + real process.env
-  // + real `import('../paths.mjs')`) deps.
   'remove': (ctx) => removeCommand(ctx),
-  // update (P4b.U5): update ONE installed plugin to latest by DELEGATING to the
-  // external `claude plugin update <key>` via safeSpawn, DRY-RUN by default + held
-  // behind the two-factor write gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). The
-  // auto-snapshot runs BEFORE the delegated update so it is reversible via `rollback`.
-  // Takes an optional second `deps` arg; the registry passes only ctx so it uses the
-  // default (real engine + real process.env + real `import('../paths.mjs')`) deps.
   'update': (ctx) => updateCommand(ctx),
-  // mcp remove (P4b.U6): remove ONE MCP server by DELEGATING to the external
-  // `claude mcp remove <name> [--scope …]` via safeSpawn, DRY-RUN by default + held
-  // behind the two-factor write gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). The
-  // auto-snapshot runs BEFORE the delegated remove so a project-scope change is
-  // reversible via `rollback`. Two-word command (`mcp remove` → `mcp:remove`). Takes
-  // an optional second `deps` arg; the registry passes only ctx so it uses the default
-  // (real engine + real process.env + real `import('../paths.mjs')`) deps.
   'mcp:remove': (ctx) => mcpCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand };
-export { rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, configDiffCommand, completionCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, configDiffCommand, completionCommand };
