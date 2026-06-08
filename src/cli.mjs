@@ -91,7 +91,7 @@ export async function run(argv) {
  * discarded, leaving its key unset and its value token leaking into the positionals.
  *
  * @param {string[]} argv
- * @returns {{canonical: string|null, args: {format?:string, configDir?:string, name?:string, key?:string, type?:string, explain?:boolean, order?:boolean, detail?:boolean}, unknownFlag: string|null}}
+ * @returns {{canonical: string|null, args: {format?:string, configDir?:string, name?:string, key?:string, type?:string, explain?:boolean, detail?:boolean}, unknownFlag: string|null}}
  */
 function parseArgs(argv) {
   const args = Object.create(null); // null-proto: a `--constructor`-style flag can never reach a prototype key
