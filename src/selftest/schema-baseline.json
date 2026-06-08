@@ -41,6 +41,7 @@
       "overageCreditGrantCache",
       "passesEligibilityCache",
       "penguinModeOrgEnabled",
+      "pluginUsage",
       "projects",
       "promptQueueUseCount",
       "remoteControlUpsellSeenCount",
@@ -49,6 +50,7 @@
       "showSpinnerTree",
       "skillUsage",
       "sonnet1m45MigrationComplete",
+      "tipLifetimeShownCounts",
       "tipsHistory",
       "unpinOpus47LaunchEffort",
       "unpinOpus48LaunchEffort",
@@ -77,6 +79,7 @@
       "extraKnownMarketplaces",
       "hooks",
       "inputNeededNotifEnabled",
+      "model",
       "outputStyle",
       "permissions",
       "respectGitignore",
@@ -94,6 +97,7 @@
       "daemon",
       "debug",
       "downloads",
+      "file-history",
       "homunculus",
       "hooks",
       "hud",
@@ -114,7 +118,7 @@
       "telemetry"
     ]
   },
-  "fingerprint": "006a0b51366db353105a1eccecf976fdb35d64d82995548ebf8ddbf0865f2631",
-  "generatedAt": "2026-05-31T10:52:34.012Z",
+  "fingerprint": "433ec45a7e8f13899a7ce0b3c88cd94bb0e2054e278dd0346fa9521842a9f6b2",
+  "generatedAt": "2026-06-08T04:41:38.596Z",
   "schemaCanaryVersion": 1
 }
