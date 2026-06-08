@@ -171,3 +171,37 @@ decision (step 5 kept at ≤80 per P1.U16).
 6 falsifiable checks and `countGatePass` gives a script-countable tally, replacing human-adjudicated
 "is it stable?" prose (the S4 gate-theater risk for a non-coder owner). What remains is mechanical:
 15 more dogfood rows + the calendar.
+
+---
+
+## 2026-06-08 — OFF-RAMP EVIDENCE #1: real-harness reversible-write dogfood (2 reps, pristine)
+
+After the off-ramp was reframed evidence-driven (relax `CLAUDE_MGR_ENABLE_WRITES` only on a real
+governed-write track record with zero incidents), accumulated the FIRST real-write evidence on the
+live `~/.claude` (CC **2.1.160**). The safe protocol (P4a-validated): **dummy-only + bounded-clean +
+NEVER a full rollback** (a real `rollback` would rewrite all 663 governed files — forbidden; instead
+PROVE reversibility by verifying the auto-snapshot is a byte-identical undo point, leaving the real
+surface untouched).
+
+**Rep #1 — `remove agent:__mgr-dogfood-evidence --apply`:** dry-run exit 0 (dummy survived, zero
+writes) → real `--apply` (two-factor gate armed) exit 0, dummy deleted, auto-snapshot taken →
+tar-extract of the dummy member from `files.tar` == the dummy's pre-delete sha256 ✓ (rollback WOULD
+restore byte-identical) → bounded-clean → **PRISTINE** (agents 19==19, no leftover, no `.mgr-new`/
+`.mgr-old` sidecar, snapshots back to empty, audit.log still absent).
+
+**Rep #2 — `remove command:__mgr-dogfood-evidence --apply`:** same flow, BOTH verifications green —
+manifest `preSha256` == dummy sha (683 files captured) AND tar-extract == dummy bytes ✓ → **PRISTINE**
+(commands 79==79, no residue, snapshots back to empty).
+
+**Lesson (environment, not a claude-mgr bug):** rep #1's manifest cross-check threw `ENOENT
+.../C:\c\Users\...` because an MSYS `/c/Users/...` path was handed to **Windows node**, which prepends
+the current drive (`/c` → `C:\c\...`). `tar` is MSYS-aware and ate the same path fine — so two tools
+disagree on one path. Fix when feeding Windows node a path from Git Bash: pipe the file (`cat f | node`)
+or `cygpath -m` → `C:/...`. The integration suite never hit this because it uses `os.tmpdir()` native
+Windows paths, not MSYS forms. Rep #2 used the `cat | node` fix and both checks passed.
+
+**Off-ramp status:** condition (a) "real `--apply` round-trips verified reversible, zero incidents"
+now has 2 clean reps covering BOTH single-file kinds (agent + command). Condition (b) "schema-canary
+survives ≥1 CC version change" is OPEN — CC is updatable **2.1.160 → 2.1.168** (latest); a future
+session should re-baseline the drifted canary then soak it across that bump. Condition (c) the
+not-before floor **2026-07-07** is not yet reached. So the gate correctly stays in force.
