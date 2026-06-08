@@ -294,3 +294,46 @@ removed regardless.
 just a CC updated on disk under an old running process) — otherwise the baseline captures the pre-
 migration surface and immediately re-drifts on the next launch. The "3 additive / 0 removed" shape is
 the clean-soak signature: additions are CC adding features; a removal would be the format-break alarm.
+
+### 2026-06-08 (cont.) — OFF-RAMP EVIDENCE reps #5 + #6 (a) + gate_pass row (b) + owner shortened the (c) floor to 2026-06-10
+
+**Found during:** the user-directed "另外还可以进行 a 和 b 的补充...或者跑真实外科手术式的路径" — gather
+more real-write evidence + a stability row, after the canary re-baseline. Two more consented surgical
+`--apply` round-trips on the LIVE `~/.claude` (CC **2.1.168**), same safe protocol as reps #1–#4
+(dummy-only + bounded-clean + reversibility PROVEN via the auto-snapshot, NEVER a full rollback).
+
+**Rep #5 — `remove agent:__mgr-dogfood-canary5-… --apply`:** dry-run exit 0 (dummy survived) →
+gate-closed `--apply` (env unset) exit **3** (dummy survived) → real `--apply` exit 0, dummy deleted,
+auto-snapshot `2026-06-08T05-13-17Z` → manifest `preSha256` == dummy sha (`a81ca42…`) AND a real
+`tar -xO` of the dummy member == dummy bytes → **reversibility proven byte-identical** → bounded-clean
+→ **PRISTINE** (agents 19==19, 0 dummies, snapshots empty, 0 sidecars).
+
+**Rep #6 — `remove command:__mgr-dogfood-canary6-… --apply`:** same flow, auto-snapshot
+`2026-06-08T05-13-50Z`, BOTH manifest `preSha256` AND tar-extract == dummy sha (`85dec52…`) →
+**PRISTINE** (commands 79==79, 0 dummies, snapshots empty, 0 sidecars).
+
+**(a) status now: 6 clean real `--apply` round-trips, ZERO incidents** — single-file agent (#1, #5),
+single-file command (#2, #6), skill-dir recursive (#3), cascade multi-op + `--force` refusal (#4).
+Real `~/.claude` byte-unchanged after each; `.mgr-state` empty each time; no sidecar residue; audit.log
+still absent. `update`/`mcp remove` real writes remain DELIBERATELY un-run (delegate to external
+`claude` + partially irreversible).
+
+**(b) supplement — `selftest --release-gate --log` on the re-baselined 2.1.168 surface:** pass:true,
+all steps PASS, 0 error diagnostics; appended a machine-countable row
+`{"cc_version":"2.1.168","gate_pass":true,"error_diag_count":0}` → **gate_pass tally 28 → 29** (the
+≥20 threshold stays met; this row is the first post-rebaseline cross-version stability evidence).
+
+**Governance — owner shortened the (c) not-before floor 2026-07-07 → 2026-06-10** (user: "日期提前
+至两天后", explicitly confirmed when I surfaced the soak tradeoff). Rationale: the off-ramp is
+evidence-driven and (a)+(b) are now MET (6 reversible reps + the canary surviving a CC version bump),
+so the calendar floor was the only remaining gate; the owner elected to compress it to two days out.
+**Tradeoff (logged honestly):** the latent-bug calendar soak collapses from ~30 days to ~2 days — the
+(a)+(b) evidence bar is strong, but pure time-in-use for latent regressions is now thin. CHANGELOG.md
+updated; a `/schedule` final-review task is set for 2026-06-10. **Until then the two-factor write gate
+(`--apply` AND `CLAUDE_MGR_ENABLE_WRITES=1`) STAYS fully mandatory**; `--apply` is never removed.
+
+**Lesson:** surgical dummy-only `--apply` reps are the right way to grow real-write VOLUME for (a)
+without ever touching the real governed surface — the snapshot is verified to be a byte-identical undo
+point (manifest preSha256 + a real tar-extract both == the dummy sha) INSTEAD of running a real
+rollback (which would rewrite all 663 governed files). 6 reps, 0 incidents, every reversible path
+covered.
