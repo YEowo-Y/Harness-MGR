@@ -23,7 +23,18 @@
  *      success, error, or throw); a cleanup error degrades to a `warn`, never throws.
  *   3. PATH-TRAVERSAL DEFENSE on the snapshot ids (strict SNAPSHOT_ID_RE via
  *      isValidSnapshotId, run BEFORE any fs) AND on a mode-B `relpath` (reject
- *      absolute paths and any `..` segment BEFORE extracting anything).
+ *      absolute paths and any `..` segment BEFORE extracting anything). NOTE: mode B
+ *      extracts the WHOLE files.tar (extractSnapshotTar runs `tar -x`), so a member
+ *      whose own name traverses (`../foo`, absolute) is contained by THREE layers, in
+ *      this order: (a) the system tar refuses such members on extract (verified for
+ *      Windows bsdtar — nonzero exit → extractOk:false → result ok:false); (b) the
+ *      destination is ALWAYS a fresh os.tmpdir() mkdtemp dir, so even a hypothetical
+ *      escape lands in throwaway temp, never the governed config; (c) containedPath
+ *      re-checks the read-back path. The archive is claude-mgr's OWN output and, under
+ *      the threat model's single-trusted-local-user assumption (docs/threat-model.md),
+ *      an attacker who could rewrite files.tar already has the user's write access — so
+ *      (a) is a defense-in-depth reliance on tar's behavior, not the security boundary
+ *      (this mirrors how rollback-decompress-verify is reasoned about).
  *   4. PROTO-SAFETY: the manifest path→hash maps use Object.create(null) and skip
  *      `__proto__`/`constructor`/`prototype` keys (a hard project rule).
  *
@@ -97,7 +108,7 @@ function shaMap(manifest) {
 
 /**
  * Compare two manifests by path + preSha256. Pure over the two parsed manifests.
- * @param {string} idA @param {string} idB @param {any} mA @param {any} mB
+ * @param {any} mA @param {any} mB
  * @returns {{ added:string[], removed:string[], modified:string[], unchanged:number }}
  */
 function manifestDelta(mA, mB) {
