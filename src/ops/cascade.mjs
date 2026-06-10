@@ -239,7 +239,7 @@ export async function cascadeRemove(opts) {
     if (!enableWrites) {
       bag.add({ severity: 'info', code: 'cascade-dry-run', phase: PHASE,
         message: `would delete ${allIds.length} component(s) [${allIds.join(', ')}]; ` +
-          're-run with --apply and CLAUDE_MGR_ENABLE_WRITES=1 to execute' +
+          're-run with --apply to execute' +
           (set.ids.length > 0 ? ' (--force also required to confirm deletion of dependents)' : '') });
       return buildResult({ ok: true, dryRun: true, target: targetId,
         dependents: set.ids.slice(), preview, plan }, bag);
