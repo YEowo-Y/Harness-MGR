@@ -2,8 +2,8 @@
  * CLI handler for `remove <kind>:<name> [--reason <msg>] [--apply]` (P4a.U5).
  *
  * Wires the already-built `removeComponent` engine (src/ops/remove.mjs) into the
- * CLI behind the SAME two-factor write gate every write command uses:
- * `resolveWriteIntent` requires BOTH `--apply` AND `CLAUDE_MGR_ENABLE_WRITES=1`.
+ * CLI behind the SAME write gate every write command uses: `resolveWriteIntent`
+ * requires `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * DRY-RUN BY DEFAULT: a bare `remove agent:foo` previews the operation (builds the
  * Plan, resolves the target, confirms it exists) and writes NOTHING. With `--apply`
@@ -131,8 +131,8 @@ export async function removeCommand(ctx, deps = {}) {
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
 
-  // Two-factor gate: --apply alone is not enough; CLAUDE_MGR_ENABLE_WRITES=1 is
-  // the second factor. A closed gate REFUSES here — the engine is never called.
+  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // opt-out lock. A closed gate REFUSES here — the engine is never called.
   const intent = resolveWriteIntent({ apply, env });
   if (intent.refusal) {
     return {
