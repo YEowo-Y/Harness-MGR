@@ -70,11 +70,11 @@ test('snapshotUnpinCommand: dry-run (no --apply) → mode dry-run, wouldUnpin, u
 
 // ── snapshot pin: gate-closed --apply → writes-disabled-env ───────────────────────
 
-test('snapshotPinCommand: --apply with closed env → code3 writes-disabled-env, loadPaths/pinFn NOT called', async () => {
+test('snapshotPinCommand: --apply with env=0 closed → code3 writes-disabled-env, loadPaths/pinFn NOT called', async () => {
   const loadPaths = makeAsyncSpy({ assertWritable: (p) => p });
   const pinFn = makeSpy({ pinned: true, path: 'x', diagnostics: [] });
   const out = await snapshotPinCommand(
-    CTX({ positionals: [ID], apply: true }), { loadPaths, pinFn, env: {} });
+    CTX({ positionals: [ID], apply: true }), { loadPaths, pinFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
   assert.equal(out.code, 3);
   assert.equal(out.result.mode, 'applied');
   assert.equal(out.result.pinned, false);
@@ -85,10 +85,10 @@ test('snapshotPinCommand: --apply with closed env → code3 writes-disabled-env,
 
 // ── snapshot unpin: gate-closed --apply → writes-disabled-env ─────────────────────
 
-test('snapshotUnpinCommand: --apply with closed env → code3 writes-disabled-env, unpinFn NOT called', async () => {
+test('snapshotUnpinCommand: --apply with env=0 closed → code3 writes-disabled-env, unpinFn NOT called', async () => {
   const unpinFn = makeSpy({ unpinned: true, diagnostics: [] });
   const out = await snapshotUnpinCommand(
-    CTX({ positionals: [ID], apply: true }), { unpinFn, env: {} });
+    CTX({ positionals: [ID], apply: true }), { unpinFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
   assert.equal(out.code, 3);
   assert.equal(out.result.mode, 'applied');
   assert.equal(out.result.unpinned, false);
