@@ -184,6 +184,38 @@ function realTransition() {
   return fn;
 }
 
+/**
+ * A manifestReadFileFn seam that returns a mock manifest JSON containing the
+ * POSIX-relative paths for every op target used in these unit tests.  This is
+ * the counterpart to skipSecretFilter:true in the real path — the manifest will
+ * always contain the target so the Part-2 backstop (checkOpTargetsInManifest)
+ * never blocks a unit test that is not specifically testing that backstop.
+ *
+ * Targets covered:
+ *   settings.json   — writeOp() / writeOp() same-target tests
+ *   agents/foo.md   — deleteOp()
+ *   agents/a.md     — paranoid P4 non-JSON overwrite test
+ *   skills/foo/SKILL.md — deleteDirOp(): the dir check needs ≥1 file under
+ *                         the 'skills/foo/' prefix in the manifest.
+ */
+function makeManifestReadFile() {
+  const manifest = JSON.stringify({
+    manifestVersion: 1,
+    planVersion: 1,
+    snapshotId: FIXED_ID,
+    targetClaudeDir: TARGET,
+    createdAt: '2026-05-30T00:00:00.000Z',
+    reason: 'unit-test',
+    files: [
+      { path: 'settings.json', preSha256: 'aaa', currentSha256: 'aaa' },
+      { path: 'agents/foo.md', preSha256: 'bbb', currentSha256: 'bbb' },
+      { path: 'agents/a.md', preSha256: 'ccc', currentSha256: 'ccc' },
+      { path: 'skills/foo/SKILL.md', preSha256: 'ddd', currentSha256: 'ddd' },
+    ],
+  });
+  return () => manifest;
+}
+
 /** Bundle a full set of happy-path seams, allowing per-seam overrides. */
 function happySeams(over = {}) {
   return {
@@ -196,6 +228,7 @@ function happySeams(over = {}) {
     atomicWriteFn: over.atomicWriteFn ?? makeAtomicWrite(),
     atomicDeleteFn: over.atomicDeleteFn ?? makeAtomicDelete(),
     atomicDirDeleteFn: over.atomicDirDeleteFn ?? makeAtomicDirDelete(),
+    manifestReadFileFn: over.manifestReadFileFn ?? makeManifestReadFile(),
   };
 }
 
