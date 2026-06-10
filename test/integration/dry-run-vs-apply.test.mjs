@@ -123,8 +123,9 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
     const dryStdout = dry.stdout;
     assert.ok(/dry-run/.test(dryStdout), `dry-run stdout should mention dry-run status:\n${dryStdout}`);
 
-    // 3. GATE CLOSED — --apply but CLAUDE_MGR_ENABLE_WRITES is DELETED → refuse.
-    assert.equal(process.env.CLAUDE_MGR_ENABLE_WRITES, undefined, 'env factor must be unset for the closed-gate case');
+    // 3. GATE CLOSED — --apply with CLAUDE_MGR_ENABLE_WRITES=0 (explicit opt-out) → refuse.
+    //    Under the relaxed gate, UNSET env enables writes; only '0' locks.
+    process.env.CLAUDE_MGR_ENABLE_WRITES = '0';
     const closed = await run(['rollback', id, '--force', '--apply', '--config-dir', tmp]);
     assert.equal(closed.code, 3, `closed-gate code 3 expected; stdout:\n${closed.stdout}`);
     assert.ok(/writes-disabled-env/.test(closed.stdout),
@@ -133,8 +134,23 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
     assert.ok(Buffer.compare(readFileSync(join(tmp, 'CLAUDE.md')), claudeV2) === 0,
       'closed gate must NOT modify the live tree (CLAUDE.md still v2)');
 
-    // 4. APPLY — arm the second factor. The full lock → preflight → restore lifecycle
-    //    runs through the CLI; CLAUDE.md + agents/a.md restored byte-identical to v1.
+    // 3b. RELAXATION POSITIVE LEG — --apply with env UNSET now enables writes
+    //     (Rule C: prove the relaxed gate works in the integration path).
+    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    assert.equal(process.env.CLAUDE_MGR_ENABLE_WRITES, undefined, 'env must be unset for the relaxation leg');
+    const relaxed = await run(['rollback', id, '--force', '--apply', '--config-dir', tmp]);
+    assert.equal(relaxed.code, 0, `relaxation leg: unset env + --apply must succeed; stdout:\n${relaxed.stdout}`);
+    // CLAUDE.md should be restored byte-identical to v1 (the snapshot we took before mutation).
+    assert.ok(Buffer.compare(readFileSync(join(tmp, 'CLAUDE.md')), claudeV1) === 0,
+      'relaxation leg: --apply with unset env must restore CLAUDE.md byte-identical to v1');
+    assert.ok(Buffer.compare(readFileSync(join(tmp, 'agents', 'a.md')), agentV1) === 0,
+      'relaxation leg: --apply with unset env must restore agents/a.md byte-identical to v1');
+    // Re-mutate to v2 so oracle 4 can also run a restore.
+    writeFileSync(join(tmp, 'CLAUDE.md'), claudeV2);
+    writeFileSync(join(tmp, 'agents', 'a.md'), agentV2);
+
+    // 4. APPLY — env explicitly set to '1' (back-compat). The full lock → preflight → restore
+    //    lifecycle runs through the CLI; CLAUDE.md + agents/a.md restored byte-identical to v1.
     process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
     const applied = await run(['rollback', id, '--force', '--apply', '--config-dir', tmp]);
     assert.equal(applied.code, 0, `apply code 0 expected; stdout:\n${applied.stdout}`);
