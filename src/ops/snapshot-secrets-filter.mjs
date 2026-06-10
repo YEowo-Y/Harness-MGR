@@ -287,10 +287,27 @@ function applyAuthGate(kept, bag, ctx) {
  * NAME or CONTENT identifies it as a secret (the union rule). Pure orchestration
  * over injectable seams; never throws.
  *
+ * REVERSIBILITY MODE (`keepAll:true`): when the caller is taking a reversibility
+ * snapshot (e.g. the apply path capturing the pre-mutation state so a rollback can
+ * restore every op target), the name-glob AND content-sniff legs are BYPASSED and
+ * ALL files are kept. The extension/exactName classes in the secrets allowlist are
+ * NOT bypassed (they match `.pem`/`id_rsa` etc., which the snapshot walk never
+ * returns — the walker is allowlist-driven and only emits governed surface files
+ * like `.md` components and `.json` config). The `includeAuth` gate still applies.
+ * WHY: the snapshot walker (`walkSnapshotScope`) only ever returns files from the
+ * governed surface (agents/skills/commands/hooks/hud + settings files). A component
+ * named `rotate-secret.md` or a skill whose `.md` body happens to contain a ghp_
+ * token prefix is a GOVERNED FILE — if the name/content filter drops it, the
+ * auto-snapshot before `remove` cannot capture it, and the delete becomes silently
+ * irreversible. `keepAll:true` eliminates that gap without touching the OUTPUT /
+ * sharing redaction surfaces (those are a separate, correct surface).
+ *
  * @param {object} opts
  * @param {string} opts.baseDir                    absolute root the rel-paths resolve against
  * @param {string[]} opts.files                    POSIX-relative file list (from the U5 walker)
  * @param {boolean} [opts.includeAuth=false]       opt in to capturing the auth-cache file
+ * @param {boolean} [opts.keepAll=false]           bypass name-glob + content-sniff; keep ALL
+ *   files the walker returned (reversibility mode — see header above)
  * @param {string} [opts.authFileName='mcp-needs-auth-cache.json'] must be a single
  *   in-directory path segment (no separator / `..`); a non-segment value is
  *   rejected so the bypass can never reach outside baseDir
@@ -304,6 +321,7 @@ export function filterSnapshotSecrets(opts) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const baseDir = typeof o.baseDir === 'string' ? o.baseDir : '';
   const includeAuth = o.includeAuth === true;
+  const keepAll = o.keepAll === true;
   const authFileName = typeof o.authFileName === 'string' && o.authFileName.length > 0
     ? o.authFileName : DEFAULT_AUTH_FILE;
   const readFileFn = typeof o.readFileFn === 'function' ? o.readFileFn : readFileSync;
@@ -322,6 +340,13 @@ export function filterSnapshotSecrets(opts) {
 
   for (const rel of files) {
     if (typeof rel !== 'string' || rel.length === 0) continue; // skip junk entries
+    // keepAll (reversibility mode): bypass name-glob + content-sniff — keep
+    // everything the walker returned so no governed component/config file is
+    // silently excluded from the pre-mutation capture.
+    if (keepAll) {
+      kept.push(rel);
+      continue;
+    }
     const verdict = classify(rel, baseDir, readFileFn, allowlist, onReadError);
     if (verdict === null) {
       kept.push(rel);
