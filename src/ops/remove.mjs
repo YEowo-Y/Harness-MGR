@@ -258,7 +258,7 @@ export async function removeComponent(opts) {
     if (!enableWrites) {
       bag.add({ severity: 'info', code: 'remove-dry-run', phase: PHASE,
         message: `would delete ${target} (an auto-snapshot would be taken first so a rollback can undo it); ` +
-          're-run with --apply and CLAUDE_MGR_ENABLE_WRITES=1 to execute' });
+          're-run with --apply to execute' });
       return buildResult({ ok: true, dryRun: true, kind, name: base, target, plan }, bag);
     }
 
