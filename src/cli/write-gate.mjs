@@ -15,11 +15,14 @@
  * null/undefined `env`, and builds plain Diagnostic literals (it imports nothing).
  *
  * Decision table (post-relaxation):
- *   apply falsy                              → dry-run; enableWrites:false, no refusal.
- *   apply truthy + env === '0'               → REFUSED; enableWrites:false, code:3 +
- *                                              a `writes-disabled-env` error Diagnostic.
- *   apply truthy + env === '1' (back-compat) → enabled; enableWrites:true,  no refusal.
- *   apply truthy + env unset / any other val → enabled; enableWrites:true,  no refusal.
+ *   apply falsy                                   → dry-run; enableWrites:false, no refusal.
+ *   apply truthy + env.trim() === '0'             → REFUSED; enableWrites:false, code:3 +
+ *                                                   a `writes-disabled-env` error Diagnostic.
+ *                                                   Whitespace-trimmed so ' 0', '0\n', '\t0'
+ *                                                   etc. all lock correctly in CI pipelines.
+ *   apply truthy + env === '1' (back-compat)      → enabled; enableWrites:true,  no refusal.
+ *   apply truthy + env unset / any other val      → enabled; enableWrites:true,  no refusal.
+ *   NOTE: 'false', '00', '0x' do NOT lock (only the digit zero, trimmed).
  *
  * `code:3` mirrors the rollback orchestrator's "refused" exit-code HINT so the CLI
  * surfaces a non-zero, non-crash exit when the gate is closed.
@@ -31,7 +34,11 @@
 
 /** The env var name; set to '0' to explicitly lock writes (opt-out). */
 const ENABLE_WRITES_ENV = 'CLAUDE_MGR_ENABLE_WRITES';
-/** The ONLY value that locks writes; everything else (incl. unset / '1') allows. */
+/**
+ * The value that locks writes (whitespace-trimmed before comparison so CI
+ * pipelines that produce ' 0', '0\n', or '\t0' are treated identically to
+ * a bare '0').  Everything else — unset, '1', 'false', empty — allows writes.
+ */
 const DISABLE_WRITES_VALUE = '0';
 
 /**
@@ -55,9 +62,13 @@ export function resolveWriteIntent({ apply, env } = {}) {
     return { enableWrites: false, refusal: null, code: null };
   }
 
-  // --apply present: check for the explicit opt-out lock (only exact '0' locks).
-  // A null/undefined env, unset var, '1', or any other value → writes enabled.
-  const lockedOut = !!env && env[ENABLE_WRITES_ENV] === DISABLE_WRITES_VALUE;
+  // --apply present: check for the explicit opt-out lock.  The raw env value is
+  // trimmed before comparison so CI values like ' 0', '0\n', '\t0' reliably lock.
+  // A null/undefined env, unset var, '1', 'false', or any other value → enabled.
+  const raw = env && typeof env[ENABLE_WRITES_ENV] === 'string'
+    ? env[ENABLE_WRITES_ENV].trim()
+    : undefined;
+  const lockedOut = raw === DISABLE_WRITES_VALUE;
   if (!lockedOut) {
     return { enableWrites: true, refusal: null, code: null };
   }
