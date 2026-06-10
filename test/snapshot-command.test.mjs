@@ -142,16 +142,16 @@ test('snapshotCommand: --apply with an unloadable hooks lib degrades (no throw)'
 
 // ── (c2) TWO-FACTOR GATE: --apply with the env factor CLOSED → refuse, no write ────
 
-test('snapshotCommand: --apply + env CLOSED → code 3 writes-disabled-env, createFn + loadPaths NEVER called', async () => {
-  // The load-bearing new oracle: the env factor (CLAUDE_MGR_ENABLE_WRITES) is the
-  // second gate. With it closed, --apply must REFUSE up front — the write gate is
+test('snapshotCommand: --apply + env=0 CLOSED → code 3 writes-disabled-env, createFn + loadPaths NEVER called', async () => {
+  // The load-bearing new oracle: CLAUDE_MGR_ENABLE_WRITES=0 is the explicit opt-out
+  // lock. With it set to '0', --apply must REFUSE up front — the write gate is
   // never loaded and no snapshot is created.
   const loadPathsCalls = [];
   const loadPaths = () => { loadPathsCalls.push(1); return Promise.resolve({ assertWritable: (p) => p }); };
   const createFn = () => { throw new Error('createFn must NOT run when the env gate is closed'); };
   const out = await snapshotCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
-    { loadPaths, createFn, env: {} }, // env factor absent → gate closed
+    { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } }, // explicit opt-out lock
   );
   assert.equal(out.code, 3, 'a closed gate refuses with code 3');
   assert.equal(out.result.mode, 'applied');
@@ -336,14 +336,14 @@ test('snapshotGcCommand: --apply → mode applied, deleted surfaced, apply=true 
   assert.equal(calls[0].apply, true);
 });
 
-test('snapshotGcCommand: --apply + env CLOSED → code 3 writes-disabled-env, gcFn NEVER called', () => {
-  // The load-bearing new oracle for gc: --apply alone is not enough; the env factor
-  // is required. With it closed, the BOUNDED delete (gcFn) must never run.
+test('snapshotGcCommand: --apply + env=0 CLOSED → code 3 writes-disabled-env, gcFn NEVER called', () => {
+  // The load-bearing new oracle for gc: env=0 is the explicit opt-out lock.
+  // With it set to '0', the BOUNDED delete (gcFn) must never run.
   const calls = [];
   const gcFn = (o) => { calls.push(o); return { deleted: ['x'], wouldDelete: [], retained: [], diagnostics: [] }; };
   const out = snapshotGcCommand(
     { mgrStateDir: '/cfg/.mgr-state', args: { keep: '1', apply: true } },
-    { gcFn, env: {} }, // env factor absent → gate closed
+    { gcFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } }, // explicit opt-out lock
   );
   assert.equal(out.code, 3, 'a closed gate refuses with code 3');
   assert.equal(out.result.mode, 'applied');
@@ -356,12 +356,12 @@ test('snapshotGcCommand: --apply + env CLOSED → code 3 writes-disabled-env, gc
   assert.equal(calls.length, 0, 'gcFn must NOT run when the env gate is closed');
 });
 
-test('snapshotGcCommand: --apply + env CLOSED still surfaces a keep/older-than coercion warn', () => {
+test('snapshotGcCommand: --apply + env=0 CLOSED still surfaces a keep/older-than coercion warn', () => {
   // The env refusal must NOT swallow a flag-coercion warn (preDiags are preserved).
   const gcFn = () => { throw new Error('gcFn must NOT run when the env gate is closed'); };
   const out = snapshotGcCommand(
     { mgrStateDir: '/s', args: { keep: 'abc', apply: true } }, // invalid --keep + closed gate
-    { gcFn, env: {} },
+    { gcFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } },
   );
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'gc-keep-invalid' && d.severity === 'warn'), 'the coercion warn survives the refusal');
