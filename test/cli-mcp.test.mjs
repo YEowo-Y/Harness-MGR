@@ -93,13 +93,13 @@ test('mcpCommand: dry-run someServer → code 0, status dry-run, loadPaths never
 
 // ── 3. gate-closed: --apply without env var → code 3, engine + loadPaths never ──
 
-test('mcpCommand: --apply without CLAUDE_MGR_ENABLE_WRITES → code 3, writes-disabled-env, engine never', async () => {
+test('mcpCommand: --apply with CLAUDE_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env, engine never', async () => {
   let mcpCalled = false;
   let loadPathsCalled = false;
   const deps = {
     mcpFn: () => { mcpCalled = true; return Promise.resolve(fakeResult()); },
     loadPaths: () => { loadPathsCalled = true; return Promise.resolve({ assertWritable: (p) => p }); },
-    env: {}, // env var NOT set
+    env: { CLAUDE_MGR_ENABLE_WRITES: '0' }, // explicit opt-out lock
   };
   const out = await mcpCommand(makeCtx(['x'], { apply: true }), deps);
   assert.equal(out.code, 3, `expected code 3, got ${out.code}`);
