@@ -3,8 +3,8 @@
  * (P4b.U5).
  *
  * Wires the `updatePlugin` engine (src/ops/update.mjs) into the CLI behind the
- * SAME two-factor write gate every write command uses: `resolveWriteIntent`
- * requires BOTH `--apply` AND `CLAUDE_MGR_ENABLE_WRITES=1`.
+ * SAME write gate every write command uses: `resolveWriteIntent` requires
+ * `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * DRY-RUN BY DEFAULT: a bare `update somePlugin` discovers + resolves the plugin
  * and PREVIEWS the delegated `claude plugin update <key>` command, writing NOTHING
