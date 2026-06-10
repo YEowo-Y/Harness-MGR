@@ -19,14 +19,13 @@ own**. Every governed-config write is gated, auto-snapshotted, and reversible.
 
 ### The write gate (read this before any `--apply`)
 
-Every command that mutates governed config is **dry-run by default**. To actually write you
-must supply BOTH factors:
+Every command that mutates governed config is **dry-run by default**. To actually write, pass
+`--apply`. Each write also takes an automatic snapshot first, so it is reversible with `rollback`.
 
-1. the `--apply` flag, and
-2. the environment variable `CLAUDE_MGR_ENABLE_WRITES=1`.
-
-A stray `--apply` alone writes nothing. Each write also takes an automatic snapshot first, so
-it is reversible with `rollback`.
+> **Off-ramp (2026-06-09):** the `CLAUDE_MGR_ENABLE_WRITES=1` second factor is **no longer
+> required** — `--apply` alone now writes. The env var is now an explicit **opt-out lock**: set
+> `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (e.g. in CI); setting it to `1`
+> still works (back-compat). See the off-ramp note below for the evidence and migration.
 
 ### Added — Phase 4 (remove / update / mcp / diff / completion / ndjson)
 
@@ -76,35 +75,35 @@ it is reversible with `rollback`.
 - A post-apply invariant (#44) pins that `doctor` still runs (exit ≤ 1, never a crash) after
   every write path; a full-command smoke pins that every command runs without an internal crash.
 
-### Deprecated — `CLAUDE_MGR_ENABLE_WRITES` second factor (evidence-driven off-ramp)
+### Changed — `CLAUDE_MGR_ENABLE_WRITES` relaxed to an opt-out lock (off-ramp EXERCISED 2026-06-09)
 
-The `CLAUDE_MGR_ENABLE_WRITES=1` requirement is a deliberate belt-and-suspenders SECOND FACTOR
-for the beta period — it makes an accidental governed write essentially impossible.
+The Phase-3 two-factor write gate has been **relaxed**. `--apply` alone now enables a governed
+write; `CLAUDE_MGR_ENABLE_WRITES` is **no longer required**. It is now an explicit **opt-out
+lock**: set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (the refusal exits 3
+with `writes-disabled-env`); any other value — unset, `1` (back-compat), … — allows writes when
+`--apply` is present. Dry-run stays the default and **`--apply` is never removed.**
 
-**Off-ramp — EVIDENCE-driven, not calendar-driven.** The env-var requirement MAY be relaxed to
-**optional** (leaving `--apply` as the primary, still-explicit write gate) once — and only once —
-ALL of these hold:
+This was the planned evidence-driven off-ramp, exercised after a final review on **2026-06-09**
+with ALL conditions met:
 
-- a clean stability review confirms a real governed-write track record with **zero write
-  incidents** — actual `--apply` round-trips used and verified reversible, not just dry-runs;
-- the schema-fingerprint canary has survived at least one Claude Code version change with no
-  write regression; and
-- a **not-before floor** of **2026-06-10** has passed (shortened from the original 2026-07-07 by
-  the owner on 2026-06-08, given strong (a)+(b) evidence: 6 reversible `--apply` round-trips with
-  zero incidents, and the schema-canary surviving the CC 2.1.160 → 2.1.168 version change).
+- **(a)** a real governed-write track record with **zero incidents** — 6 reversible `--apply`
+  round-trips (single-file agent + command, a skill-directory recursive delete, and a multi-op
+  cascade with the `--force` refusal proven), each verified byte-identical-reversible;
+- **(b)** the schema-fingerprint canary survived a Claude Code version change with no write
+  regression (CC 2.1.160 → 2.1.168), and was re-baselined again for the **2.1.170** binary now on
+  disk with the tool healthy (release-gate green, `doctor` 0 errors, 2539 tests / 0 fail);
+- **(c)** the not-before floor (2026-06-10, shortened by the owner from the original 2026-07-07)
+  — the owner elected to run the final review one day early, on 2026-06-09.
 
-As of 2026-06-08 conditions (a) and (b) are MET; only the (c) floor (now 2026-06-10) remains, so
-the off-ramp review can happen on 2026-06-10. If the evidence still holds then, the env-var factor
-may be relaxed; if not, the gate simply stays in force — there is NO automatic relaxation.
+**Migration / back-compat:**
 
-- **Until the bar is met:** `CLAUDE_MGR_ENABLE_WRITES=1` stays **mandatory** for any governed
-  write. Nothing changes.
-- **When relaxed:** the env var becomes optional; the exact change is recorded in a future
-  release note, and the env var continues to WORK (and to force-enable writes) for at least one
-  further release, so existing scripts and CI never break without warning.
+- Scripts that already set `CLAUDE_MGR_ENABLE_WRITES=1` continue to work **unchanged**.
+- ⚠ Scripts or CI that relied on an **unset** variable to BLOCK writes must now set
+  `CLAUDE_MGR_ENABLE_WRITES=0` to keep that lock — under the relaxed gate, an unset variable plus
+  `--apply` now writes.
 
-This is a planned, conditional, reversible relaxation — **not** a removal of the `--apply` gate,
-which stays.
+This is the relaxation of the env-var second factor only — **not** a removal of the `--apply`
+gate, which stays, nor of dry-run-by-default, which stays.
 
 ---
 
