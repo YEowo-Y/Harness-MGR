@@ -132,7 +132,7 @@ export async function lockCommand(ctx, deps = {}) {
     const caution = buildCautionDiag({ present: s.present, holder: s.holder, alive: s.alive }, nowMs);
     const diags = [...s.diagnostics, caution];
     diags.push({ severity: 'error', code: 'lock-break-needs-apply', phase: 'cli',
-      message: 'lock --break-lock force-removes the apply lock; it needs --apply and CLAUDE_MGR_ENABLE_WRITES=1' });
+      message: 'lock --break-lock force-removes the apply lock; it needs --apply' });
     return {
       result: { status: 'needs-apply', present: s.present, holder: s.holder,
         holderAlive: s.alive, ageSeconds: s.holder ? holderAgeSeconds(s.holder.startTime, nowMs) : null },
