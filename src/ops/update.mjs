@@ -195,7 +195,7 @@ function emitDryRunDiagnostics(bag, record, human) {
   bag.add({ severity: 'info', code: 'update-dry-run', phase: PHASE,
     message: `would run \`${human}\` (current version ${record.version || '(unknown)'}, ` +
       `marketplace ${record.marketplace || '(unknown)'}, cachePresent ${record.cachePresent === true}); ` +
-      're-run with --apply and CLAUDE_MGR_ENABLE_WRITES=1 to execute' });
+      're-run with --apply to execute' });
   bag.add({ severity: 'info', code: 'update-restart-required', phase: PHASE,
     message: 'the change applies on restart (`claude plugin update` requires a Claude Code restart to take effect)' });
   bag.add({ severity: 'info', code: 'update-cache-not-snapshotted', phase: PHASE,
