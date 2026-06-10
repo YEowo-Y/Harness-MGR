@@ -3,8 +3,8 @@
  * [--force] [--apply]` (P3.U22).
  *
  * Drives the already-built crash-recovery engine (src/ops/recover.mjs) from the
- * command line, behind the two-factor write gate (`resolveWriteIntent`: `--apply`
- * AND `CLAUDE_MGR_ENABLE_WRITES=1`). The flag → mode mapping is here; the engine
+ * command line, behind the write gate (`resolveWriteIntent`: `--apply`;
+ * `CLAUDE_MGR_ENABLE_WRITES=0` force-locks writes). The flag → mode mapping is here; the engine
  * dispatches on the resolved mode.
  *
  * MODE ASYMMETRY (vs rollbackCommand): recover's shared validation
@@ -184,8 +184,8 @@ export async function recoverCommand(ctx, deps = {}) {
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
 
-  // Two-factor gate: --apply alone is not enough; CLAUDE_MGR_ENABLE_WRITES=1 is the
-  // second factor. A closed gate REFUSES here — the engine is never called.
+  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // opt-out lock. A closed gate REFUSES here — the engine is never called.
   const intent = resolveWriteIntent({ apply, env });
   if (intent.refusal) {
     return { result: { status: 'refused', mode }, diagnostics: [intent.refusal], code: intent.code };
@@ -198,7 +198,7 @@ export async function recoverCommand(ctx, deps = {}) {
       result: { status: 'needs-apply', mode },
       diagnostics: [{
         severity: 'error', code: 'recover-needs-apply', phase: 'cli',
-        message: `recover --${mode} writes the apply journal; it needs --apply and CLAUDE_MGR_ENABLE_WRITES=1 (no dry-run for this mode)`,
+        message: `recover --${mode} writes the apply journal; it needs --apply (no dry-run for this mode)`,
       }],
       code: 3,
     };
