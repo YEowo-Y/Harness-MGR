@@ -346,3 +346,100 @@ test('never throws: a seam that throws degrades to update-unexpected-error', asy
   assert.ok(d, 'expected update-unexpected-error');
   assert.match(d.message, /discover blew up/);
 });
+
+// ── manifest cross-check tests ────────────────────────────────────────────────
+
+/**
+ * Build a fake manifest JSON string whose files[] contains or omits the given
+ * relative path.
+ */
+function fakeManifest(paths) {
+  return JSON.stringify({ files: paths.map((p) => ({ path: p, preSha256: 'aaa', currentSha256: 'aaa' })) });
+}
+
+test('manifest cross-check: target absent from manifest → update-target-not-snapshotted, spawn NEVER called', async () => {
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await updatePlugin({
+    spec: 'foo@market', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverPluginsFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      // Fake snapshot returns ok:true with a manifestPath
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      // Manifest does NOT contain plugins/installed_plugins.json
+      manifestReadFileFn: () => fakeManifest(['CLAUDE.md', 'settings.json']),
+      // The target DOES exist on disk (so the check is not skipped)
+      existsFn: () => true,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, false, 'should be refused');
+  assert.equal(r.spawned, false, 'spawn must NOT have been called');
+  assert.equal(spawnCalls.length, 0, 'spawnFn must not be called');
+  const d = diag(r, 'update-target-not-snapshotted');
+  assert.ok(d, 'update-target-not-snapshotted diagnostic must be present');
+  assert.equal(d.severity, 'error');
+});
+
+test('manifest cross-check: target present in manifest → spawn proceeds normally', async () => {
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await updatePlugin({
+    spec: 'foo@market', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverPluginsFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      // Manifest CONTAINS plugins/installed_plugins.json
+      manifestReadFileFn: () => fakeManifest(['plugins/installed_plugins.json', 'CLAUDE.md']),
+      existsFn: () => true,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, true);
+  assert.equal(r.spawned, true, 'spawn must have been called');
+  assert.equal(spawnCalls.length, 1);
+  assert.ok(!diag(r, 'update-target-not-snapshotted'), 'no cross-check error expected');
+});
+
+test('manifest cross-check: target does not exist on disk → no refusal (existsFn false)', async () => {
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await updatePlugin({
+    spec: 'foo@market', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverPluginsFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      // Manifest is empty — but existsFn returns false so check is skipped
+      manifestReadFileFn: () => fakeManifest([]),
+      existsFn: () => false,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, true, 'non-existent target must not cause a refusal');
+  assert.equal(r.spawned, true);
+  assert.ok(!diag(r, 'update-target-not-snapshotted'));
+});
