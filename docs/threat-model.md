@@ -209,6 +209,34 @@ self-cleans).
   only via the audited `--include-auth` opt-in (§2). The apply-journal redacts each
   op via `redactPatchOp` ([`src/lib/plan.mjs`](../src/lib/plan.mjs)) before
   persisting — see §6 for its pointer-name residual.
+- **The reversibility snapshot (taken before any governed mutation) bypasses the
+  secret-name filter** (`skipSecretFilter: true` in `applyPlan`,
+  [`src/ops/apply.mjs`](../src/ops/apply.mjs); `createSnapshot` passes
+  `keepAll: true` to the filter). This ensures a file whose *name* matches a secret
+  glob (e.g. `commands/rotate-secret.md`) is always captured in the undo-point so
+  `rollback` can restore it. The sharing/output secret filter is a *separate, correct
+  surface* and is not affected by this change.
+- **Op-target cross-check (Part 2 backstop):** after the reversibility snapshot is
+  taken and *before* any mutation, `applyPlan` calls `checkOpTargetsInManifest`
+  ([`src/ops/apply-manifest-check.mjs`](../src/ops/apply-manifest-check.mjs)) to
+  verify that every `overwrite`/`delete`/`delete-dir` op target appears in the
+  snapshot manifest. If any is absent the apply is refused (`apply-target-not-snapshotted`)
+  — making a silently-irreversible deletion structurally impossible. The check fails
+  closed: an unreadable manifest is treated as empty (no captured files) and the
+  apply is refused.
+- **Accepted residual (same trust domain):** because the reversibility snapshot keeps
+  the full walked governed surface, a credential-shaped file a user has parked *inside*
+  a walked governed dir (e.g. a `.pem` under `hooks/`) will now reside in the LOCAL
+  `.mgr-state` snapshot archive. This adds no new exposure — the file already lives in
+  `~/.claude` on the same machine in the same single-trusted-user trust domain, and the
+  snapshot archive is local and owner-only. The output/sharing redactors are unaffected.
+- **Follow-up (recorded, not yet done):** the `update` / `mcp remove` delegate paths take
+  their own reversibility snapshots (`installed_plugins.json` / `.mcp.json`) WITHOUT
+  `skipSecretFilter`, so a config file with secret *content* could still be dropped from
+  THOSE snapshots (the same class as the fixed `remove` bug, content-leg only). It is
+  lower-stakes — those writes are delegated to the external `claude`, their reversibility
+  is already documented as *partial*, and the real `--apply` is not exercised — but the
+  `keepAll` bypass + a Part-2 cross-check should be extended to them for consistency.
 
 ### 5.4 Arbitrary code execution via probes
 
