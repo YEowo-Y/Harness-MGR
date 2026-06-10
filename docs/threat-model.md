@@ -502,9 +502,10 @@ detective-only controls today, not a victory lap.
 - **Multi-user / privilege escalation.** Single trusted local user only (§3).
 - **A compromised Node / npm / OS.** The toolchain is trusted (§3); the tool has
   zero runtime npm dependencies, but it cannot defend a hostile runtime.
-- **Network threats.** The tool **makes no network calls**. (The MCP
-  `--with-net` resolvability probe envisioned in the plan is *not* implemented;
-  `gatherMcpProbes` resolves commands on `PATH` only.)
+- **Network threats.** The tool **makes no network calls** — since P5.U1 this
+  is machine-enforced by the zero-network boundary invariant (§8), not only
+  review-audited. (The MCP `--with-net` resolvability probe envisioned in the
+  plan is *not* implemented; `gatherMcpProbes` resolves commands on `PATH` only.)
 - **The contents of plugins / marketplaces the user installed.** Those subtrees
   are forbidden to write (`paths.mjs:249-251`) and their executable content is the
   user's own supply-chain decision, not `claude-mgr`'s.
@@ -516,7 +517,7 @@ detective-only controls today, not a victory lap.
 The invariants above are kept true by automated, repeatable checks — not by
 trust:
 
-- **`claude-mgr selftest --boundary`** runs two checks from
+- **`claude-mgr selftest --boundary`** runs these checks from
   [`src/selftest/boundary.mjs`](../src/selftest/boundary.mjs):
   1. A **runtime write-allowlist probe** (`checkWriteAllowlist`,
      `boundary.mjs:197`) that drives the **real** `assertWritable` against a
@@ -530,6 +531,17 @@ trust:
      (`extractAllSpecifiers`, `boundary.mjs:78-86`) — that fails on any forbidden
      import prefix. The regex errs toward **false positives** by design
      (`boundary.mjs:70-73`): noise is safe, a missed forbidden import is not.
+  3. The **zero-network invariant** (P5.U1, `checkZeroNetwork` in
+     [`src/selftest/zero-network.mjs`](../src/selftest/zero-network.mjs)): no
+     `src/` module may import a network-capable module (the `node:http`/`net`/
+     `tls`/`dgram`/`dns` families plus bare and userland forms like `undici`/`ws`
+     — static, dynamic, *and* side-effect import forms) or call an ambient
+     network API (bare/global `fetch`, `new WebSocket`; scanned on
+     comment/string-stripped projected source to avoid prose false positives).
+     This turns §7's "makes no network calls" from a review-time claim into a
+     gate that fails `selftest --boundary` / release-gate step 4 on regression;
+     known residuals (computed specifiers, `createRequire`, aliased `fetch`)
+     are documented in the module header.
 - **Per-unit independent security/code review.** Every work unit has a
   *separate* `code-reviewer` pass (never self-approval); Blocker/High findings are
   fixed before commit. The write-gate change (P2.U7c-1) and each probe received a
