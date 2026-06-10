@@ -5,7 +5,7 @@ The original P2.U12 cut documented the read-mostly phase; this revision reflects
 landed Phase-3 write-side (snapshot / rollback / apply / recover / lock / audit
 writer / gc). The shape of the security model is unchanged — still exactly two
 privileged operations behind two choke points — but governed-config WRITES now
-exist (behind a two-factor gate, dry-run-by-default), the spawn-write boundary check
+exist (behind the `--apply` write gate with an env opt-out lock, dry-run-by-default), the spawn-write boundary check
 is now wired LIVE into the snapshot create path (it runs post-tar in `createSnapshot`),
 and several formerly "Phase-3, not yet implemented" items below are now implemented and re-cited. A 2026-06-02 read-only
 security re-scan of Phases 1–3 (six surfaces) found the invariants here HOLD and
@@ -122,16 +122,18 @@ plan line ~417) is enforced entirely in `assertWritable`
   context (`paths.mjs:232-233`); this is what lets the drift lockfile, snapshots,
   apply-journal, and audit log persist without a bespoke write flag.
 
-Governed-config writes are now live (Phase 3) but **dry-run-by-default and behind a
-two-factor gate**: the `apply`/`rollback`/`recover`/`lock` CLI commands write only
-when BOTH `--apply` is passed AND `CLAUDE_MGR_ENABLE_WRITES=1` is set
+Governed-config writes are now live (Phase 3) but **dry-run-by-default and behind
+the write gate (`--apply`, plus a `CLAUDE_MGR_ENABLE_WRITES=0` opt-out lock —
+relaxed from the original two-factor model by the 2026-06-09 off-ramp)**: the
+`apply`/`rollback`/`recover`/`lock` CLI commands write only
+when `--apply` is passed (and `CLAUDE_MGR_ENABLE_WRITES=0` is NOT set)
 ([`src/cli/write-gate.mjs`](../src/cli/write-gate.mjs) `resolveWriteIntent`); a
 closed gate exits before `paths.mjs` is even loaded. Every writer (apply,
 rollback-restore, snapshot manifest/journal, lock, audit) takes `assertWritable` as
 a **REQUIRED injected** dependency and fails safe (refuses) if it is absent. The
 atomic single-file replace ([`src/ops/atomic-write.mjs`](../src/ops/atomic-write.mjs))
 gate-checks FIRST, before staging. The loader probe (5.4) remains the only governed
-write that runs without the two-factor gate (it is behind `--active-probes` and
+write that runs without the write gate (it is behind `--active-probes` and
 self-cleans).
 
 ### 5.2 Symlink & path traversal (allowlist escape)
@@ -230,13 +232,22 @@ self-cleans).
   `.mgr-state` snapshot archive. This adds no new exposure — the file already lives in
   `~/.claude` on the same machine in the same single-trusted-user trust domain, and the
   snapshot archive is local and owner-only. The output/sharing redactors are unaffected.
-- **Follow-up (recorded, not yet done):** the `update` / `mcp remove` delegate paths take
-  their own reversibility snapshots (`installed_plugins.json` / `.mcp.json`) WITHOUT
-  `skipSecretFilter`, so a config file with secret *content* could still be dropped from
-  THOSE snapshots (the same class as the fixed `remove` bug, content-leg only). It is
-  lower-stakes — those writes are delegated to the external `claude`, their reversibility
-  is already documented as *partial*, and the real `--apply` is not exercised — but the
-  `keepAll` bypass + a Part-2 cross-check should be extended to them for consistency.
+- **The `update` / `mcp remove` delegate-path reversibility snapshots also bypass
+  the secret filter** (`skipSecretFilter: true` added 2026-06-10 to
+  [`src/ops/update.mjs`](../src/ops/update.mjs) and
+  [`src/ops/mcp-write.mjs`](../src/ops/mcp-write.mjs)), closing the follow-up
+  recorded in the 2026-06-10 adversarial audit. A `plugins/installed_plugins.json`
+  or `.mcp.json` whose *content* triggers the github-token content-sniff leg was
+  previously dropped from those snapshots, making the delegated mutation silently
+  irreversible. Both modules now pass `skipSecretFilter: true` to `createSnapshot`
+  and apply a Part-2 cross-check (`checkDelegateTargetSnapshotted` in
+  [`src/ops/delegate-manifest-check.mjs`](../src/ops/delegate-manifest-check.mjs))
+  that REFUSES the spawn when the target is absent from the manifest — making a
+  silently-irreversible delegation structurally impossible. Scope-conditioned: the
+  mcp cross-check applies only to `--scope project` (`.mcp.json` is in the governed
+  tree); `user`/`local` scopes write `~/.claude.json` which is already outside
+  snapshot scope and documented as partial-reversibility via
+  `mcp-user-scope-not-snapshotted`.
 
 ### 5.4 Arbitrary code execution via probes
 
@@ -412,8 +423,8 @@ detective-only controls today, not a victory lap.
   isSpawnable native exe (the Windows npm shim is unspawnable → REFUSE-with-guidance,
   never a guessed binary); (c) a defense-in-depth re-validation of the resolved
   `record.key` (not just the raw spec) BEFORE any snapshot/spawn; (d) an auto-snapshot
-  of `installed_plugins.json` taken FIRST as the undo point; (e) the two-factor write
-  gate + dry-run-by-default. **Residual (deliberate, user-chosen — Option A):** the
+  of `installed_plugins.json` taken FIRST as the undo point; (e) the `--apply` write
+  gate (with the `CLAUDE_MGR_ENABLE_WRITES=0` opt-out lock) + dry-run-by-default. **Residual (deliberate, user-chosen — Option A):** the
   actual code fetch + `plugins/cache/**` mutation + the required restart are performed
   by `claude`, *outside* `assertWritable` and *outside* the snapshot scope (cache is
   deliberately excluded), so a `rollback` restores the manifest but NOT the downloaded
