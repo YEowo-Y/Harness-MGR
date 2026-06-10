@@ -92,15 +92,15 @@ test('removeCommand: skill:x → code 2, refused (unsupported kind)', async () =
   assert.equal(out.result.status, 'refused');
 });
 
-// ── 4. --apply without env var → code 3, writes-disabled-env, engine never ───
+// ── 4. --apply with env=0 (explicit opt-out) → code 3, writes-disabled-env, engine never ───
 
-test('removeCommand: --apply without CLAUDE_MGR_ENABLE_WRITES → code 3, writes-disabled-env', async () => {
+test('removeCommand: --apply with CLAUDE_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env', async () => {
   let removeCalled = false;
   let loadPathsCalled = false;
   const deps = {
     removeFn: () => { removeCalled = true; return Promise.resolve({}); },
     loadPaths: () => { loadPathsCalled = true; return Promise.resolve({ assertWritable: (p) => p }); },
-    env: {},  // env var NOT set
+    env: { CLAUDE_MGR_ENABLE_WRITES: '0' }, // explicit opt-out lock
   };
   const ctx = makeCtx(['agent:foo'], { apply: true });
   const out = await removeCommand(ctx, deps);
@@ -108,6 +108,31 @@ test('removeCommand: --apply without CLAUDE_MGR_ENABLE_WRITES → code 3, writes
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env'), 'expected writes-disabled-env');
   assert.equal(removeCalled, false, 'removeFn must not be called when gate is closed');
   assert.equal(loadPathsCalled, false, 'loadPaths must not be called when gate is closed');
+});
+
+// ── 4b. --apply with env UNSET → ENABLED (relaxation positive assertion) ─────
+
+test('removeCommand: --apply + env unset → gate OPEN, loadPaths called, removeFn gets enableWrites:true', async () => {
+  let capturedEnableWrites;
+  let loadPathsCalled = false;
+  const deps = {
+    removeFn: (opts) => {
+      capturedEnableWrites = opts.enableWrites;
+      return Promise.resolve({
+        ok: true, refused: false, dryRun: false,
+        kind: 'agent', name: 'foo', target: '/fake/claude/agents/foo.md',
+        plan: {}, apply: { ok: true, applied: true, snapshotId: 'x', lock: { acquired: true }, diagnostics: [] },
+        diagnostics: [],
+      });
+    },
+    loadPaths: () => { loadPathsCalled = true; return Promise.resolve({ assertWritable: (p) => p }); },
+    env: {}, // env var NOT set → relaxed gate allows writes
+  };
+  const ctx = makeCtx(['agent:foo'], { apply: true });
+  const out = await removeCommand(ctx, deps);
+  assert.equal(out.code, 0, `expected code 0 (gate open), got ${out.code}; diags: ${JSON.stringify(out.diagnostics)}`);
+  assert.equal(capturedEnableWrites, true, 'enableWrites must be true when env is unset (relaxed gate)');
+  assert.equal(loadPathsCalled, true, 'loadPaths must be called when gate is open');
 });
 
 // ── 5. --apply with env set + loadPaths + recorder → code 0, enableWrites:true ─
