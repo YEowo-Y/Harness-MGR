@@ -81,9 +81,9 @@ test('lockCommand: --break-lock without --apply → lock-break-needs-apply code3
 
 // ── --break-lock --apply env closed → writes-disabled-env ─────────────────────────
 
-test('lockCommand: --break-lock --apply env closed → writes-disabled-env code3, breakFn NOT called', async () => {
+test('lockCommand: --break-lock --apply env=0 closed → writes-disabled-env code3, breakFn NOT called', async () => {
   const brk = makeBreakSpy({ broken: true, holder: null, holderAlive: null, diagnostics: [] });
-  const out = await lockCommand(CTX({ 'break-lock': true, apply: true }), { breakFn: brk, env: {} });
+  const out = await lockCommand(CTX({ 'break-lock': true, apply: true }), { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
   assert.equal(out.code, 3);
   assert.equal(out.result.status, 'refused');
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env' && d.severity === 'error'));
