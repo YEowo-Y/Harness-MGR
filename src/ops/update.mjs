@@ -67,6 +67,7 @@ import { resolveClaudeExe } from '../lib/resolve-claude-exe.mjs';
 import { createSnapshot } from './snapshot.mjs';
 import { buildAuditEntry, appendAuditEntry } from './audit-writer.mjs';
 import { discoverPlugins } from '../discovery/plugins.mjs';
+import { checkDelegateTargetSnapshotted } from './delegate-manifest-check.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('./snapshot.mjs').SnapshotResult} SnapshotResult */
@@ -243,6 +244,8 @@ export async function updatePlugin(opts) {
     const createSnapshotFn = typeof seams.createSnapshotFn === 'function' ? seams.createSnapshotFn : createSnapshot;
     const spawnFn = typeof seams.spawnFn === 'function' ? seams.spawnFn : safeSpawn;
     const auditFn = typeof seams.auditFn === 'function' ? seams.auditFn : appendAuditEntry;
+    const manifestReadFileFn = typeof seams.manifestReadFileFn === 'function' ? seams.manifestReadFileFn : undefined;
+    const existsFn = typeof seams.existsFn === 'function' ? seams.existsFn : undefined;
 
     // 1. Validate the spec shape + the basic args.
     const specRefusal = validateSpec(spec);
@@ -290,7 +293,7 @@ export async function updatePlugin(opts) {
     return await applyUpdate({
       bag, record, command, human, targetClaudeDir, mgrStateDir, assertWritable,
       reason, env, platform, cwd, now,
-      resolveClaudeFn, createSnapshotFn, spawnFn, auditFn,
+      resolveClaudeFn, createSnapshotFn, spawnFn, auditFn, manifestReadFileFn, existsFn,
     });
   } catch (e) {
     // Absolute backstop: an unexpected error becomes a diagnostic, never a throw.
@@ -311,7 +314,9 @@ export async function updatePlugin(opts) {
  */
 async function applyUpdate(a) {
   const { bag, record, command, human, targetClaudeDir, mgrStateDir, assertWritable,
-    reason, env, platform, cwd, now, resolveClaudeFn, createSnapshotFn, spawnFn, auditFn } = a;
+    reason, env, platform, cwd, now,
+    resolveClaudeFn, createSnapshotFn, spawnFn, auditFn,
+    manifestReadFileFn, existsFn } = a;
 
   // a. The governed-write gate must be injected to --apply.
   if (typeof assertWritable !== 'function') {
@@ -331,11 +336,14 @@ async function applyUpdate(a) {
   }
   const claudeExe = cr.exe;
 
-  // c. Auto-snapshot the governed surface FIRST (the undo point). A snapshot
-  //    failure aborts — we refuse to delegate without an undo point, and do NOT spawn.
+  // c. Auto-snapshot the governed surface FIRST (the undo point). skipSecretFilter
+  //    is true so every governed file — including content-sniffer-matched ones like
+  //    an installed_plugins.json that contains a ghp_ token — is captured in the
+  //    manifest. A snapshot failure aborts — we refuse to delegate without an undo
+  //    point, and do NOT spawn.
   const snap = await createSnapshotFn({
     targetClaudeDir, mgrStateDir, reason: reason ?? ('update ' + record.key),
-    assertWritable, now,
+    assertWritable, now, skipSecretFilter: true,
   });
   for (const d of snap?.diagnostics ?? []) bag.add(d);
   if (!snap || snap.ok !== true) {
@@ -344,6 +352,21 @@ async function applyUpdate(a) {
     return buildResult({ ok: false, plugin: record, claudeExe, command, apply: snap ?? null }, bag);
   }
   const snapshotId = snap.snapshotId ?? null;
+
+  // c2. Cross-check: plugins/installed_plugins.json MUST appear in the manifest
+  //     (Part-2 backstop — makes a silently-irreversible update structurally
+  //     impossible). Only checked when the file exists on disk (mirrors the 'create'
+  //     skip in apply-manifest-check: a not-yet-existing file cannot be in the
+  //     snapshot, and that is correct).
+  const crossCheck = checkDelegateTargetSnapshotted({
+    snap, targetClaudeDir,
+    targetRelPath: 'plugins/installed_plugins.json',
+    errorCode: 'update-target-not-snapshotted', phase: PHASE, bag,
+    manifestReadFileFn, existsFn,
+  });
+  if (!crossCheck.ok) {
+    return buildResult({ ok: false, plugin: record, claudeExe, command, snapshotId, apply: snap }, bag);
+  }
 
   // d. Delegate to `claude plugin update <key>` via safeSpawn (the §5 schema).
   const tmp = tmpdir();
