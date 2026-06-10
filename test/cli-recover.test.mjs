@@ -151,12 +151,12 @@ test('recoverCommand: --rollback without --apply → engine called with enableWr
 
 // ── --apply + env closed → two-factor refusal ─────────────────────────────────────
 
-test('recoverCommand: --apply + env closed → code:3 writes-disabled-env, recoverFn + loadPaths NEVER called', async () => {
+test('recoverCommand: --apply + env=0 closed → code:3 writes-disabled-env, recoverFn + loadPaths NEVER called', async () => {
   const spy = makeRecoverSpy(CANNED);
   const loadPaths = makeLoadPaths();
   const out = await recoverCommand(
     CTX({ positionals: ['snap-1'], rollback: true, apply: true }),
-    { recoverFn: spy, loadPaths, env: {} },
+    { recoverFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } },
   );
   assert.equal(out.code, 3);
   assert.equal(out.result.status, 'refused');
