@@ -52,10 +52,15 @@ test('rollback (no id) → dispatches to the handler, code 3 + rollback-no-id', 
   assert.ok(out.stdout.includes('rollback-no-id'), 'reached the handler with empty positionals');
 });
 
-test('rollback <id> --apply, gate CLOSED → code 3 + writes-disabled-env (engine never reached)', async () => {
-  const out = await run(['rollback', 'snap-x', '--apply', '--config-dir', tmp]);
-  assert.equal(out.code, 3);
-  assert.ok(out.stdout.includes('writes-disabled-env'), 'the two-factor gate refused end-to-end');
+test('rollback <id> --apply, gate CLOSED (env=0) → code 3 + writes-disabled-env (engine never reached)', async () => {
+  process.env[ENV_KEY] = '0';
+  try {
+    const out = await run(['rollback', 'snap-x', '--apply', '--config-dir', tmp]);
+    assert.equal(out.code, 3);
+    assert.ok(out.stdout.includes('writes-disabled-env'), 'the two-factor gate refused end-to-end');
+  } finally {
+    delete process.env[ENV_KEY];
+  }
 });
 
 test('rollback <id> --force (no --apply) → recognized flag: code !== 2 and no "unknown flag"', async () => {
@@ -69,10 +74,15 @@ test('rollback <id> --force (no --apply) → recognized flag: code !== 2 and no 
 
 // ── recover ──────────────────────────────────────────────────────────────────────
 
-test('recover <id> --apply, gate CLOSED → code 3 + writes-disabled-env', async () => {
-  const out = await run(['recover', 'snap-x', '--apply', '--config-dir', tmp]);
-  assert.equal(out.code, 3);
-  assert.ok(out.stdout.includes('writes-disabled-env'), 'the two-factor gate refused end-to-end');
+test('recover <id> --apply, gate CLOSED (env=0) → code 3 + writes-disabled-env', async () => {
+  process.env[ENV_KEY] = '0';
+  try {
+    const out = await run(['recover', 'snap-x', '--apply', '--config-dir', tmp]);
+    assert.equal(out.code, 3);
+    assert.ok(out.stdout.includes('writes-disabled-env'), 'the two-factor gate refused end-to-end');
+  } finally {
+    delete process.env[ENV_KEY];
+  }
 });
 
 test('recover <id> --mark-failed --resume → code 3 + recover-ambiguous-mode (both flags parse)', async () => {
