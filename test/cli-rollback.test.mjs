@@ -33,36 +33,35 @@ test('resolveWriteIntent: --apply + env=1 → enableWrites:true, no refusal', ()
   assert.equal(r.code, null);
 });
 
-test('resolveWriteIntent: --apply + env unset → refused with writes-disabled-env, code:3', () => {
+test('resolveWriteIntent: --apply + env unset → ENABLED (relaxation: unset no longer locks)', () => {
   const r = resolveWriteIntent({ apply: true, env: {} });
-  assert.equal(r.enableWrites, false);
-  assert.equal(r.code, 3);
-  assert.ok(r.refusal, 'a refusal Diagnostic is present');
-  assert.equal(r.refusal.code, 'writes-disabled-env');
-  assert.equal(r.refusal.severity, 'error');
-  assert.equal(r.refusal.phase, 'cli');
-  assert.match(r.refusal.message, /CLAUDE_MGR_ENABLE_WRITES=1/);
+  assert.equal(r.enableWrites, true);
+  assert.equal(r.refusal, null);
+  assert.equal(r.code, null);
 });
 
-test('resolveWriteIntent: --apply + env=0 → refused (only exactly "1" enables)', () => {
+test('resolveWriteIntent: --apply + env=0 → refused (explicit opt-out lock)', () => {
   const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.code, 3);
   assert.equal(r.refusal.code, 'writes-disabled-env');
+  // message references the =0 opt-out, not the old =1 requirement
+  assert.match(r.refusal.message, /"0"/);
 });
 
-test('resolveWriteIntent: --apply + env="true" → still refused (not the literal "1")', () => {
+test('resolveWriteIntent: --apply + env="true" → ENABLED (any non-"0" value enables)', () => {
   const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: 'true' } });
-  assert.equal(r.enableWrites, false);
-  assert.equal(r.code, 3);
+  assert.equal(r.enableWrites, true);
+  assert.equal(r.refusal, null);
+  assert.equal(r.code, null);
 });
 
-test('resolveWriteIntent: --apply + null env → refused, never throws on a null env', () => {
+test('resolveWriteIntent: --apply + null env → ENABLED, never throws on a null env', () => {
   assert.doesNotThrow(() => resolveWriteIntent({ apply: true, env: null }));
   const r = resolveWriteIntent({ apply: true, env: null });
-  assert.equal(r.enableWrites, false);
-  assert.equal(r.code, 3);
-  assert.equal(r.refusal.code, 'writes-disabled-env');
+  assert.equal(r.enableWrites, true);
+  assert.equal(r.refusal, null);
+  assert.equal(r.code, null);
 });
 
 test('resolveWriteIntent: no-apply + null env → dry-run (env irrelevant, no throw)', () => {
@@ -154,12 +153,12 @@ test('rollbackCommand: dry-run → spy called once with enableWrites:false + ass
 
 // ── rollbackCommand: --apply + env closed → two-factor refusal ────────────────────
 
-test('rollbackCommand: --apply + env closed → code:3 writes-disabled-env, spy + loadPaths NEVER called', async () => {
+test('rollbackCommand: --apply + env=0 closed → code:3 writes-disabled-env, spy + loadPaths NEVER called', async () => {
   const spy = makeRollbackSpy(CANNED);
   const loadPaths = makeLoadPaths();
   const out = await rollbackCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { positionals: ['snap-1'], apply: true } },
-    { rollbackFn: spy, loadPaths, env: {} },
+    { rollbackFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } },
   );
   assert.equal(out.code, 3);
   assert.equal(out.result.status, 'refused');
