@@ -135,10 +135,15 @@ test('apply-roundtrip: planned→snapshotted writes a snapshot+journal but NOTHI
     // The lock was released (no leftover lock file).
     assert.ok(!existsSync(join(stateDir, 'locks', 'apply.lock')), 'apply lock must be released');
 
-    // The planted secret was excluded: absent from the manifest files[].
+    // MIGRATED (reversibility fix): applyPlan passes skipSecretFilter:true so the
+    // pre-mutation snapshot captures the FULL governed surface including files whose
+    // name or content would normally trigger the secrets filter. hooks/leaked.pem is
+    // now PRESENT in the manifest (a governed file must be in the undo-point).
+    // The OUTPUT/sharing redaction surfaces are separate and unaffected by this change.
     const manifest = JSON.parse(readFileSync(res.manifestPath, 'utf8'));
-    assert.ok(!manifest.files.some((f) => f.path === 'hooks/leaked.pem'), 'secret absent from manifest');
-    // (the BEFORE fingerprint still proves it stayed on disk in the governed tree.)
+    assert.ok(manifest.files.some((f) => f.path === 'hooks/leaked.pem'),
+      'governed file present in manifest even if PEM-named (reversibility snapshot captures full surface)');
+    // The secret still resides on disk in the governed tree (not deleted by the snapshot).
     assert.ok(before['hooks/leaked.pem'], 'the secret remains in the governed tree (not deleted)');
   } finally {
     try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ }
