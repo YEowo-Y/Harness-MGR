@@ -137,6 +137,75 @@ test('mcp-remove-roundtrip: --apply snapshots .mcp.json then delegates the exact
   }
 });
 
+test('mcp-remove-roundtrip: .mcp.json with token-shaped content is captured (skipSecretFilter)', async (t) => {
+  // HEADLINE RED→GREEN oracle for the 2026-06-10 audit follow-up:
+  // .mcp.json containing a ghp_-shaped token value was SILENTLY DROPPED by the
+  // secret filter before skipSecretFilter:true was added — making the mcp-remove
+  // delegation irreversible.  This test proves the manifest CAPTURES the file even
+  // when its content triggers the content-sniff leg.
+  //
+  // RED pre-fix: with skipSecretFilter omitted, the manifest entry is absent.
+  // GREEN post-fix: skipSecretFilter:true means the file is always captured.
+  const { tarPath } = resolveTar();
+  if (!tarPath) { t.skip('system tar not found — skipping'); return; }
+
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const tmp = mkdtempSync(join(tmpdir(), 'mgr-mcp-secret-'));
+  const stateDir = join(tmp, '.mgr-state');
+  mkdirSync(stateDir, { recursive: true });
+
+  // A token-shaped value (ghp_ + exactly 36 alphanum chars) inside .mcp.json —
+  // triggers the content-sniff 'github-token' pattern.
+  // Without skipSecretFilter:true the file would be DROPPED from the manifest.
+  const TOKEN = 'ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; // ghp_ + 36 A's
+  const mcp = {
+    mcpServers: {
+      foo: { command: 'node', args: ['x'], env: { MCP_TOKEN: TOKEN } },
+    },
+  };
+  const mcpBytes = Buffer.from(JSON.stringify(mcp, null, 2) + '\n', 'utf8');
+  put(tmp, '.mcp.json', mcpBytes);
+  put(tmp, 'agents/keep.md', Buffer.from('---\nname: keep\n---\n# agent keep\n', 'utf8'));
+  put(tmp, 'settings.json', Buffer.from('{}\n', 'utf8'));
+  process.env.CLAUDE_CONFIG_DIR = tmp;
+  const { spawnFn, rec } = makeFakeSpawn();
+
+  try {
+    const r = await mcpRemove({
+      name: 'foo', scope: 'project', targetClaudeDir: tmp, mgrStateDir: stateDir,
+      assertWritable, enableWrites: true,
+      seams: { spawnFn, resolveClaudeFn: fakeResolveClaude() },
+    });
+
+    assert.equal(r.ok, true, `--apply failed: ${JSON.stringify(r.diagnostics)}`);
+    assert.equal(r.spawned, true, 'spawn must have been called');
+
+    // The manifest MUST contain the token-content file — skipSecretFilter:true.
+    const snapsDir = join(stateDir, 'snapshots');
+    const snapIds = readdirSync(snapsDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory()).map((e) => e.name);
+    assert.equal(snapIds.length, 1, 'exactly one snapshot expected');
+    const manifest = JSON.parse(readFileSync(join(snapsDir, snapIds[0], 'manifest.json'), 'utf8'));
+    const entry = manifest.files.find((f) => f.path === '.mcp.json');
+    assert.ok(
+      entry,
+      'manifest MUST capture .mcp.json even when it contains a token-shaped value ' +
+      '(requires skipSecretFilter:true — this is the reversibility fix oracle)',
+    );
+    assert.equal(
+      entry.preSha256,
+      sha256Hex(mcpBytes),
+      'captured preSha256 must match the on-disk bytes',
+    );
+    // spawn MUST still be called (not refused by cross-check)
+    assert.equal(rec.calls.length, 1, 'spawn must be called exactly once');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+});
+
 test('mcp-remove-roundtrip: dry-run (no enableWrites) writes nothing, never spawns', async (t) => {
   const { tarPath } = resolveTar();
   if (!tarPath) { t.skip('system tar not found — skipping'); return; }
