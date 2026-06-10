@@ -26,9 +26,11 @@ export { snapshotDirHashes, checkSpawnWriteBoundary } from '../lib/spawn-write-b
 export { checkSpawnSpecGuardrail, MUTATION_FLAGS, LEGIT_POSIX_PATH } from './spawn-spec-guardrail.mjs';
 export { checkSpawnSpecCompleteness } from './spawn-spec-completeness.mjs';
 export { checkWriteGateCompleteness, MUTATION_SEAMS, EXEMPT_MODULES } from './write-gate-completeness.mjs';
+export { checkZeroNetwork, NETWORK_IMPORT_PREFIXES } from './zero-network.mjs';
 import { checkSpawnSpecGuardrail } from './spawn-spec-guardrail.mjs';
 import { checkSpawnSpecCompleteness } from './spawn-spec-completeness.mjs';
 import { checkWriteGateCompleteness } from './write-gate-completeness.mjs';
+import { checkZeroNetwork } from './zero-network.mjs';
 import { SPAWN_SPECS } from './spawn-spec-registry.mjs';
 import { buildAllowlistCases } from './boundary-cases.mjs';
 
@@ -253,6 +255,9 @@ export function checkBoundary({ srcDir, assertWritable, roots } = {}) {
     // fs-mutation seam must reference assertWritable (gated) or be in EXEMPT_MODULES
     // (an audited non-governed writer). Runs when srcDir was provided.
     for (const d of checkWriteGateCompleteness(srcFiles)) diags.push(d);
+    // Zero-network invariant (P5.U1): static backstop — no src/ module may import
+    // a network builtin or call an ambient network API (fetch / WebSocket).
+    for (const d of checkZeroNetwork(srcFiles)) diags.push(d);
   }
   return { diagnostics: diags };
 }
