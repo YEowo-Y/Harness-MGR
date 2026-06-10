@@ -116,8 +116,8 @@ export function snapshotListCommand(ctx, seams = {}) {
  * cleanup categories (audit-large orphans / orphan apply-lock / leftover sidecars,
  * via `gcExtras`) always run — each is itself bounded + age/liveness-guarded.
  *
- * TWO-FACTOR WRITE GATE (P3.U22): on the `--apply` path the env var
- * `CLAUDE_MGR_ENABLE_WRITES=1` is the second factor. A closed gate REFUSES (code 3 +
+ * WRITE GATE (P3.U22): `--apply` enables the write; set `CLAUDE_MGR_ENABLE_WRITES=0`
+ * as an explicit opt-out lock. A closed gate (env `=0`) REFUSES (code 3 +
  * `writes-disabled-env`) BEFORE `gcFn`/`extrasFn` run, so NOTHING is deleted in any
  * category. A dry-run gc (no `--apply`) is unaffected — the env factor is irrelevant
  * there, and both `gcFn` and `extrasFn` preview (`wouldDelete`/`wouldReap`).
