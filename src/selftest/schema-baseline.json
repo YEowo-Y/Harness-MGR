@@ -47,6 +47,7 @@
       "remoteControlUpsellSeenCount",
       "routineFiredWatermark",
       "seenNotifications",
+      "showExpandedTodos",
       "showSpinnerTree",
       "skillUsage",
       "sonnet1m45MigrationComplete",
@@ -120,7 +121,7 @@
       "telemetry"
     ]
   },
-  "fingerprint": "8d17e2b55affb52896e906ec3f10079a182ac3c47b2b5a9d0ad6f1a2580e7824",
-  "generatedAt": "2026-06-10T03:34:15.895Z",
+  "fingerprint": "50a564f3ddfb8a486e2f87af2dc22e824cae5868fddb6f9a03aae436cfd79f29",
+  "generatedAt": "2026-06-10T13:04:25.245Z",
   "schemaCanaryVersion": 1
 }
