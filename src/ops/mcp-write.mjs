@@ -220,7 +220,7 @@ function emitDryRunDiagnostics(bag, human, server, scope) {
   const where = server ? ` (transport ${server.transport}, scope ${server.scope})` : '';
   bag.add({ severity: 'info', code: 'mcp-dry-run', phase: PHASE,
     message: `would run \`${human}\`${where}; ` +
-      're-run with --apply and CLAUDE_MGR_ENABLE_WRITES=1 to execute' });
+      're-run with --apply to execute' });
   bag.add({ severity: 'info', code: 'mcp-restart-required', phase: PHASE,
     message: 'the change may require a Claude Code restart to take full effect' });
   // --scope user/local (or unspecified) writes ~/.claude.json, OUTSIDE the
