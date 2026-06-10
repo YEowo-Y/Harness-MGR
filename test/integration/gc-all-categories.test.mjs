@@ -164,12 +164,13 @@ test('snapshot gc exercises all four cleanup categories, end-to-end via run()', 
     assert.equal(dryResult.lock.wouldReap, 1, 'the dead+old lock would be reaped');
     assert.equal(dryResult.leftovers.wouldDelete, 1, 'one stale sidecar would be deleted');
 
-    // ── GATE-CLOSED --APPLY LEG: `--apply` WITHOUT the env factor must REFUSE before
-    //    gcExtras runs. This pins the load-bearing "refuse before any delete" guarantee
-    //    — removing the refusal early-return would turn this leg RED (the bare dry-run
-    //    leg above never exercises the refusal branch, so without this a mutated-out
-    //    refusal stayed green). Env stays UNSET here (still deleted above). ───────────
-    assert.equal(process.env.CLAUDE_MGR_ENABLE_WRITES, undefined, 'env factor must be unset for the gate-closed leg');
+    // ── GATE-CLOSED --APPLY LEG: `--apply` with CLAUDE_MGR_ENABLE_WRITES=0 (explicit
+    //    opt-out lock) must REFUSE before gcExtras runs. This pins the load-bearing
+    //    "refuse before any delete" guarantee — removing the refusal early-return would
+    //    turn this leg RED. Under the relaxed gate, unset env enables writes; only '0'
+    //    locks, so we set it explicitly here. ──────────────────────────────────────────
+    process.env.CLAUDE_MGR_ENABLE_WRITES = '0';
+    assert.equal(process.env.CLAUDE_MGR_ENABLE_WRITES, '0', 'env must be set to 0 for the gate-closed leg');
     const refused = await run(['snapshot', 'gc', '--keep', '1', '--apply', '--config-dir', tmp, '--format', 'json']);
     assert.equal(refused.code, 3, `gate-closed --apply must exit 3; stdout:\n${refused.stdout}`);
     const refusedDiags = JSON.parse(refused.stdout).diagnostics || [];
