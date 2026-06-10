@@ -315,3 +315,152 @@ test('never throws: a throwing seam degrades to mcp-unexpected-error', async () 
   assert.ok(d, 'expected mcp-unexpected-error');
   assert.match(d.message, /discover blew up/);
 });
+
+// ── manifest cross-check tests ────────────────────────────────────────────────
+
+function fakeManifest(paths) {
+  return JSON.stringify({ files: paths.map((p) => ({ path: p, preSha256: 'aaa', currentSha256: 'aaa' })) });
+}
+
+test('manifest cross-check (project scope): .mcp.json absent from manifest → mcp-target-not-snapshotted, spawn NEVER called', async () => {
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await mcpRemove({
+    name: 'foo', scope: 'project', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverMcpFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      // Manifest does NOT contain .mcp.json
+      manifestReadFileFn: () => fakeManifest(['CLAUDE.md', 'settings.json']),
+      // The target DOES exist on disk
+      existsFn: () => true,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, false, 'should be refused');
+  assert.equal(r.spawned, false, 'spawn must NOT be called');
+  assert.equal(spawnCalls.length, 0, 'spawnFn must not be called');
+  const d = diag(r, 'mcp-target-not-snapshotted');
+  assert.ok(d, 'mcp-target-not-snapshotted diagnostic must be present');
+  assert.equal(d.severity, 'error');
+});
+
+test('manifest cross-check (project scope): .mcp.json present in manifest → spawn proceeds', async () => {
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await mcpRemove({
+    name: 'foo', scope: 'project', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverMcpFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      manifestReadFileFn: () => fakeManifest(['.mcp.json', 'CLAUDE.md']),
+      existsFn: () => true,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, true);
+  assert.equal(r.spawned, true);
+  assert.equal(spawnCalls.length, 1);
+  assert.ok(!diag(r, 'mcp-target-not-snapshotted'));
+});
+
+test('manifest cross-check: user scope → NO refusal even when .mcp.json missing from manifest', async () => {
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await mcpRemove({
+    name: 'foo', scope: 'user', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverMcpFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      // Manifest is empty — but scope=user so check is skipped
+      manifestReadFileFn: () => fakeManifest([]),
+      existsFn: () => true,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, true, 'user scope: no cross-check refusal expected');
+  assert.equal(r.spawned, true);
+  assert.ok(!diag(r, 'mcp-target-not-snapshotted'));
+});
+
+test('manifest cross-check: scope OMITTED (undefined) → check skipped, NO refusal even when manifest is empty', async () => {
+  // An unscoped removal sends ['mcp','remove',name] with no --scope; only
+  // scope:'project' is documented reversible, so the cross-check must not fire here
+  // (the snapshot is still keepAll-complete — the skip only means we don't REFUSE).
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await mcpRemove({
+    name: 'foo', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverMcpFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      // Manifest is empty — but scope is omitted so the check is skipped
+      manifestReadFileFn: () => fakeManifest([]),
+      existsFn: () => true,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, true, 'omitted scope: no cross-check refusal expected');
+  assert.equal(r.spawned, true);
+  assert.deepEqual(r.command, ['mcp', 'remove', 'foo'], 'unscoped argv carries no --scope');
+  assert.ok(!diag(r, 'mcp-target-not-snapshotted'));
+});
+
+test('manifest cross-check (project scope): target does not exist on disk → no refusal', async () => {
+  const spawnCalls = [];
+  const snapId = '2026-06-07T00-00-00Z';
+  const manifestPath = '/fake/snapshots/' + snapId + '/manifest.json';
+
+  const r = await mcpRemove({
+    name: 'foo', scope: 'project', targetClaudeDir: TARGET, mgrStateDir: STATE,
+    assertWritable: gate, enableWrites: true,
+    seams: {
+      discoverMcpFn: fakeDiscover([rec()]),
+      resolveClaudeFn: nativeClaude(),
+      createSnapshotFn: async () => ({
+        ok: true, snapshotId: snapId, manifestPath, diagnostics: [],
+      }),
+      // Manifest empty, but existsFn returns false → check is skipped
+      manifestReadFileFn: () => fakeManifest([]),
+      existsFn: () => false,
+      spawnFn: async (spec) => { spawnCalls.push(spec); return { stdout: '', stderr: '' }; },
+      auditFn: () => ({ written: true, diagnostics: [] }),
+    },
+  });
+
+  assert.equal(r.ok, true, 'non-existent .mcp.json must not cause a refusal');
+  assert.equal(r.spawned, true);
+  assert.ok(!diag(r, 'mcp-target-not-snapshotted'));
+});
