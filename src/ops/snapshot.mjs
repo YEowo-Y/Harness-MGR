@@ -282,6 +282,12 @@ async function archiveWithBoundary(tarOpts, dir, bag) {
  * @param {string}  [opts.reason='']            user-supplied snapshot reason
  * @param {boolean} [opts.includeAuth=false]    opt in to capturing the auth-cache file
  * @param {boolean} [opts.dryRun=false]         preview only — walk+filter, write nothing
+ * @param {boolean} [opts.skipSecretFilter=false]  reversibility mode: pass `keepAll:true`
+ *   to the secrets filter so ALL governed files the walker returned are kept. Use when
+ *   taking a pre-mutation snapshot (apply path) so a component named like a secret or
+ *   whose content happens to sniff as a token is never silently dropped from the
+ *   undo point. Safe because the walker is allowlist-driven and only returns governed
+ *   surface files — no stray id_rsa/.env/etc. are walked in the first place.
  * @param {(path:string, ctx:string)=>string} [opts.assertWritable]  governed-write gate (REQUIRED unless dryRun)
  * @param {() => Date} [opts.now]               clock injection (defaults to Date)
  * @param {object} [opts.seams]                 { resolveFn, spawnFn, readFileFn, mkdirFn, unlinkFn, rmdirFn }
@@ -290,7 +296,8 @@ async function archiveWithBoundary(tarOpts, dir, bag) {
 export async function createSnapshot(opts) {
   const bag = new DiagnosticBag();
   const o = opts && typeof opts === 'object' ? opts : {};
-  const { targetClaudeDir, mgrStateDir, reason = '', includeAuth = false, dryRun = false, assertWritable } = o;
+  const { targetClaudeDir, mgrStateDir, reason = '', includeAuth = false, dryRun = false,
+    skipSecretFilter = false, assertWritable } = o;
   const now = typeof o.now === 'function' ? o.now : () => new Date();
   const seams = o.seams && typeof o.seams === 'object' ? o.seams : {};
   const resolveFn = seams.resolveFn ?? resolveTar;
@@ -338,7 +345,10 @@ export async function createSnapshot(opts) {
   for (const d of walk.diagnostics) bag.add(d);
 
   // 5. Drop secrets (name OR content) — runs BEFORE tar so no credential is archived.
-  const filter = filterSnapshotSecrets({ baseDir: targetClaudeDir, files: walk.files, includeAuth });
+  //    When skipSecretFilter is true (the apply/reversibility path) keepAll:true is
+  //    passed so no governed component/config file is silently excluded from the
+  //    pre-mutation capture (see filterSnapshotSecrets docs for the full rationale).
+  const filter = filterSnapshotSecrets({ baseDir: targetClaudeDir, files: walk.files, includeAuth, keepAll: skipSecretFilter });
   for (const d of filter.diagnostics) bag.add(d);
 
   // 5d. DRY-RUN short-circuit: walk + filter are done, which is the entire preview.
