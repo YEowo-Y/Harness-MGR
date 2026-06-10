@@ -431,8 +431,8 @@ export const COMMANDS = Object.freeze({
   'snapshot:gc': (ctx) => snapshotGcCommand(ctx),
   'snapshot:pin': (ctx) => snapshotPinCommand(ctx),
   'snapshot:unpin': (ctx) => snapshotUnpinCommand(ctx),
-  // Governed-config WRITE commands (P3.U22+), DRY-RUN by default + two-factor write
-  // gate (--apply AND CLAUDE_MGR_ENABLE_WRITES=1). Each takes an optional deps arg.
+  // Governed-config WRITE commands (P3.U22+), DRY-RUN by default + write gate
+  // (--apply; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit opt-out lock). Each takes an optional deps arg.
   'rollback': (ctx) => rollbackCommand(ctx),
   'recover': (ctx) => recoverCommand(ctx),
   'lock': (ctx) => lockCommand(ctx),
