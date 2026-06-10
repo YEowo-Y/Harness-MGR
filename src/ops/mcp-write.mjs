@@ -75,6 +75,7 @@ import { resolveClaudeExe } from '../lib/resolve-claude-exe.mjs';
 import { createSnapshot } from './snapshot.mjs';
 import { buildAuditEntry, appendAuditEntry } from './audit-writer.mjs';
 import { discoverMcp } from '../discovery/mcp.mjs';
+import { checkDelegateTargetSnapshotted } from './delegate-manifest-check.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('./snapshot.mjs').SnapshotResult} SnapshotResult */
@@ -274,6 +275,8 @@ export async function mcpRemove(opts) {
     const createSnapshotFn = typeof seams.createSnapshotFn === 'function' ? seams.createSnapshotFn : createSnapshot;
     const spawnFn = typeof seams.spawnFn === 'function' ? seams.spawnFn : safeSpawn;
     const auditFn = typeof seams.auditFn === 'function' ? seams.auditFn : appendAuditEntry;
+    const manifestReadFileFn = typeof seams.manifestReadFileFn === 'function' ? seams.manifestReadFileFn : undefined;
+    const existsFn = typeof seams.existsFn === 'function' ? seams.existsFn : undefined;
 
     // 1. Validate name + 2. scope (§2).
     const v = validateNameScope(name, o.scope);
@@ -300,7 +303,8 @@ export async function mcpRemove(opts) {
     // 6. APPLY: gate + spawnable exe + snapshot-first + delegate + best-effort audit.
     return await applyRemove({
       bag, name, scope, server, command, human, targetClaudeDir, mgrStateDir, assertWritable,
-      reason, env, platform, cwd, now, resolveClaudeFn, createSnapshotFn, spawnFn, auditFn,
+      reason, env, platform, cwd, now,
+      resolveClaudeFn, createSnapshotFn, spawnFn, auditFn, manifestReadFileFn, existsFn,
     });
   } catch (e) {
     // 7. Absolute backstop: an unexpected error becomes a diagnostic, never a throw.
@@ -322,7 +326,8 @@ export async function mcpRemove(opts) {
 async function applyRemove(a) {
   const { bag, name, scope, server, command, human, targetClaudeDir, mgrStateDir,
     assertWritable, reason, env, platform, cwd, now,
-    resolveClaudeFn, createSnapshotFn, spawnFn, auditFn } = a;
+    resolveClaudeFn, createSnapshotFn, spawnFn, auditFn,
+    manifestReadFileFn, existsFn } = a;
   const known = { name, scope: scope ?? null, server, command };
 
   // a. The governed-write gate must be injected to --apply.
@@ -341,10 +346,14 @@ async function applyRemove(a) {
   }
   const claudeExe = cr.exe;
 
-  // c. Auto-snapshot the governed surface FIRST (the undo point). A snapshot
-  //    failure aborts — we refuse to delegate without an undo point, and do NOT spawn.
+  // c. Auto-snapshot the governed surface FIRST (the undo point). skipSecretFilter
+  //    is true so every governed file — including content-sniffer-matched ones like
+  //    a .mcp.json that contains a token-shaped value — is captured in the manifest.
+  //    A snapshot failure aborts — we refuse to delegate without an undo point, and
+  //    do NOT spawn.
   const snap = await createSnapshotFn({
-    targetClaudeDir, mgrStateDir, reason: reason ?? ('mcp remove ' + name), assertWritable, now,
+    targetClaudeDir, mgrStateDir, reason: reason ?? ('mcp remove ' + name),
+    assertWritable, now, skipSecretFilter: true,
   });
   for (const d of snap?.diagnostics ?? []) bag.add(d);
   if (!snap || snap.ok !== true) {
@@ -353,6 +362,23 @@ async function applyRemove(a) {
     return buildResult({ ...known, claudeExe, apply: snap ?? null }, bag);
   }
   const snapshotId = snap.snapshotId ?? null;
+
+  // c2. Cross-check (project scope only): .mcp.json MUST appear in the manifest.
+  //     user/local scope writes ~/.claude.json which is OUTSIDE our snapshot scope —
+  //     refusing there would break the documented advisory behavior for those scopes.
+  //     Only checked when the file exists on disk (mirrors the 'create' skip in
+  //     apply-manifest-check: a not-yet-existing file cannot be in the snapshot).
+  if (scope === 'project') {
+    const crossCheck = checkDelegateTargetSnapshotted({
+      snap, targetClaudeDir,
+      targetRelPath: '.mcp.json',
+      errorCode: 'mcp-target-not-snapshotted', phase: PHASE, bag,
+      manifestReadFileFn, existsFn,
+    });
+    if (!crossCheck.ok) {
+      return buildResult({ ok: false, ...known, claudeExe, snapshotId, apply: snap }, bag);
+    }
+  }
 
   // d. Delegate to `claude mcp remove …` via safeSpawn (the §4 schema).
   const tmp = tmpdir();
