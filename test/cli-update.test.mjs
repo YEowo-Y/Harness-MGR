@@ -87,13 +87,13 @@ test('updateCommand: dry-run somePlugin → code 0, status dry-run, loadPaths ne
 
 // ── 3. gate-closed: --apply without env var → code 3, engine + loadPaths never ─
 
-test('updateCommand: --apply without CLAUDE_MGR_ENABLE_WRITES → code 3, writes-disabled-env, engine never', async () => {
+test('updateCommand: --apply with CLAUDE_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env, engine never', async () => {
   let updateCalled = false;
   let loadPathsCalled = false;
   const deps = {
     updateFn: () => { updateCalled = true; return Promise.resolve(fakeResult()); },
     loadPaths: () => { loadPathsCalled = true; return Promise.resolve({ assertWritable: (p) => p }); },
-    env: {}, // env var NOT set
+    env: { CLAUDE_MGR_ENABLE_WRITES: '0' }, // explicit opt-out lock
   };
   const out = await updateCommand(makeCtx(['x'], { apply: true }), deps);
   assert.equal(out.code, 3, `expected code 3, got ${out.code}`);
