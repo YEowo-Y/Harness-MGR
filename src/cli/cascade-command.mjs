@@ -2,8 +2,8 @@
  * CLI handler for `remove <kind>:<name> --cascade [--force] [--apply]` (P4b.U4).
  *
  * Wires the `cascadeRemove` engine (src/ops/cascade.mjs) into the CLI behind the
- * SAME two-factor write gate every write command uses: `resolveWriteIntent`
- * requires BOTH `--apply` AND `CLAUDE_MGR_ENABLE_WRITES=1`.
+ * SAME write gate every write command uses: `resolveWriteIntent` requires
+ * `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * DRY-RUN BY DEFAULT: a bare `remove agent:foo --cascade` discovers the graph,
  * previews the target + dependents, and writes NOTHING. With `--apply` + the env
