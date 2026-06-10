@@ -24,6 +24,7 @@
       "githubRepoPaths",
       "groveConfigCache",
       "hasCompletedOnboarding",
+      "hasOpenedAgentsView",
       "hasResetAutoModeOptInForDefaultOffer",
       "hasUsedAgentsFleet",
       "installMethod",
@@ -36,7 +37,6 @@
       "oauthAccount",
       "officialMarketplaceAutoInstallAttempted",
       "officialMarketplaceAutoInstalled",
-      "opus48LaunchSeenCount",
       "opusProMigrationComplete",
       "overageCreditGrantCache",
       "passesEligibilityCache",
@@ -52,6 +52,7 @@
       "sonnet1m45MigrationComplete",
       "tipLifetimeShownCounts",
       "tipsHistory",
+      "unpinFable5LaunchEffort",
       "unpinOpus47LaunchEffort",
       "unpinOpus48LaunchEffort",
       "userID"
@@ -107,6 +108,7 @@
       "plans",
       "plugins",
       "projects",
+      "scheduled-tasks",
       "security",
       "session-data",
       "session-env",
@@ -118,7 +120,7 @@
       "telemetry"
     ]
   },
-  "fingerprint": "433ec45a7e8f13899a7ce0b3c88cd94bb0e2054e278dd0346fa9521842a9f6b2",
-  "generatedAt": "2026-06-08T04:41:38.596Z",
+  "fingerprint": "8d17e2b55affb52896e906ec3f10079a182ac3c47b2b5a9d0ad6f1a2580e7824",
+  "generatedAt": "2026-06-10T03:34:15.895Z",
   "schemaCanaryVersion": 1
 }
