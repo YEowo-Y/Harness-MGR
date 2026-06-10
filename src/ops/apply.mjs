@@ -89,6 +89,7 @@ import { atomicApplyWrite } from './atomic-write.mjs';
 import { atomicApplyDelete } from './atomic-delete.mjs';
 import { atomicApplyDirDelete } from './atomic-dir-delete.mjs';
 import { paranoidVerify } from './apply-paranoid.mjs';
+import { checkOpTargetsInManifest } from './apply-manifest-check.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('../lib/plan.mjs').Plan} Plan */
@@ -163,25 +164,11 @@ function buildResult(fields, bag) {
 
 /**
  * Create + transition + persist the journal for a successful snapshot, driving
- * `planned`→`snapshotted`. When `enableWrites` is true it then CONTINUES the
- * lifecycle into the governed write (`snapshotted`→`applying`→`committed`) via
- * performApply; otherwise it STOPS at 'snapshotted' with an apply-writes-disabled
- * info (the U12 default). Returns the lifecycle result, or a failure result on any
- * sub-step failure. Extracted from applyPlan to keep both functions under the SLOC
- * limit. Never throws (performApply is itself async + never-throws).
- *
- * @param {object} args
- * @param {Plan}   args.plan
- * @param {string} args.targetClaudeDir
- * @param {string} args.mgrStateDir
- * @param {(path:string, ctx:string)=>string} args.assertWritable
- * @param {() => Date} [args.now]
- * @param {boolean} [args.enableWrites]  continue past 'snapshotted' into the write
- * @param {boolean} [args.paranoid]      re-parse each written *.json file from disk
- * @param {object}  [args.retry]         forwarded to the atomic write
- * @param {{snapshotId:string|null, manifestPath:string|null, archivePath:string|null, reclaimed?:boolean}} args.snap
- * @param {{createJournalFn:Function, transitionFn:Function, writeJournalFn:Function, atomicWriteFn:Function, readFileFn:Function}} args.fns
- * @param {DiagnosticBag} args.bag
+ * `planned`→`snapshotted`; when `enableWrites` is true, CONTINUES into the governed
+ * write (`snapshotted`→`applying`→`committed`) via performApply. Extracted from
+ * applyPlan to keep both functions under the SLOC limit. Never throws.
+ * @param {object} args  { plan, targetClaudeDir, mgrStateDir, assertWritable, now,
+ *   enableWrites, paranoid, retry, snap, fns, bag }
  * @returns {Promise<ApplyResult>}
  */
 async function persistJournal(args) {
@@ -222,7 +209,11 @@ async function persistJournal(args) {
     return buildResult({ ...base, ok: true, state: 'snapshotted', journalPath: w.path }, bag);
   }
 
-  // enableWrites: CONTINUE the lifecycle into the governed write(s).
+  // enableWrites: CONTINUE. PART 2 — every op target MUST appear in the snapshot
+  // manifest; if any is absent the write would be irreversible — refuse the apply.
+  const mchk = checkOpTargetsInManifest(plan, snap, targetClaudeDir, fns.manifestReadFileFn, bag);
+  if (!mchk.ok) return fail('apply-target-not-snapshotted', mchk.message, {});
+
   return performApply({
     plan, mgrStateDir, assertWritable, now, paranoid: args.paranoid, retry: args.retry, snap,
     fns, bag, base, journal: t.journal, journalPath: w.path,
@@ -230,16 +221,8 @@ async function persistJournal(args) {
 }
 
 /**
- * Validate EVERY op is a supported create/overwrite/delete op (P3.U19 multi-op +
- * P4a.U1c delete), drive `snapshotted`→`applying`, then execute each op IN PLAN
- * ORDER (create/overwrite via the atomic-write primitive, delete via the
- * atomic-delete primitive, each gated internally), then →`committed`. A single
- * invalid op refuses the whole apply (journal `failed`) WITHOUT an 'applying'
- * transition or a mutation. A failed write/delete — or, under `--paranoid`, a *.json
- * re-parse failure of a written file — STOPS the sequence (op N+1.. never attempted)
- * and marks the journal `failed`, with `applied`/`opsWritten` reflecting how many
- * ops landed first. Never throws.
- *
+ * Drive `snapshotted`→`applying`→`committed` (or `→failed`): validate all ops,
+ * execute each in plan order, then commit. Never throws.
  * @param {object} a  { plan, mgrStateDir, assertWritable, now, paranoid, retry,
  *                       snap, fns, bag, base, journal, journalPath }
  * @returns {Promise<ApplyResult>}
@@ -429,35 +412,29 @@ export async function applyPlan(opts) {
     atomicDeleteFn: seams.atomicDeleteFn ?? atomicApplyDelete,
     atomicDirDeleteFn: seams.atomicDirDeleteFn ?? atomicApplyDirDelete,
     readFileFn: seams.readFileFn ?? ((p) => readFileSync(p, 'utf8')),
+    manifestReadFileFn: seams.manifestReadFileFn ?? ((p) => readFileSync(p, 'utf8')),
   };
 
-  const fail = (code, message) => {
-    bag.add({ severity: 'error', code, message, phase: PHASE });
-    return buildResult({}, bag);
-  };
+  const fail = (code, message) => { bag.add({ severity: 'error', code, message, phase: PHASE }); return buildResult({}, bag); };
 
   try {
-    // 1. Validate — on any failure, refuse BEFORE acquiring a lock (no lock taken
-    //    means no release path; fail-safe on a missing/invalid write gate).
+    // 1. Validate — refuse BEFORE acquiring a lock (no lock means no release path).
     if (!plan || typeof plan !== 'object') return fail('apply-bad-args', 'plan must be an object');
     if (!isNonEmptyStr(targetClaudeDir)) return fail('apply-bad-args', 'targetClaudeDir must be a non-empty string');
     if (!isNonEmptyStr(mgrStateDir)) return fail('apply-bad-args', 'mgrStateDir must be a non-empty string');
     if (typeof assertWritable !== 'function') return fail('apply-bad-args', 'assertWritable (the governed-write gate) must be injected');
 
-    // 2. Acquire the lock OUTSIDE the try/finally so a failed acquire never reaches
-    //    the release path (we never release a lock we did not acquire). The SAME
-    //    pid is threaded into acquire + release.
+    // 2. Acquire lock OUTSIDE try/finally — never release a lock we did not acquire.
     const lockPid = Number.isInteger(o.pid) ? o.pid : process.pid;
     const acq = acquireFn({ stateDir: mgrStateDir, assertWritable, pid: lockPid, now });
     for (const d of acq.diagnostics ?? []) bag.add(d);
-    if (!acq.acquired) {
-      return buildResult({ lock: { acquired: false, reason: acq.reason } }, bag);
-    }
+    if (!acq.acquired) return buildResult({ lock: { acquired: false, reason: acq.reason } }, bag);
 
     // 3. Lock held → from here a finally MUST release it (with the same pid).
     try {
       const snap = await createSnapshotFn({
         targetClaudeDir, mgrStateDir, reason, includeAuth, assertWritable, now, dryRun: false,
+        skipSecretFilter: true,
       });
       for (const d of snap.diagnostics ?? []) bag.add(d);
       if (!snap.ok) {
