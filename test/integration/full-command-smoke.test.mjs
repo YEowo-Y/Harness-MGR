@@ -94,6 +94,7 @@ function buildArgvTable(sandbox) {
     'permissions': ['permissions', '--audit'],
     'selftest': ['selftest', '--lint'],
     'doctor': ['doctor'],
+    'health': ['health'], // read-only, passive always (P5.U5)
     'audit': ['audit'],
     'drift': ['drift'], // dry-run (no --update)
     'snapshot': ['snapshot'], // dry-run preview (no --apply)
