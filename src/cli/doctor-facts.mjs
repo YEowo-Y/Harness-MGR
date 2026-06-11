@@ -24,6 +24,13 @@
  * settings-json-valid), so re-emitting them would duplicate the raw fact
  * alongside the doctor's verdict.
  *
+ * --- `facts` (P5.U5, ADDITIVE third return key) ---
+ * The `health` command needs facts this gather ALREADY computes internally but
+ * DoctorInput does not expose (raw components, the full scan diagnostics, the
+ * merged effective.hooks). They are EXPOSED — never recomputed — as a third
+ * return key. doctorCommand destructures only `{input, diagnostics}` and is
+ * byte-identical; nothing is scanned twice.
+ *
  * Never throws. Zero npm dependencies. Node stdlib only.
  */
 
@@ -49,10 +56,23 @@ import { gatherCliProbe } from '../discovery/probe-cli.mjs';
  */
 
 /**
+ * The already-computed facts the `health` command (P5.U5) consumes — exposed,
+ * not recomputed (module header). All fields are total: arrays/objects even on
+ * the failure path.
+ *
+ * @typedef {Object} HealthFacts
+ * @property {import('../discovery/components.mjs').ComponentRecord[]} components  scan().components
+ * @property {Diagnostic[]} scanDiagnostics  the FULL aggregated scan diagnostics
+ * @property {import('../analysis/conflicts.mjs').ConflictCluster[]} conflicts  analyzeConflicts clusters (same array as input.conflicts)
+ * @property {Record<string, unknown>} effectiveHooks  merged effective.hooks ({} when absent)
+ * @property {object[]} hookFacts  passive probe-hooks facts (same array as input.hookFacts)
+ */
+
+/**
  * Gather the DoctorInput facts bundle for a config dir.
  *
  * @param {{ configDir: string, mgrStateDir: string, activeProbes?: boolean, now?: number, cwd?: string }} opts
- * @returns {Promise<{ input: DoctorInput, diagnostics: Diagnostic[] }>}
+ * @returns {Promise<{ input: DoctorInput, diagnostics: Diagnostic[], facts: HealthFacts }>}
  */
 export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes = false, now, cwd } = {}) {
   try {
@@ -61,6 +81,7 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes =
 
     const s = scan({ targetClaudeDir: configDir });
     const effective = mergeSettings(readSettingsLayers(configDir).layers).effective || {};
+    const conflicts = analyzeConflicts(s.components).conflicts;
 
     /** @type {DoctorInput} */
     const input = {
@@ -71,7 +92,7 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes =
       enabledPlugins: effective.enabledPlugins,
       installedPlugins: s.plugins,
       marketplaces: s.marketplaces,
-      conflicts: analyzeConflicts(s.components).conflicts,
+      conflicts,
       orphans: analyzeOrphans(detectOrphans(configDir)).orphans,
       permissions: effective.permissions,
       now: typeof now === 'number' ? now : Date.now(),
@@ -80,12 +101,38 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes =
     await addPassiveProbes(input, diagnostics, { configDir, mgrStateDir, effective, mcpServers: s.mcpServers, cwd });
     if (activeProbes) await addActiveProbes(input, diagnostics, configDir);
 
-    return { input, diagnostics };
+    return { input, diagnostics, facts: buildHealthFacts(s, effective, conflicts, input) };
   } catch (err) {
     // Belt-and-suspenders: the probes never throw, but a defensive envelope keeps
     // the doctor command itself never-throws even if a future probe regresses.
-    return { input: {}, diagnostics: [{ severity: 'warn', code: 'doctor-facts-failed', message: errMessage(err), phase: 'doctor' }] };
+    return { input: {}, diagnostics: [{ severity: 'warn', code: 'doctor-facts-failed', message: errMessage(err), phase: 'doctor' }], facts: emptyHealthFacts() };
   }
+}
+
+/**
+ * Assemble the HealthFacts bundle from values this gather already computed —
+ * EXPOSE, never recompute (no second scan). hookFacts was attached to `input`
+ * by addPassiveProbes just above.
+ * @param {import('../discovery/scan.mjs').ScanResult} s
+ * @param {Record<string, unknown>} effective
+ * @param {object[]} conflicts
+ * @param {DoctorInput} input
+ * @returns {HealthFacts}
+ */
+function buildHealthFacts(s, effective, conflicts, input) {
+  const hooks = effective.hooks;
+  return {
+    components: s.components,
+    scanDiagnostics: s.diagnostics,
+    conflicts,
+    effectiveHooks: hooks !== null && typeof hooks === 'object' && !Array.isArray(hooks) ? /** @type {Record<string, unknown>} */ (hooks) : {},
+    hookFacts: Array.isArray(input.hookFacts) ? input.hookFacts : [],
+  };
+}
+
+/** A total (all-empty) HealthFacts for the defensive failure path. @returns {HealthFacts} */
+function emptyHealthFacts() {
+  return { components: [], scanDiagnostics: [], conflicts: [], effectiveHooks: {}, hookFacts: [] };
 }
 
 /**
