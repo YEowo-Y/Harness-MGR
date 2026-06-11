@@ -44,6 +44,7 @@ import { lockCommand } from './lock-command.mjs';
 import { removeCommand } from './remove-command.mjs';
 import { updateCommand } from './update-command.mjs';
 import { mcpCommand } from './mcp-command.mjs';
+import { hooksCommand } from './hooks-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
 import { completionCommand } from './completion.mjs';
 
@@ -331,19 +332,8 @@ function navigate(obj, segments) {
 }
 
 // ── hooks ─────────────────────────────────────────────────────────────────────
-
-/**
- * The merged per-event hooks order (the `hooks` key of effective settings).
- * @type {CommandHandler}
- */
-export function hooksCommand(ctx) {
-  const layers = readSettingsLayers(ctx.configDir);
-  const m = mergeSettings(layers.layers);
-  // SECRET-SAFE: a token embedded in a hook command string (an Authorization header
-  // or --token=) is redacted to <redacted> before it reaches json/ndjson (audit P1).
-  const hooks = redactSecretsDeep((m.effective && m.effective.hooks) || {});
-  return { result: { hooks }, diagnostics: [...layers.diagnostics, ...m.diagnostics] };
-}
+// hooksCommand lives in hooks-command.mjs (P5.U4 SLOC split — the ops-commands
+// precedent): merged hooks (byte-compatible key) + the new human explanations.
 
 // ── permissions ──────────────────────────────────────────────────────────────────
 
@@ -442,4 +432,4 @@ export const COMMANDS = Object.freeze({
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, configDiffCommand, completionCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, configDiffCommand, completionCommand };
