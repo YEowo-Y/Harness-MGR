@@ -23,7 +23,7 @@ func isSectionView(v viewID) bool {
 	return v == viewConflicts || v == viewOrphans ||
 		v == viewConfig || v == viewHooks || v == viewSelftest ||
 		v == viewDoctor || v == viewPermissions ||
-		v == viewDrift || v == viewAudit
+		v == viewDrift || v == viewAudit || v == viewHealth
 }
 
 // ── Conflicts ────────────────────────────────────────────────────────────────
@@ -250,6 +250,8 @@ func sectionEmptyLabel(v viewID) string {
 		return tr("empty.drift")
 	case viewAudit:
 		return tr("empty.audit")
+	case viewHealth:
+		return tr("empty.health")
 	default:
 		return tr("empty.items")
 	}
