@@ -11,6 +11,9 @@
     "coverage": "c8 --reporter=text node --test",
     "coverage:json": "c8 --reporter=json-summary --reporter=text node --test"
   },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0"
+  },
   "devDependencies": {
     "c8": "^11.0.0"
   }
