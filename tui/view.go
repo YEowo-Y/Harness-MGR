@@ -630,7 +630,7 @@ func statusBarView(m model) string {
 		sep +
 		keyStyle.Render("Tab") + dim.Render(" "+tr("status.focus")) +
 		sep +
-		keyStyle.Render("1-0") + dim.Render(" "+tr("status.section")) +
+		keyStyle.Render("1-0/←→") + dim.Render(" "+tr("status.section")) +
 		sep +
 		keyStyle.Render("/") + dim.Render(" "+tr("status.filter"))
 	// Write-mode indicator (always shown): the W toggle + its current state. Only
@@ -1056,7 +1056,8 @@ func helpView(width, height int) string {
 		{"Enter", tr("help.activate")},
 		{"Tab", tr("help.focus")},
 		{"1-0", tr("help.jump")},
-		{"[ / ]", tr("help.tabs")},
+		{"[ / ]  ← / →", tr("help.tabs")},
+		{"H", tr("help.health")},
 		{"/", tr("help.filter")},
 		{"r", tr("help.refresh")},
 		{"w", tr("help.write")},
