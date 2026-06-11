@@ -206,9 +206,10 @@ test('configShowEffectiveCommand: --key model narrows to value "sonnet"', () => 
 
 // ── F. hooks ────────────────────────────────────────────────────────────────────
 
-test('hooksCommand: minimal/ has no hooks → empty object', () => {
-  const { result } = hooksCommand({ configDir: MIN, args: { order: true } });
+test('hooksCommand: minimal/ has no hooks → empty object (now async, P5.U4)', async () => {
+  const { result } = await hooksCommand({ configDir: MIN, args: { order: true } });
   assert.deepEqual(result.hooks, {});
+  assert.deepEqual(result.explanations, [], 'P5.U4: explanations key present, empty when no hooks');
 });
 
 // ── G. selftest ─────────────────────────────────────────────────────────────────
