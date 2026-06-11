@@ -753,6 +753,181 @@ func fetchAudit(cliPath string) (AuditResult, error) {
 	return parseAudit(data)
 }
 
+// ── Health structs ────────────────────────────────────────────────────────────
+//
+// The `health --format json` envelope (version:1) bundles three sub-objects the
+// Health tab renders together: result.health (per-component loadability),
+// result.advice (the offline best-practice rule matches, with B1's bilingual
+// zh fields), and result.hooks (a compact hook-resolution status). These structs
+// mirror that REAL shape field-for-field; encoding/json ignores any extra fields.
+
+// HealthReason is one reason a component is degraded or not-loaded — a
+// code/severity/message triple lifted straight from the engine. Severity is
+// "error" | "warn" | "info". Engine DATA stays English (the message is a literal
+// engine string, never translated — see the bilingual design note in tabs.go).
+type HealthReason struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	Message  string `json:"message"`
+}
+
+// HealthComponent is one element of result.health.components: a discovered
+// component with its resolved load status and the reasons behind it. Status is
+// "loadable" | "degraded" | "not-loaded". WorstSeverity is "error" | "warn" |
+// "info" or "" (the JSON emits null when there are no reasons).
+type HealthComponent struct {
+	Kind          string         `json:"kind"`
+	Name          string         `json:"name"`
+	Path          string         `json:"path"`
+	Scope         string         `json:"scope"`
+	Status        string         `json:"status"`
+	WorstSeverity string         `json:"worstSeverity"`
+	Reasons       []HealthReason `json:"reasons"`
+}
+
+// HealthSummary holds the component-count rollup from result.health.summary.
+type HealthSummary struct {
+	Total     int `json:"total"`
+	Loadable  int `json:"loadable"`
+	Degraded  int `json:"degraded"`
+	NotLoaded int `json:"notLoaded"`
+}
+
+// HealthSection mirrors result.health: the per-component status list plus its
+// summary. The groups array (scope×kind×status rollup) is present in the JSON but
+// the TUI renders from components directly, so it is not decoded here.
+type HealthSection struct {
+	Summary    HealthSummary     `json:"summary"`
+	Components []HealthComponent `json:"components"`
+}
+
+// AdviceItem is one offline best-practice rule match from result.advice.advice.
+// The zh fields (TitleZh/AdviceZh/FixZh) are B1's bilingual payload — the Health
+// tab renders them under langZH and falls back to the English field when a zh
+// string is empty (a custom rule may lack a translation). Severity is "error" |
+// "warn" | "info". AffectedPaths/MatchedCodes are engine DATA (stay English).
+type AdviceItem struct {
+	RuleID        string   `json:"ruleId"`
+	Title         string   `json:"title"`
+	TitleZh       string   `json:"titleZh"`
+	Severity      string   `json:"severity"`
+	Advice        string   `json:"advice"`
+	AdviceZh      string   `json:"adviceZh"`
+	Fix           string   `json:"fix"`
+	FixZh         string   `json:"fixZh"`
+	AffectedPaths []string `json:"affectedPaths"`
+	MatchedCodes  []string `json:"matchedCodes"`
+	DocURL        string   `json:"docUrl"`
+	DocVersion    string   `json:"docVersion"`
+}
+
+// AdviceSummary holds the advice-count rollup by severity from
+// result.advice.summary.
+type AdviceSummary struct {
+	Total int `json:"total"`
+	Error int `json:"error"`
+	Warn  int `json:"warn"`
+	Info  int `json:"info"`
+}
+
+// AdviceSection mirrors result.advice: the rule-match list plus its summary.
+type AdviceSection struct {
+	Summary AdviceSummary `json:"summary"`
+	Advice  []AdviceItem  `json:"advice"`
+}
+
+// HookExplanation is one element of result.hooks.explanations: a configured hook
+// with its resolution status and the engine's English explanation sentence. Kind
+// is "file" | "external" | "opaque"; Status is "found" | "missing" |
+// "indeterminate" | "unprobed". The Explanation sentence stays English (engine
+// data) — only its surrounding label is translated (see the hook-sentence-scope
+// note in the bilingual design).
+type HookExplanation struct {
+	Event       string `json:"event"`
+	Matcher     string `json:"matcher"`
+	Command     string `json:"command"`
+	Kind        string `json:"kind"`
+	Target      string `json:"target"`
+	Status      string `json:"status"`
+	Explanation string `json:"explanation"`
+}
+
+// HooksByKind holds the per-kind hook counts from result.hooks.summary.byKind.
+type HooksByKind struct {
+	File     int `json:"file"`
+	External int `json:"external"`
+	Opaque   int `json:"opaque"`
+}
+
+// HooksHealthSummary holds the hook-resolution rollup from result.hooks.summary.
+type HooksHealthSummary struct {
+	Total         int         `json:"total"`
+	Missing       int         `json:"missing"`
+	Indeterminate int         `json:"indeterminate"`
+	ByKind        HooksByKind `json:"byKind"`
+}
+
+// HooksHealthSection mirrors result.hooks: the per-hook explanations plus its
+// summary.
+type HooksHealthSection struct {
+	Summary      HooksHealthSummary `json:"summary"`
+	Explanations []HookExplanation  `json:"explanations"`
+}
+
+// HealthReport bundles the three sub-objects of the `health --format json`
+// envelope plus the top-level diagnostics. It is what parseHealth returns and the
+// Health tab renders from.
+type HealthReport struct {
+	Health      HealthSection      `json:"health"`
+	Advice      AdviceSection      `json:"advice"`
+	Hooks       HooksHealthSection `json:"hooks"`
+	Diagnostics []Diagnostic       `json:"diagnostics"`
+}
+
+// healthEnvelope decodes result.{health,advice,hooks} + the TOP-LEVEL diagnostics
+// array from the `health --format json` envelope (diagnostics sit beside result,
+// not inside it — mirrors doctorEnvelope).
+type healthEnvelope struct {
+	Result struct {
+		Health HealthSection      `json:"health"`
+		Advice AdviceSection      `json:"advice"`
+		Hooks  HooksHealthSection `json:"hooks"`
+	} `json:"result"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// parseHealth unmarshals a raw `health --format json` envelope into a
+// HealthReport, lifting the top-level diagnostics in alongside the three result
+// sub-objects. Pure function — no exec, never panics.
+func parseHealth(data []byte) (HealthReport, error) {
+	var env healthEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return HealthReport{}, fmt.Errorf("parsing health JSON: %w", err)
+	}
+	return HealthReport{
+		Health:      env.Result.Health,
+		Advice:      env.Result.Advice,
+		Hooks:       env.Result.Hooks,
+		Diagnostics: env.Diagnostics,
+	}, nil
+}
+
+// fetchHealth shells out to `node <cliPath> health --format json`, captures
+// stdout, and unmarshals it into a HealthReport. It never panics.
+//
+// READ-ONLY but HEAVY — `health` aggregates scan + a PASSIVE doctor run + hooks
+// + the advice engine in a single command (no --active-probes, so no child
+// spawn and no transient probe write). It is the heaviest single section fetch,
+// which is why the Health tab lazy-loads on first visit rather than eager-fetching
+// at startup (see lazyLoadCurrent).
+func fetchHealth(cliPath string) (HealthReport, error) {
+	data, err := runJSON(cliPath, "health", "--format", "json")
+	if err != nil {
+		return HealthReport{}, err
+	}
+	return parseHealth(data)
+}
+
 // sortComponents orders components by kind then name (both ascending), in place.
 // Ordering is case-insensitive on the surface text so "Foo" and "foo" cluster
 // naturally; ties fall back to the case-sensitive value for determinism.
