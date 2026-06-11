@@ -83,6 +83,42 @@ test('pack: every triggerCode is in the emitted-code vocabulary (drift-guard)', 
   }
 });
 
+// ── BILINGUAL (TUI-bilingual B1): zh fields present + passed through ───────────
+
+test('pack: every bundled rule carries non-empty titleZh/adviceZh/fixZh (bilingual drift-guard)', () => {
+  // A future rule added without a Simplified-Chinese translation goes RED here.
+  for (const rule of pack.rules) {
+    assert.ok(typeof rule.titleZh === 'string' && rule.titleZh.length > 0, `rule ${rule.id} missing titleZh`);
+    assert.ok(typeof rule.adviceZh === 'string' && rule.adviceZh.length > 0, `rule ${rule.id} missing adviceZh`);
+    assert.ok(typeof rule.fixZh === 'string' && rule.fixZh.length > 0, `rule ${rule.id} missing fixZh`);
+  }
+});
+
+test('record built from the bundled pack carries the rule\'s zh fields', () => {
+  // mcp-auth-stale fires advice-mcp-auth-stale from the bundled pack.
+  const rule = pack.rules.find((r) => r.id === 'advice-mcp-auth-stale');
+  const r = analyzeAdvice({ diagnostics: [{ code: 'mcp-auth-stale', severity: 'warn', message: '', path: '/p' }] });
+  const rec = r.advice.find((a) => a.ruleId === 'advice-mcp-auth-stale');
+  assert.ok(rec, 'advice-mcp-auth-stale must fire');
+  assert.equal(rec.titleZh, rule.titleZh);
+  assert.equal(rec.adviceZh, rule.adviceZh);
+  assert.equal(rec.fixZh, rule.fixZh);
+});
+
+test('a custom injected rule WITHOUT zh still fires and yields \'\' zh (fallback + optional validity)', () => {
+  const custom = [{
+    id: 'advice-no-zh', title: 'T', severity: 'warn', triggerCodes: ['code-x'],
+    advice: 'a', fix: 'f', docUrl: 'https://code.claude.com/docs/en/x', docVersion: 'v',
+  }];
+  // optional-validity: a pack without zh is still valid
+  assert.equal(isValidAdviceRule(custom[0]), true);
+  const r = analyzeAdvice({ rules: custom, diagnostics: [{ code: 'code-x', severity: 'warn', message: '', path: '/p' }] });
+  assert.equal(r.advice.length, 1);
+  assert.equal(r.advice[0].titleZh, '');
+  assert.equal(r.advice[0].adviceZh, '');
+  assert.equal(r.advice[0].fixZh, '');
+});
+
 // ── GOLDEN: known config → known advice set (literal, not computed) ───────────
 
 /** Deep-frozen synthetic fact set: 5 distinct trigger codes across all 3 channels. */
@@ -119,9 +155,12 @@ const GOLDEN_EXPECTED = {
     {
       ruleId: 'advice-hook-file-missing',
       title: 'Restore or remove a missing hook script',
+      titleZh: '恢复或移除一个缺失的钩子脚本',
       severity: 'error',
       advice: 'A hook in your settings points at a script file that does not exist. Hooks run automatically at lifecycle events, so this hook will error every time its event fires.',
+      adviceZh: '你设置里的一个钩子指向了一个并不存在的脚本文件。钩子会在生命周期事件发生时自动运行，所以每次触发它对应的事件，这个钩子都会报错。',
       fix: 'Restore the script at the configured path, or delete that hook entry from settings.json.',
+      fixZh: '把脚本恢复到配置里指定的路径，或者从 settings.json 里删掉那条钩子记录。',
       affectedPaths: ['/cfg/hooks/missing.mjs'],
       matchedCodes: ['hook-file-exists'],
       docUrl: 'https://code.claude.com/docs/en/hooks',
@@ -130,9 +169,12 @@ const GOLDEN_EXPECTED = {
     {
       ruleId: 'advice-settings-invalid',
       title: 'Repair a broken settings.json',
+      titleZh: '修复损坏的 settings.json',
       severity: 'error',
       advice: 'A settings file is malformed or contains duplicate keys. settings.json is how Claude Code is configured, so broken JSON means some or all of your settings are dropped or applied unpredictably (for duplicate keys, the last value wins).',
+      adviceZh: '一个设置文件格式有误或包含重复的键。settings.json 是配置 Claude Code 的地方，所以 JSON 损坏意味着你的部分或全部设置会被丢弃、或以不可预测的方式生效（出现重复键时，以最后一个值为准）。',
       fix: 'Edit the file at the reported line and column until it is valid JSON, then verify the result with claude-mgr `config show-effective`.',
+      fixZh: '在报告指出的行和列处编辑文件，直到它成为合法的 JSON，然后用 claude-mgr 的 `config show-effective` 核对结果。',
       affectedPaths: ['/cfg/settings.json', '/cfg/settings.local.json'],
       matchedCodes: ['settings-duplicate-key', 'settings-unreadable'],
       docUrl: 'https://code.claude.com/docs/en/settings',
@@ -141,9 +183,12 @@ const GOLDEN_EXPECTED = {
     {
       ruleId: 'advice-component-shadowing',
       title: 'Resolve duplicate component names',
+      titleZh: '处理重名的组件',
       severity: 'warn',
       advice: 'Two or more of your components resolve to the same name, so Claude Code applies its precedence rules and loads only one of them — the shadowed copies are silently inactive.',
+      adviceZh: '你有两个或更多组件解析成了同一个名字，于是 Claude Code 按优先级规则只加载其中一个，被遮蔽的那几份会悄悄失效、不再生效。',
       fix: "Rename one copy, or delete the duplicate you don't want. claude-mgr `remove <kind>:<name>` (kind = skill/agent/command) is dry-run by default and snapshots before deleting, so it is reversible.",
+      fixZh: '给其中一份改名，或删掉你不想要的那份重复项。claude-mgr 的 `remove <kind>:<name>`（kind 为 skill/agent/command，即技能/智能体/命令）默认只是预演，删除前会先做快照，所以可以撤销。',
       affectedPaths: ['/cfg/skills/deploy/SKILL.md'],
       matchedCodes: ['skill-shadowing'],
       docUrl: 'https://code.claude.com/docs/en/skills',
@@ -152,9 +197,12 @@ const GOLDEN_EXPECTED = {
     {
       ruleId: 'advice-permissions-overbroad',
       title: 'Narrow wildcard permission allow rules',
+      titleZh: '收窄带通配符的权限允许规则',
       severity: 'warn',
       advice: 'One or more entries in your permissions allow list contain a wildcard (*). Allow rules let Claude Code use the matching tools without asking you first, so a broad pattern can auto-approve far more than you intended.',
+      adviceZh: '你的权限允许列表里有一条或多条规则带了通配符（*）。允许规则会让 Claude Code 不经询问就直接使用匹配到的工具，所以一条过宽的规则可能自动放行远超你本意的范围。',
       fix: 'Run `permissions --audit` to list the overbroad entries, then tighten each rule in settings.json (or via /permissions inside Claude Code) to the narrowest pattern you actually need.',
+      fixZh: '运行 `permissions --audit` 列出过宽的条目，然后在 settings.json 里（或在 Claude Code 内用 /permissions）把每条规则收紧到你真正需要的最小范围。',
       affectedPaths: [],
       matchedCodes: ['permissions-overbroad'],
       docUrl: 'https://code.claude.com/docs/en/permissions',
