@@ -48,10 +48,13 @@ export { BUNDLED_RULE_PACK };
  * @typedef {Object} AdviceRule
  * @property {string} id            unique `advice-<kebab>` id
  * @property {string} title         short imperative
+ * @property {string} [titleZh]     Simplified-Chinese translation of `title` (TUI-bilingual B1)
  * @property {'error'|'warn'|'info'} severity
  * @property {string[]} triggerCodes  emitted diagnostic codes that fire the rule
  * @property {string} advice
+ * @property {string} [adviceZh]    Simplified-Chinese translation of `advice` (TUI-bilingual B1)
  * @property {string} fix
+ * @property {string} [fixZh]       Simplified-Chinese translation of `fix` (TUI-bilingual B1)
  * @property {string} docUrl        official page grounding the rule
  * @property {string} [docVersion]  fetch date of that page
  * @property {string} [sourceStatement]  QC audit trail (not surfaced in records)
@@ -61,9 +64,12 @@ export { BUNDLED_RULE_PACK };
  * @typedef {Object} AdviceRecord
  * @property {string} ruleId
  * @property {string} title
+ * @property {string} titleZh        Simplified-Chinese `title`, or '' when the rule carries no translation (TUI-bilingual B1)
  * @property {'error'|'warn'|'info'} severity
  * @property {string} advice
+ * @property {string} adviceZh       Simplified-Chinese `advice`, or '' when untranslated
  * @property {string} fix
+ * @property {string} fixZh          Simplified-Chinese `fix`, or '' when untranslated
  * @property {string[]} affectedPaths  sorted unique paths of matching facts
  * @property {string[]} matchedCodes   sorted unique trigger codes seen in facts
  * @property {string} docUrl
@@ -157,9 +163,12 @@ function buildRecord(rule, byCode, matched) {
   return {
     ruleId: rule.id,
     title: rule.title,
+    titleZh: nes(rule.titleZh) ? rule.titleZh : '',
     severity: rule.severity,
     advice: rule.advice,
+    adviceZh: nes(rule.adviceZh) ? rule.adviceZh : '',
     fix: rule.fix,
+    fixZh: nes(rule.fixZh) ? rule.fixZh : '',
     affectedPaths: [...paths].sort(cmp),
     matchedCodes: [...new Set(matched)].sort(cmp),
     docUrl: rule.docUrl,
