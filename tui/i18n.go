@@ -50,6 +50,7 @@ var translations = map[string][2]string{
 	"tab.permissions": {"Permissions", "权限"},
 	"tab.drift":       {"Drift", "偏移"},
 	"tab.audit":       {"Audit", "审计"},
+	"tab.health":      {"Health", "健康"},
 
 	// Status-bar hint words (the keys — Enter, j/k, Tab, 1-7, q — stay literal).
 	"status.expand":  {"expand", "展开"},
@@ -88,6 +89,7 @@ var translations = map[string][2]string{
 	"empty.permissions":      {"no permission rules found", "未发现权限规则"},
 	"empty.drift":            {"no drift changes", "无偏移变更"},
 	"empty.audit":            {"no audit entries yet", "暂无审计记录"},
+	"empty.health":           {"all healthy", "全部健康"},
 	"empty.items":            {"no items found", "未发现条目"},
 	"empty.objects":          {"no objects found", "未发现对象"},
 	"empty.noMatch":          {"no matches", "无匹配项"},
@@ -156,6 +158,51 @@ var translations = map[string][2]string{
 	"summary.driftNoBaseline": {"no baseline — run drift --update", "无基线 — 运行 drift --update"},
 	"summary.audit":           {"%d entries", "%d 条记录"},
 	"summary.auditSkipped":    {"%d entries · %d malformed", "%d 条记录 · %d 条损坏"},
+
+	// Health tab — the FIRST detail-pane content to go bilingual (B2). The
+	// GUIDANCE/MEANING (status & severity labels, summary, detail-pane section
+	// labels) is translated; engine DATA (component names, paths, hook command
+	// strings, event names, codes, reason messages, the engine's explanation
+	// sentence) stays English — see the bilingual design note in tabs.go.
+	"summary.health": {"%d not-loaded · %d degraded · %d advice", "%d 未加载 · %d 降级 · %d 建议"},
+
+	// Component load-status labels.
+	"health.loadable":  {"loadable", "可加载"},
+	"health.degraded":  {"degraded", "降级"},
+	"health.notLoaded": {"not-loaded", "未加载"},
+
+	// Reason / advice severity labels.
+	"sev.error": {"error", "错误"},
+	"sev.warn":  {"warn", "警告"},
+	"sev.info":  {"info", "提示"},
+
+	// Hook resolution-status labels.
+	"hookstatus.found":         {"found", "存在"},
+	"hookstatus.missing":       {"missing", "缺失"},
+	"hookstatus.indeterminate": {"indeterminate", "不确定"},
+	"hookstatus.unprobed":      {"unprobed", "未探测"},
+
+	// Hook kind labels.
+	"hookkind.file":     {"file", "文件"},
+	"hookkind.external": {"external", "外部命令"},
+	"hookkind.opaque":   {"opaque", "未解析"},
+
+	// Health detail-pane section / field labels.
+	"detail.status":     {"Status", "状态"},
+	"detail.reasons":    {"Reasons", "原因"},
+	"detail.advice":     {"Advice", "建议"},
+	"detail.fix":        {"Fix", "修复"},
+	"detail.hook":       {"Hook", "钩子"},
+	"detail.kind":       {"Kind", "类型"},
+	"detail.scope":      {"Scope", "范围"},
+	"detail.path":       {"Path", "路径"},
+	"detail.event":      {"Event", "事件"},
+	"detail.matcher":    {"Matcher", "匹配器"},
+	"detail.severity":   {"Severity", "严重度"},
+	"detail.message":    {"Message", "消息"},
+	"detail.docs":       {"Docs", "文档"},
+	"health.allHealthy": {"all components loadable", "全部组件均可加载"},
+	"health.hooksOk":    {"all hooks resolved", "全部钩子均已解析"},
 }
 
 // tr returns key's text in the active UI language, falling back to English (then
@@ -181,7 +228,7 @@ func tf(key string, args ...any) string {
 
 // tabKeys maps a viewID to its tab-label translation key, in viewID iota order.
 var tabKeys = []string{
-	"tab.inventory", "tab.conflicts", "tab.orphans", "tab.config", "tab.hooks", "tab.selftest", "tab.doctor", "tab.permissions", "tab.drift", "tab.audit",
+	"tab.inventory", "tab.conflicts", "tab.orphans", "tab.config", "tab.hooks", "tab.selftest", "tab.doctor", "tab.permissions", "tab.drift", "tab.audit", "tab.health",
 }
 
 // tabLabel returns the translated tab label for v (empty string if out of range).
