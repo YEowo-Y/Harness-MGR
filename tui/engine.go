@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -136,18 +137,57 @@ type detailInventory struct {
 //
 //	(a) --cli flag value (passed in as flagCLI), if non-empty;
 //	(b) CLAUDE_MGR_CLI environment variable, if set;
-//	(c) default "src/cli.mjs" relative to the current working directory.
+//	(c) src/cli.mjs found by walking UP from the current working directory;
+//	(d) src/cli.mjs found by walking UP from the executable's directory;
+//	(e) bare "src/cli.mjs" (the historical default, relative to CWD).
 //
-// Assumption for (c): the user runs the TUI from the claude-mgr repo root,
-// e.g. `./tui/claude-mgr-tui.exe`, so "src/cli.mjs" resolves correctly.
+// (c) lets `cd tui && go run .` work (CWD=tui/ → parent repo root has src/cli.mjs);
+// (d) lets the built binary run from anywhere (tui/claude-mgr-tui.exe → its dir's
+// parent is the repo root). (e) preserves the original behavior as a last resort.
 func resolveCLIPath(flagCLI string) string {
+	cwd, _ := os.Getwd()
+	exe, _ := os.Executable()
+	return resolveCLIPathFrom(flagCLI, os.Getenv("CLAUDE_MGR_CLI"), cwd, exe)
+}
+
+// resolveCLIPathFrom is the pure, testable core of resolveCLIPath: all ambient
+// inputs (env, cwd, executable path) are parameters so tests can drive every arm.
+func resolveCLIPathFrom(flagCLI, envCLI, cwd, exePath string) string {
 	if flagCLI != "" {
 		return flagCLI
 	}
-	if env := os.Getenv("CLAUDE_MGR_CLI"); env != "" {
-		return env
+	if envCLI != "" {
+		return envCLI
+	}
+	if cwd != "" {
+		if p, ok := findCLIUpwards(cwd); ok {
+			return p
+		}
+	}
+	if exePath != "" {
+		if p, ok := findCLIUpwards(filepath.Dir(exePath)); ok {
+			return p
+		}
 	}
 	return "src/cli.mjs"
+}
+
+// findCLIUpwards walks from startDir toward the filesystem root, returning the
+// first existing <dir>/src/cli.mjs FILE (not a directory). Pure except for the
+// os.Stat probe; never panics. Returns ("", false) if none is found.
+func findCLIUpwards(startDir string) (string, bool) {
+	dir := startDir
+	for {
+		candidate := filepath.Join(dir, "src", "cli.mjs")
+		if fi, err := os.Stat(candidate); err == nil && !fi.IsDir() {
+			return candidate, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir { // reached the filesystem root — stop
+			return "", false
+		}
+		dir = parent
+	}
 }
 
 // fetchInventory shells out to `node <cliPath> inventory --format json`, captures
