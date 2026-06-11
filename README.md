@@ -60,8 +60,11 @@ Key properties:
   alone refuses with exit code 3.
 - **Auto-snapshot + rollback**: every governed write takes an automatic snapshot
   of the governed surface first; `rollback` restores files byte-identical.
-- **Zero npm runtime dependencies**: only Node stdlib and the project's own
-  modules.
+- **One exact-pinned npm runtime dependency**: the CLI imports only Node stdlib
+  and the project's own modules; the optional stdio [MCP server](#mcp-server)
+  uses the official `@modelcontextprotocol/sdk` (exact-pinned, lockfile
+  committed — the owner-sanctioned 2026-06-10 exception to the original
+  zero-dependency line).
 - **Windows-hardened**: developed and tested on Windows with
   `C:\Windows\System32\tar.exe` (bsdtar). Unicode filenames and CRLF handled.
 - **Lives outside Claude Code's loader**: `claude-mgr` never participates in
@@ -71,8 +74,8 @@ Key properties:
 
 ## Install & run
 
-No `npm install` needed at runtime. Clone or copy the repo, then invoke one of
-the three entry points:
+The CLI itself runs with no `npm install`. Clone or copy the repo, then invoke
+one of the three entry points:
 
 | Platform | Entry point | Example |
 |----------|-------------|---------|
@@ -80,7 +83,10 @@ the three entry points:
 | macOS / Linux / WSL | `./claude-mgr.sh` | `./claude-mgr.sh doctor` |
 | Any (Node direct) | `node src/cli.mjs` | `node src/cli.mjs conflicts` |
 
-**Requirements**: Node >= 24. No other runtime dependencies.
+**Requirements**: Node >= 24. The CLI imports only Node stdlib. Running the
+[MCP server](#mcp-server) (or the full test suite) requires `npm install` once
+— the project's first and only runtime dependency, the exact-pinned official
+`@modelcontextprotocol/sdk` (owner-sanctioned 2026-06-10).
 
 The entry scripts resolve `src/cli.mjs` relative to their own location, so they
 work from any working directory.
@@ -451,6 +457,41 @@ claude-mgr mcp remove my-server --scope project --apply
 `.mcp.json` and `rollback` can restore it. For `user`/`local` scope (or when
 `--scope` is omitted) the mutation is in `~/.claude.json`, outside
 claude-mgr's snapshot scope.
+
+---
+
+## MCP server
+
+`claude-mgr` can expose its read-only view to Claude Code as a Model Context
+Protocol server over **stdio** (P5.U6). It is a separate process role — not a
+CLI subcommand — launched as `node src/mcp/server.mjs`.
+
+**What it exposes — 4 read-only tools, nothing else:**
+
+| Tool | Delegates to |
+|------|--------------|
+| `claude_mgr_inventory` | `inventory --format json` |
+| `claude_mgr_health` | `health --format json` |
+| `claude_mgr_conflicts` | `conflicts --format json` |
+| `claude_mgr_doctor` | `doctor --format json` (**passive checks only** — active probes stay a human opt-in) |
+
+Each tool returns the same `version:1` JSON envelope the CLI prints (secret
+redaction and diagnostics included). The tools take no inputs. Write commands
+are **not** exposed as tools — they stay behind the CLI's `--apply` gate.
+
+**Prerequisite**: run `npm install` once in the repo (installs the exact-pinned
+official `@modelcontextprotocol/sdk` — the project's first runtime dependency,
+owner-sanctioned 2026-06-10; see `docs/threat-model.md` §5.10).
+
+**Register with Claude Code** (substitute your absolute repo path):
+
+```sh
+claude mcp add claude-mgr -- node C:/Dev/Projects/claude-mgr/src/mcp/server.mjs
+```
+
+The server speaks stdio pipes only — it opens no network listener and makes no
+outbound connection; claude-mgr's own code remains machine-enforced
+zero-network (`selftest --boundary`).
 
 ---
 
