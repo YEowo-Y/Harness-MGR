@@ -6,10 +6,13 @@
     {
       "id": "advice-permissions-overbroad",
       "title": "Narrow wildcard permission allow rules",
+      "titleZh": "收窄带通配符的权限允许规则",
       "severity": "warn",
       "triggerCodes": ["permissions-overbroad"],
       "advice": "One or more entries in your permissions allow list contain a wildcard (*). Allow rules let Claude Code use the matching tools without asking you first, so a broad pattern can auto-approve far more than you intended.",
+      "adviceZh": "你的权限允许列表里有一条或多条规则带了通配符（*）。允许规则会让 Claude Code 不经询问就直接使用匹配到的工具，所以一条过宽的规则可能自动放行远超你本意的范围。",
       "fix": "Run `permissions --audit` to list the overbroad entries, then tighten each rule in settings.json (or via /permissions inside Claude Code) to the narrowest pattern you actually need.",
+      "fixZh": "运行 `permissions --audit` 列出过宽的条目，然后在 settings.json 里（或在 Claude Code 内用 /permissions）把每条规则收紧到你真正需要的最小范围。",
       "docUrl": "https://code.claude.com/docs/en/permissions",
       "docVersion": "2026-06-10",
       "sourceStatement": "Allow rules let Claude Code use the specified tool without manual approval. [...] `Bash(*)` is equivalent to `Bash` and matches all Bash commands."
@@ -17,6 +20,7 @@
     {
       "id": "advice-component-shadowing",
       "title": "Resolve duplicate component names",
+      "titleZh": "处理重名的组件",
       "severity": "warn",
       "triggerCodes": [
         "skill-shadowing",
@@ -26,7 +30,9 @@
         "duplicate-component-shadowing"
       ],
       "advice": "Two or more of your components resolve to the same name, so Claude Code applies its precedence rules and loads only one of them — the shadowed copies are silently inactive.",
+      "adviceZh": "你有两个或更多组件解析成了同一个名字，于是 Claude Code 按优先级规则只加载其中一个，被遮蔽的那几份会悄悄失效、不再生效。",
       "fix": "Rename one copy, or delete the duplicate you don't want. claude-mgr `remove <kind>:<name>` (kind = skill/agent/command) is dry-run by default and snapshots before deleting, so it is reversible.",
+      "fixZh": "给其中一份改名，或删掉你不想要的那份重复项。claude-mgr 的 `remove <kind>:<name>`（kind 为 skill/agent/command，即技能/智能体/命令）默认只是预演，删除前会先做快照，所以可以撤销。",
       "docUrl": "https://code.claude.com/docs/en/skills",
       "docVersion": "2026-06-10",
       "sourceStatement": "When skills share the same name across levels, enterprise overrides personal, and personal overrides project. If you have files in .claude/commands/, those work the same way."
@@ -34,10 +40,13 @@
     {
       "id": "advice-agent-shadowing",
       "title": "Resolve duplicate subagent names",
+      "titleZh": "处理重名的子智能体",
       "severity": "warn",
       "triggerCodes": ["agent-shadowing", "agent-shadowing-winner"],
       "advice": "Two or more subagents share the same name. Claude Code keeps the copy from the higher-priority location and silently ignores the others, so the shadowed definition never runs.",
+      "adviceZh": "你有两个或更多子智能体重名了。Claude Code 只保留优先级更高位置上的那一份，悄悄忽略其余的，所以被遮蔽的那份定义永远不会运行。",
       "fix": "Rename one of the agents, or delete the duplicate (claude-mgr `remove agent:<name>` is dry-run by default and snapshots before deleting).",
+      "fixZh": "给其中一个智能体改名，或删掉重复的那份（claude-mgr 的 `remove agent:<name>` 默认只是预演，删除前会先做快照）。",
       "docUrl": "https://code.claude.com/docs/en/sub-agents",
       "docVersion": "2026-06-10",
       "sourceStatement": "When multiple subagents share the same name, the higher-priority location wins. [...] if two files within one scope declare the same name, Claude Code keeps one and discards the other without warning."
@@ -45,10 +54,13 @@
     {
       "id": "advice-plugin-enabled-not-installed",
       "title": "Reinstall or remove a missing enabled plugin",
+      "titleZh": "重装或移除一个已启用但缺失的插件",
       "severity": "error",
       "triggerCodes": ["plugin-enabled-not-installed"],
       "advice": "Your settings enable a plugin that is not actually installed, so none of its skills, agents, hooks, or MCP servers can load.",
+      "adviceZh": "你的设置启用了一个其实并没有安装的插件，所以它的技能、智能体、钩子和 MCP 服务器都无法加载。",
       "fix": "Reinstall it with /plugin install <name>@<marketplace> inside Claude Code, or remove the stale entry from enabledPlugins in settings.json.",
+      "fixZh": "在 Claude Code 内用 /plugin install <name>@<marketplace> 重新安装它，或从 settings.json 的 enabledPlugins 里删掉这条失效的记录。",
       "docUrl": "https://code.claude.com/docs/en/discover-plugins",
       "docVersion": "2026-06-10",
       "sourceStatement": "Plugins extend Claude Code with skills, agents, hooks, and MCP servers. [...] Once you've added marketplaces, you can install plugins directly: /plugin install plugin-name@marketplace-name."
@@ -56,10 +68,13 @@
     {
       "id": "advice-plugin-installed-not-enabled",
       "title": "Enable or uninstall an inactive plugin",
+      "titleZh": "启用或卸载一个未激活的插件",
       "severity": "info",
       "triggerCodes": ["plugin-installed-not-enabled"],
       "advice": "A plugin is installed on disk but not enabled in your settings, so it is dormant — its components do not load.",
+      "adviceZh": "有个插件已经装在磁盘上，但没在你的设置里启用，所以它处于休眠状态——它的组件不会加载。",
       "fix": "Enable it with /plugin enable <name>@<marketplace> (then /reload-plugins to apply without restarting), or uninstall it to declutter.",
+      "fixZh": "用 /plugin enable <name>@<marketplace> 启用它（再用 /reload-plugins 即可不重启就生效），或者把它卸载以保持整洁。",
       "docUrl": "https://code.claude.com/docs/en/discover-plugins",
       "docVersion": "2026-06-10",
       "sourceStatement": "Run /plugin and go to the Installed tab to view, enable, disable, or uninstall your plugins. [...] Re-enable a disabled plugin: /plugin enable plugin-name@marketplace-name."
@@ -67,10 +82,13 @@
     {
       "id": "advice-plugin-cache-missing",
       "title": "Rebuild a missing plugin cache",
+      "titleZh": "重建缺失的插件缓存",
       "severity": "warn",
       "triggerCodes": ["plugin-cache-missing"],
       "advice": "An enabled plugin's cached files are missing from ~/.claude/plugins/cache, so its skills and other components can fail to load until the cache is rebuilt.",
+      "adviceZh": "某个已启用插件的缓存文件在 ~/.claude/plugins/cache 里丢失了，所以在缓存重建之前，它的技能和其他组件可能加载失败。",
       "fix": "Reinstall the plugin from its marketplace (/plugin), or clear the plugin cache and reinstall, then restart Claude Code.",
+      "fixZh": "从插件所在的市场重新安装它（用 /plugin），或者先清空插件缓存再重装，然后重启 Claude Code。",
       "docUrl": "https://code.claude.com/docs/en/discover-plugins",
       "docVersion": "2026-06-10",
       "sourceStatement": "Plugins are copied to a cache [...] Plugin skills not appearing: Clear the cache with rm -rf ~/.claude/plugins/cache, restart Claude Code, and reinstall the plugin."
@@ -78,10 +96,13 @@
     {
       "id": "advice-plugin-marketplace-unknown",
       "title": "Re-add the plugin's marketplace",
+      "titleZh": "重新添加该插件所在的市场",
       "severity": "info",
       "triggerCodes": ["plugin-marketplace-unknown"],
       "advice": "An installed plugin references a marketplace that is not in your known marketplaces, so Claude Code cannot refresh or reinstall that plugin from its source.",
+      "adviceZh": "一个已安装的插件引用了一个不在你已知市场列表里的市场，所以 Claude Code 无法从源头刷新或重装这个插件。",
       "fix": "Re-add the marketplace with /plugin marketplace add <source>, or reinstall the plugin from a marketplace you still have.",
+      "fixZh": "用 /plugin marketplace add <source> 重新添加这个市场，或者从你仍保留的某个市场重装这个插件。",
       "docUrl": "https://code.claude.com/docs/en/discover-plugins",
       "docVersion": "2026-06-10",
       "sourceStatement": "If Claude Code reports that the plugin is not found in any marketplace, your marketplace is either missing or outdated. Run /plugin marketplace update [...] or /plugin marketplace add [...] Then retry the install."
@@ -89,10 +110,13 @@
     {
       "id": "advice-mcp-auth-stale",
       "title": "Re-authenticate a stale MCP server",
+      "titleZh": "为一台过期的 MCP 服务器重新登录授权",
       "severity": "warn",
       "triggerCodes": ["mcp-auth-stale"],
       "advice": "An MCP server has been flagged as needing authentication for a long time, which usually means its OAuth login expired or was never completed — the server's tools won't work until you sign in again.",
+      "adviceZh": "一台 MCP 服务器被标记为需要授权已经很久了，这通常意味着它的 OAuth 登录过期了、或者从来没完成过——在你重新登录之前，这台服务器的工具都用不了。",
       "fix": "Run /mcp inside Claude Code and complete the OAuth flow for that server (the /mcp panel lets you manage and re-authenticate that server).",
+      "fixZh": "在 Claude Code 内运行 /mcp，为那台服务器完成 OAuth 登录流程（/mcp 面板可以管理并重新登录那台服务器）。",
       "docUrl": "https://code.claude.com/docs/en/mcp",
       "docVersion": "2026-06-10",
       "sourceStatement": "Claude Code marks a remote server as needing authentication when the server responds with 401 Unauthorized or 403 Forbidden. Either status code flags the server in /mcp so you can complete the OAuth flow."
@@ -100,10 +124,13 @@
     {
       "id": "advice-mcp-server-unresolvable",
       "title": "Fix an unresolvable MCP server command",
+      "titleZh": "修复一条找不到的 MCP 服务器启动命令",
       "severity": "warn",
       "triggerCodes": ["mcp-server-resolvable"],
       "advice": "A stdio MCP server's launch command could not be found on PATH when probed. Stdio servers run as local processes, so the server may fail to start (the probe's PATH can differ from Claude Code's launch environment).",
+      "adviceZh": "探测时，一台 stdio 类型的 MCP 服务器的启动命令在 PATH 上找不到。stdio 服务器是作为本地进程运行的，所以这台服务器可能起不来（探测时的 PATH 可能和 Claude Code 启动时的环境不一样）。",
       "fix": "Install the missing command (for example the npx/node tool the server uses) or correct the server's command in its MCP configuration (claude mcp / .mcp.json).",
+      "fixZh": "安装那条缺失的命令（例如这台服务器用到的 npx/node 工具），或在它的 MCP 配置里（用 claude mcp 或改 .mcp.json）改正这台服务器的命令。",
       "docUrl": "https://code.claude.com/docs/en/mcp",
       "docVersion": "2026-06-10",
       "sourceStatement": "Stdio servers run as local processes on your machine. They're ideal for tools that need direct system access or custom scripts."
@@ -111,10 +138,13 @@
     {
       "id": "advice-hook-file-missing",
       "title": "Restore or remove a missing hook script",
+      "titleZh": "恢复或移除一个缺失的钩子脚本",
       "severity": "error",
       "triggerCodes": ["hook-file-exists"],
       "advice": "A hook in your settings points at a script file that does not exist. Hooks run automatically at lifecycle events, so this hook will error every time its event fires.",
+      "adviceZh": "你设置里的一个钩子指向了一个并不存在的脚本文件。钩子会在生命周期事件发生时自动运行，所以每次触发它对应的事件，这个钩子都会报错。",
       "fix": "Restore the script at the configured path, or delete that hook entry from settings.json.",
+      "fixZh": "把脚本恢复到配置里指定的路径，或者从 settings.json 里删掉那条钩子记录。",
       "docUrl": "https://code.claude.com/docs/en/hooks",
       "docVersion": "2026-06-10",
       "sourceStatement": "Hooks are user-defined shell commands, HTTP endpoints, or LLM prompts that execute automatically at specific points in Claude Code's lifecycle."
@@ -122,10 +152,13 @@
     {
       "id": "advice-hook-command-missing",
       "title": "Install a missing hook command",
+      "titleZh": "安装一条缺失的钩子命令",
       "severity": "warn",
       "triggerCodes": ["hook-external-command"],
       "advice": "A hook's external command could not be resolved on PATH when probed. If it is also missing in Claude Code's environment, the hook will fail whenever its event fires (PATH can differ between environments).",
+      "adviceZh": "探测时，一个钩子的外部命令在 PATH 上找不到。如果它在 Claude Code 的环境里也缺失，那么每次触发该事件时这个钩子都会失败（不同环境的 PATH 可能不一样）。",
       "fix": "Install the command or fix your PATH so the executable resolves; alternatively point the hook at an absolute path, or remove the hook entry.",
+      "fixZh": "安装这条命令、或修好你的 PATH 让这个可执行文件能被找到；也可以把钩子改成指向绝对路径，或者直接删掉这条钩子记录。",
       "docUrl": "https://code.claude.com/docs/en/hooks",
       "docVersion": "2026-06-10",
       "sourceStatement": "Exec form runs when args is present. Claude Code resolves command as an executable on PATH and spawns it directly with args as the argument vector."
@@ -133,10 +166,13 @@
     {
       "id": "advice-hook-syntax-error",
       "title": "Fix a hook script's syntax error",
+      "titleZh": "修复钩子脚本里的语法错误",
       "severity": "error",
       "triggerCodes": ["hook-node-syntax"],
       "advice": "A Node.js hook script fails to parse, so the hook command will exit with an error every time its lifecycle event fires instead of doing its job.",
+      "adviceZh": "一个 Node.js 钩子脚本无法解析，所以每次触发它对应的生命周期事件时，这个钩子命令都会以错误退出，而不会去做它该做的事。",
       "fix": "Fix the script until `node --check <file>` passes, or remove the hook from settings.json.",
+      "fixZh": "修改脚本直到 `node --check <file>` 能通过，或者从 settings.json 里移除这个钩子。",
       "docUrl": "https://code.claude.com/docs/en/hooks",
       "docVersion": "2026-06-10",
       "sourceStatement": "Exit 0 means success. [...] Any other exit code is a non-blocking error for most hook events. The transcript shows a <hook name> hook error notice followed by the first line of stderr."
@@ -144,10 +180,13 @@
     {
       "id": "advice-settings-invalid",
       "title": "Repair a broken settings.json",
+      "titleZh": "修复损坏的 settings.json",
       "severity": "error",
       "triggerCodes": ["settings-json-valid", "settings-unreadable", "settings-duplicate-key"],
       "advice": "A settings file is malformed or contains duplicate keys. settings.json is how Claude Code is configured, so broken JSON means some or all of your settings are dropped or applied unpredictably (for duplicate keys, the last value wins).",
+      "adviceZh": "一个设置文件格式有误或包含重复的键。settings.json 是配置 Claude Code 的地方，所以 JSON 损坏意味着你的部分或全部设置会被丢弃、或以不可预测的方式生效（出现重复键时，以最后一个值为准）。",
       "fix": "Edit the file at the reported line and column until it is valid JSON, then verify the result with claude-mgr `config show-effective`.",
+      "fixZh": "在报告指出的行和列处编辑文件，直到它成为合法的 JSON，然后用 claude-mgr 的 `config show-effective` 核对结果。",
       "docUrl": "https://code.claude.com/docs/en/settings",
       "docVersion": "2026-06-10",
       "sourceStatement": "The settings.json file is the official mechanism for configuring Claude Code through hierarchical settings. User settings are defined in ~/.claude/settings.json and apply to all projects."
@@ -155,10 +194,13 @@
     {
       "id": "advice-claude-md-backups",
       "title": "Clean up old CLAUDE.md backups",
+      "titleZh": "清理旧的 CLAUDE.md 备份",
       "severity": "info",
       "triggerCodes": ["claude-md-backup-bloat"],
       "advice": "Several CLAUDE.md.backup.* copies have accumulated in ~/.claude. Claude Code loads instructions from the live CLAUDE.md locations only — backup copies are not among the documented memory locations and just clutter the directory.",
+      "adviceZh": "~/.claude 里堆积了好几份 CLAUDE.md.backup.* 备份。Claude Code 只会从正式的 CLAUDE.md 位置加载指令——备份副本不在文档列出的记忆位置之内，只会让目录变乱。",
       "fix": "Review the backups and delete the ones you no longer need; keep the live ~/.claude/CLAUDE.md as the single curated copy.",
+      "fixZh": "看一遍这些备份，把不再需要的删掉；只保留正式的 ~/.claude/CLAUDE.md 作为唯一精心维护的副本。",
       "docUrl": "https://code.claude.com/docs/en/memory",
       "docVersion": "2026-06-10",
       "sourceStatement": "CLAUDE.md files are loaded into the context window at the start of every session [...] User instructions: ~/.claude/CLAUDE.md — personal preferences for all projects."
@@ -166,10 +208,13 @@
     {
       "id": "advice-statusline-unresolvable",
       "title": "Fix the status line command",
+      "titleZh": "修复状态栏命令",
       "severity": "warn",
       "triggerCodes": ["statusline-resolvable"],
       "advice": "Your configured statusLine command could not be resolved, so the status line cannot render. The status line runs the shell script you configure and displays whatever it prints.",
+      "adviceZh": "你配置的 statusLine 命令找不到，所以状态栏无法显示。状态栏会运行你配置的 shell 脚本，并显示它打印出来的内容。",
       "fix": "Point statusLine.command in settings.json at an existing script (and make it executable), or remove the statusLine setting.",
+      "fixZh": "把 settings.json 里的 statusLine.command 指向一个确实存在的脚本（并赋予它可执行权限），或者直接删掉 statusLine 这项设置。",
       "docUrl": "https://code.claude.com/docs/en/statusline",
       "docVersion": "2026-06-10",
       "sourceStatement": "The status line is a customizable bar at the bottom of Claude Code that runs any shell script you configure. [...] Set type to \"command\" and point command to a script path or an inline shell command."
@@ -177,10 +222,13 @@
     {
       "id": "advice-claude-cli-unresolvable",
       "title": "Put the claude CLI on your PATH",
+      "titleZh": "把 claude 命令行工具加入 PATH",
       "severity": "warn",
       "triggerCodes": ["claude-cli-resolvable"],
       "advice": "The `claude` command could not be resolved or did not respond on this machine. That usually means the install directory is missing from your PATH or an installation is broken.",
+      "adviceZh": "在这台机器上找不到 `claude` 命令、或者它没有响应。这通常意味着安装目录不在你的 PATH 里，或者某次安装坏掉了。",
       "fix": "Add the install directory (~/.local/bin on macOS/Linux, %USERPROFILE%\\.local\\bin on Windows) to PATH, keep only one installation, and verify with `claude --version`.",
+      "fixZh": "把安装目录（macOS/Linux 上是 ~/.local/bin，Windows 上是 %USERPROFILE%\\.local\\bin）加入 PATH，只保留一份安装，然后用 `claude --version` 验证。",
       "docUrl": "https://code.claude.com/docs/en/troubleshoot-install",
       "docVersion": "2026-06-10",
       "sourceStatement": "If installation succeeded but you get a command not found or not recognized error when running claude, the install directory isn't in your PATH. [...] the installer places claude at ~/.local/bin/claude or %USERPROFILE%\\.local\\bin\\claude.exe."
