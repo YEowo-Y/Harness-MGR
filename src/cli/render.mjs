@@ -21,6 +21,7 @@
 import { formatTable } from '../output/table.mjs';
 import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
 import { hooksTable } from './hooks-render.mjs';
+import { healthTable } from './health-render.mjs';
 
 /**
  * @typedef {import('./commands.mjs').CommandOutput} CommandOutput
@@ -69,6 +70,8 @@ function renderBody(canonical, result) {
     //   file mode (no .mode) → the raw unified-diff text (unchanged from P4b.U7b).
     case 'config:diff': return configDiffTable(r);
     case 'hooks': return hooksTable(r);
+    // health (P5.U5): the severity-layered tier view lives in health-render.mjs.
+    case 'health': return healthTable(r);
     case 'permissions': return permissionsTable(r);
     case 'selftest': return selftestTable(r);
     case 'doctor': return doctorTable(r);
