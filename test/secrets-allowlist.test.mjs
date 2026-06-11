@@ -50,6 +50,10 @@ const PATTERN_CASES = [
   ['id_dsa', 'exact'],
   ['credentials', 'exact'],
   ['.credentials.json', 'exact'],
+  // auth.json: the P5.U7 Codex report's gap — ~/.codex/auth.json was not name-
+  // matched (*oauth.json needs the literal "oauth.json" substring). Name leg
+  // must not depend on the content sniffer (snapshot recall>precision policy).
+  ['auth.json', 'exact'],
   ['.env', 'exact'],
   // globNames
   ['.env.local', 'glob'],
