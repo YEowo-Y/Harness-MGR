@@ -58,18 +58,24 @@ test('inventory: a token in statusLine.command does NOT leak (json/ndjson)', () 
   });
 });
 
-test('hooks: a bearer token in a hook command does NOT leak (json/ndjson)', () => {
+test('hooks: a bearer token in a hook command does NOT leak (json/ndjson)', async () => {
   const settings = {
     hooks: { PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: `curl -H "Authorization: Bearer ${BEARER_TOK}" https://x` }] }] },
   };
-  withSettings(settings, (dir) => {
-    const out = hooksCommand({ configDir: dir, args: {} });
+  // hooksCommand is async since P5.U4 (probe-enriched explanations) — inline
+  // try/finally instead of the sync withSettings helper so cleanup waits.
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-outredact-'));
+  try {
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify(settings), 'utf8');
+    const out = await hooksCommand({ configDir: dir, args: {} });
     for (const wire of wires('hooks', out)) {
-      assert.ok(!wire.includes(BEARER_TOK), 'hook bearer token must not leak');
+      assert.ok(!wire.includes(BEARER_TOK), 'hook bearer token must not leak (hooks NOR explanations)');
       assert.ok(wire.includes('<redacted>'), 'expected redaction marker');
       assert.ok(wire.includes('curl'), 'benign command text preserved');
     }
-  });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('config show-effective: hook + statusLine token + URL-userinfo value do NOT leak', () => {
