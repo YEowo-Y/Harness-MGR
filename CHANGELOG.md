@@ -27,6 +27,23 @@ Every command that mutates governed config is **dry-run by default**. To actuall
 > `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (e.g. in CI); setting it to `1`
 > still works (back-compat). See the off-ramp note below for the evidence and migration.
 
+### Added — Phase 5 (MCP server, P5.U6 — 2026-06-11)
+
+- **MCP server** (`node src/mcp/server.mjs`) — exposes the read-only view to Claude Code as a
+  Model Context Protocol server over **stdio**: exactly 4 tools, `claude_mgr_inventory` /
+  `claude_mgr_health` / `claude_mgr_conflicts` / `claude_mgr_doctor` (passive checks only —
+  active probes stay a human opt-in). Each tool returns the same `version:1` JSON envelope the
+  CLI prints (secret redaction included). A separate process role, NOT a CLI subcommand;
+  register with `claude mcp add claude-mgr -- node <abs path>/src/mcp/server.mjs`. Write
+  commands are deliberately NOT exposed as tools.
+- **FIRST runtime npm dependency** (owner-sanctioned 2026-06-10, an explicit exception to the
+  zero-dependency line): the official `@modelcontextprotocol/sdk`, **exact-pinned at `1.29.0`**
+  (no `^`/`~`) with `package-lock.json` committed. Only the stdio-transport server entry points
+  are imported — never an HTTP/SSE transport. **Migration note:** running the MCP server (and
+  now the full test suite) requires `npm install` once; the CLI itself still runs without it.
+  claude-mgr's own code remains machine-enforced zero-network (`selftest --boundary`); see
+  `docs/threat-model.md` §5.10 for the supply-chain carve-out.
+
 ### Added — Phase 4 (remove / update / mcp / diff / completion / ndjson)
 
 - **`remove <kind>:<name>`** — delete one user-level component. `agent:` / `command:` remove a
