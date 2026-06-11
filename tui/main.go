@@ -829,14 +829,21 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Quit
-	case "]":
+	case "]", "right":
 		m.clearFilter()
 		m.currentView = (m.currentView + 1) % tabCount
 		m.refreshDetail()
 		return m, m.lazyLoadCurrent()
-	case "[":
+	case "[", "left":
 		m.clearFilter()
 		m.currentView = (m.currentView - 1 + tabCount) % tabCount
+		m.refreshDetail()
+		return m, m.lazyLoadCurrent()
+	case "H":
+		// Direct jump to the Health tab — the 11th tab has no single digit (1-0
+		// address tabs 1-10), so a mnemonic key reaches it without cycling.
+		m.clearFilter()
+		m.currentView = viewHealth
 		m.refreshDetail()
 		return m, m.lazyLoadCurrent()
 	case "tab":
