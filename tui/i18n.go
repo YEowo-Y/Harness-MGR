@@ -107,6 +107,7 @@ var translations = map[string][2]string{
 	"help.focus":    {"switch pane", "切换面板"},
 	"help.jump":     {"jump to tab", "跳转到标签页"},
 	"help.tabs":     {"prev / next tab", "上一个 / 下一个标签页"},
+	"help.health":   {"jump to Health", "跳转到健康"},
 	"help.help":     {"toggle this help", "开关此帮助"},
 	"help.dismiss":  {"? / Esc / q to close", "? / Esc / q 关闭"},
 	"help.filter":   {"filter items", "过滤条目"},
