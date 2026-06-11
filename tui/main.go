@@ -84,6 +84,13 @@ type auditMsg struct {
 	err  error
 }
 
+// healthMsg carries the result of the async `health` fetch (read-only — a passive
+// doctor run plus scan/hooks/advice aggregation, no --active-probes, no writes).
+type healthMsg struct {
+	data HealthReport
+	err  error
+}
+
 // previewTickMsg is the debounced signal to load the file-body preview for the
 // currently selected Inventory tree node. gen must match model.previewGen at
 // delivery time; stale ticks (from a still-scrolling cursor) are discarded.
@@ -156,6 +163,7 @@ const (
 	viewPermissions
 	viewDrift
 	viewAudit
+	viewHealth
 )
 
 // tabLabels are the tab-bar captions, indexed by viewID. tabCount derives from
@@ -171,6 +179,7 @@ var tabLabels = []string{
 	"Permissions",
 	"Drift",
 	"Audit",
+	"Health",
 }
 
 // tabCount is the number of tabs, derived from tabLabels. It is a var (not a
@@ -260,8 +269,9 @@ func initialModel(cliPath string) model {
 		spinner:       newSpinner(),
 		focus:         focusTree,
 		// Eager sections start loading — Init fetches them so their tab-bar badge is
-		// correct from launch. The three non-badge tabs (config/hooks/audit) start
-		// idle and are lazy-fetched on first visit by lazyLoadCurrent (see Init).
+		// correct from launch. The four non-badge / lazy tabs (config/hooks/audit/
+		// health) start idle and are lazy-fetched on first visit by lazyLoadCurrent
+		// (see Init). Health is the heaviest single fetch, so it lazy-loads too.
 		sections: map[viewID]*sectionState{
 			viewConflicts:   {loading: true, list: newSectionModel(nil)},
 			viewOrphans:     {loading: true, list: newSectionModel(nil)},
@@ -272,6 +282,7 @@ func initialModel(cliPath string) model {
 			viewPermissions: {loading: true, list: newSectionModel(nil)},
 			viewDrift:       {loading: true, list: newSectionModel(nil)},
 			viewAudit:       {loading: false, list: newSectionModel(nil)},
+			viewHealth:      {loading: false, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -386,6 +397,16 @@ func fetchAuditCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchHealthCmd returns a tea.Cmd that runs `health --format json` (READ-ONLY —
+// a passive doctor run plus scan/hooks/advice aggregation, no --active-probes, no
+// writes) and reports the outcome back as a healthMsg.
+func fetchHealthCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchHealth(cliPath)
+		return healthMsg{data: data, err: err}
+	}
+}
+
 // sectionFetchCmd returns the read-only fetch command that (re)loads section view
 // v's data, or nil for a non-section view. Same commands Init dispatches.
 func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
@@ -408,6 +429,8 @@ func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
 		return fetchDriftCmd(cliPath)
 	case viewAudit:
 		return fetchAuditCmd(cliPath)
+	case viewHealth:
+		return fetchHealthCmd(cliPath)
 	}
 	return nil
 }
@@ -447,16 +470,23 @@ func (m *model) refreshCurrent() tea.Cmd {
 	return nil
 }
 
-// lazyLoadCurrent fetches the active tab's data on its FIRST visit, for the three
-// non-badge tabs (config / hooks / audit) that Init deliberately skips. Eager tabs
-// and inventory are no-ops here. The in-flight `loading` flag plus `loaded` (set by
-// the msg handler when the fetch completes) together mean a revisit never re-fetches;
-// a manual `r` refresh still re-runs it via refreshCurrent. Pointer receiver: it flips
-// the shared *sectionState flags, which reach the runtime via the model handleKey
-// returns (same pattern as refreshCurrent).
+// lazyLoadCurrent fetches the active tab's data on its FIRST visit, for the four
+// non-badge / lazy tabs (config / hooks / audit / health) that Init deliberately
+// skips. Eager tabs and inventory are no-ops here. The in-flight `loading` flag
+// plus `loaded` (set by the msg handler when the fetch completes) together mean a
+// revisit never re-fetches; a manual `r` refresh still re-runs it via
+// refreshCurrent. Pointer receiver: it flips the shared *sectionState flags, which
+// reach the runtime via the model handleKey returns (same pattern as
+// refreshCurrent).
+//
+// Health lazy-loads (rather than eager-fetching in Init) because it is the
+// HEAVIEST single command — scan + a passive doctor run + hooks + advice. The
+// consequence is that its tab-bar badge appears only after the tab is first
+// opened; that is an accepted tradeoff for a faster launch. (A test that needs the
+// badge injects the healthMsg directly.)
 func (m *model) lazyLoadCurrent() tea.Cmd {
 	switch m.currentView {
-	case viewConfig, viewHooks, viewAudit:
+	case viewConfig, viewHooks, viewAudit, viewHealth:
 	default:
 		return nil
 	}
@@ -624,6 +654,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			auditSummaryArgs = []any{s.Returned, s.SkippedMalformed}
 		}
 		m.applySectionResult(viewAudit, msg.err, func() []sectionItem { return auditItems(msg.data) }, auditSummaryKey, auditSummaryArgs, true)
+		return m, nil
+	case healthMsg:
+		// Summary mirrors the CLI health-render tiers: not-loaded · degraded · advice.
+		// setsLoaded=true because Health lazy-loads (like config/hooks/audit), so a
+		// completed fetch must mark it loaded to stop lazyLoadCurrent re-fetching.
+		hs := msg.data.Health.Summary
+		m.applySectionResult(viewHealth, msg.err, func() []sectionItem { return healthItems(msg.data) }, "summary.health", []any{hs.NotLoaded, hs.Degraded, msg.data.Advice.Summary.Total}, true)
 		return m, nil
 	case writeResultMsg:
 		m.writeRunning = false
