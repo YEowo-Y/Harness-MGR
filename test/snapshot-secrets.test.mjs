@@ -33,7 +33,7 @@ const LOCKED_DIR = join(HERE, 'fixtures', 'windows-locked');
 // Fixtures that MUST be treated as secrets (excluded from a snapshot).
 const EXPECTED_SECRETS = [
   'id_rsa', 'id_ed25519', 'id_ecdsa', 'id_dsa',
-  '.env', '.env.local', '.credentials.json', 'credentials',
+  '.env', '.env.local', '.credentials.json', 'credentials', 'auth.json',
   'server.pem', 'signing.key', 'backup.gpg',
   'test.crt', 'test.cer', 'test.p12', 'test.pfx', 'test.asc',
   'github-token.json', 'app-secret.json', 'google-oauth.json', 'aws-credentials-old',
