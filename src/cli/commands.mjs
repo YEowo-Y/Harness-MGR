@@ -45,6 +45,7 @@ import { removeCommand } from './remove-command.mjs';
 import { updateCommand } from './update-command.mjs';
 import { mcpCommand } from './mcp-command.mjs';
 import { hooksCommand } from './hooks-command.mjs';
+import { healthCommand } from './health-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
 import { completionCommand } from './completion.mjs';
 
@@ -412,6 +413,9 @@ export const COMMANDS = Object.freeze({
   'permissions': permissionsCommand,
   'selftest': selftestCommand,
   'doctor': doctorCommand,
+  // health (P5.U5): severity-layered loadability + advice + hook status. READ-ONLY,
+  // passive always (doctor owns --active-probes). Takes an optional deps arg.
+  'health': (ctx) => healthCommand(ctx),
   'audit': auditCommand,
   'drift': driftCommand,
   // snapshot: create (dry-run default); list/gc/pin/unpin: management.
@@ -432,4 +436,4 @@ export const COMMANDS = Object.freeze({
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, configDiffCommand, completionCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, healthCommand, configDiffCommand, completionCommand };
