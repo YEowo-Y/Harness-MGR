@@ -20,6 +20,7 @@
 
 import { formatTable } from '../output/table.mjs';
 import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
+import { hooksTable } from './hooks-render.mjs';
 
 /**
  * @typedef {import('./commands.mjs').CommandOutput} CommandOutput
@@ -141,15 +142,8 @@ function effectiveTable(r) {
   ], rows);
 }
 
-/** hooks → one row per event with the count of merged hook entries. @param {Record<string, unknown>} r */
-function hooksTable(r) {
-  const hooks = isObject(r.hooks) ? r.hooks : {};
-  const rows = Object.keys(hooks).map((event) => ({ event, count: Array.isArray(hooks[event]) ? hooks[event].length : 0 }));
-  return formatTable([
-    { key: 'event', header: 'event' },
-    { key: 'count', header: 'count', align: 'right' },
-  ], rows);
-}
+// hooks body lives in hooks-render.mjs (P5.U4 SLOC split — the
+// snapshot-store-render.mjs precedent): explanation rows + legacy count fallback.
 
 /** permissions → one row per rule (allow/ask/deny), flagging overbroad allow. @param {Record<string, unknown>} r */
 function permissionsTable(r) {
