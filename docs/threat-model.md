@@ -12,8 +12,10 @@ security re-scan of Phases 1–3 (six surfaces) found the invariants here HOLD a
 fixed three issues (discovery symlink-follow, output secret-shape leakage, drift
 symlink-follow) now reflected in §5.2 / §5.3 / §5.9.
 
-**Security posture in one breath:** `claude-mgr` is a zero-runtime-dependency
-Node ESM CLI that **inspects** a Claude Code `~/.claude` install (inventory /
+**Security posture in one breath:** `claude-mgr` is a
+Node ESM CLI — the CLI path imports only Node stdlib; its single exact-pinned
+runtime npm dependency is the MCP SDK used by the optional stdio MCP server
+(§5.10) — that **inspects** a Claude Code `~/.claude` install (inventory /
 conflicts / effective-config / doctor / drift / audit / permissions audit). It is
 **read-mostly**, **dry-run-by-default**, lives **outside** Claude Code's loader,
 parses the governed config as **untrusted input it never executes**, and is
@@ -392,6 +394,45 @@ A governance tool must still inspect a *broken* config. Two mechanisms:
   `line:column`, and produces null-prototype values — malformed input becomes
   `errors[]`, never an exception.
 
+### 5.10 Supply chain — the FIRST runtime npm dependency (MCP SDK carve-out)
+
+**Owner-sanctioned exception (2026-06-10).** P5.U6 added an MCP server
+([`src/mcp/server.mjs`](../src/mcp/server.mjs)) that exposes the four read-only
+commands (inventory / health / conflicts / doctor-passive) as Model Context
+Protocol tools, and the owner decided it uses the **official
+`@modelcontextprotocol/sdk`** rather than a hand-written JSON-RPC stack — the
+project's first runtime npm dependency, a deliberate exception to the
+zero-dependency red line. The exception is bounded by four terms:
+
+- **Exact pin + committed lockfile.** `package.json` pins the SDK at an exact
+  version (`1.29.0`, no `^`/`~`) and `package-lock.json` is committed, so the
+  installed dependency tree is reproducible and a silent upstream bump cannot
+  reach this machine. `node_modules/` stays gitignored; `npm install` is needed
+  once to run the MCP server (and the full test suite).
+- **Stdio-only imports.** The only SDK modules our code imports are the
+  low-level `Server` (`server/index.js`), the protocol types (`types.js`), the
+  `StdioServerTransport` (`server/stdio.js`), and — in tests only — the
+  `Client` + `InMemoryTransport`. **Never** an HTTP / SSE / WebSocket transport
+  module. The server process speaks newline-delimited JSON-RPC over its own
+  stdin/stdout pipes; it opens no listener and no outbound connection.
+- **What the SDK *could* do vs what we import.** The SDK package also ships
+  HTTP-based transports and OAuth client helpers that CAN open sockets — that
+  capability exists in `node_modules`, not in our import graph. The P5.U1
+  zero-network gate (§8) keeps machine-enforcing that **claude-mgr's own
+  `src/` opens no sockets**: it scans every `src/**/*.mjs` import (the SDK
+  specifiers do not and must not match a network prefix) and every ambient
+  `fetch`/`WebSocket` call form. The honest statement of the property is now:
+  *claude-mgr's own code opens no sockets (machine-enforced); the MCP server
+  speaks stdio pipes only.* A compromised SDK package itself is the same
+  trusted-toolchain assumption as a compromised Node or npm (§3, §7) —
+  mitigated by the exact pin + lockfile, not eliminated.
+- **Trust model unchanged.** The MCP client is the SAME local user's Claude
+  Code spawning `node src/mcp/server.mjs` as a child over pipes —
+  single-trusted-local-user (§3) holds. The exposed tools are read-only
+  (`run(['<cmd>','--format','json'])` through the normal CLI path, secret
+  redaction included); the write commands stay behind the CLI's `--apply`
+  gate and are NOT exposed as tools.
+
 ---
 
 ## 6. Residual risks / detective-not-preventive
@@ -501,11 +542,13 @@ detective-only controls today, not a victory lap.
 
 - **Multi-user / privilege escalation.** Single trusted local user only (§3).
 - **A compromised Node / npm / OS.** The toolchain is trusted (§3); the tool has
-  zero runtime npm dependencies, but it cannot defend a hostile runtime.
-- **Network threats.** The tool **makes no network calls** — since P5.U1 this
-  is machine-enforced by the zero-network boundary invariant (§8), not only
-  review-audited. (The MCP `--with-net` resolvability probe envisioned in the
-  plan is *not* implemented; `gatherMcpProbes` resolves commands on `PATH` only.)
+  exactly ONE exact-pinned runtime npm dependency (the MCP SDK, §5.10 — the CLI
+  path itself imports only Node stdlib), but it cannot defend a hostile runtime.
+- **Network threats.** **claude-mgr's own code opens no sockets (machine-enforced
+  by the P5.U1 zero-network boundary invariant, §8); the MCP server speaks stdio
+  pipes only** — no listener, no outbound connection (§5.10). (The MCP
+  `--with-net` resolvability probe envisioned in the plan is *not* implemented;
+  `gatherMcpProbes` resolves commands on `PATH` only.)
 - **The contents of plugins / marketplaces the user installed.** Those subtrees
   are forbidden to write (`paths.mjs:249-251`) and their executable content is the
   user's own supply-chain decision, not `claude-mgr`'s.
