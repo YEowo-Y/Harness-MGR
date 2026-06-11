@@ -531,6 +531,18 @@ func tabBadge(m model, v viewID) (lipgloss.Color, bool) {
 		if sectionHasColor(m, v, colorOrange) {
 			return colorOrange, true
 		}
+	case viewHealth:
+		// healthItems lists ONLY problem rows: red = not-loaded component or
+		// error-severity advice or missing hook; orange = degraded component or warn
+		// advice or indeterminate hook. So the row colors already encode the badge
+		// severity (mirrors the Doctor badge). The badge appears only after the
+		// Health tab is first opened (it lazy-loads — see lazyLoadCurrent).
+		if sectionHasColor(m, v, colorRed) {
+			return colorRed, true
+		}
+		if sectionHasColor(m, v, colorOrange) {
+			return colorOrange, true
+		}
 	}
 	return "", false
 }
