@@ -56,6 +56,55 @@ import { stableStringify } from '../output/json.mjs';
 
 const POISON = new Set(['__proto__', 'constructor', 'prototype']);
 
+// ── ephemeral appKey denylist (see docs/schema-canary-ephemeral-keys-design.md) ─
+//
+// ~/.claude.json is CC's runtime state file, dominated by ephemeral CC-internal
+// keys (caches/counters/launch-seen markers/UI-state flags) that flip with normal
+// use. They are filtered OUT of the `appKeys` dimension in computeFingerprint so
+// routine churn produces NO fingerprint change.
+//
+// SAFETY INVARIANT (load-bearing): the filter thins ONLY the appKeys SET. It does
+// NOT touch dimension PRESENCE (a removed/added DIMENSION — incl. appKeys itself
+// vanishing — is still caught by diffDimensions) and NOT any other dimension
+// (settingsKeys/topDirs/hookEvents/mcp*/pluginSchemaVersion stay UNFILTERED). A
+// non-denylisted (structural) appKey added/removed still drifts.
+//
+// BIAS = UNDER-FILTER: masking a structural key (real change → suppressed) is BAD;
+// leaving an ephemeral key tracked (noisy WARN) is merely annoying. When in doubt,
+// do NOT add it. Scope is appKeys ONLY (design §2/§4).
+
+/** Semantic patterns — ephemeral by name shape (design §3). */
+const EPHEMERAL_APP_KEY_PATTERNS = Object.freeze([
+  /cache/i,
+  /Count$/,
+  /(LastFetched|LastChecked|LastSeen|LastUsed)$/,
+  /(SeenCount|LaunchEffort|LaunchSeen)/,
+]);
+
+/** Exact CC-internal ephemeral keys that fit no clean pattern (design §3). */
+const EPHEMERAL_APP_KEYS = new Set([
+  'showExpandedTodos', 'hasOpenedAgentsView', 'defaultToAgentsView', 'hasUsedAgentsFleet',
+  'hasCompletedOnboarding', 'hasResetAutoModeOptInForDefaultOffer', 'lastOnboardingVersion',
+  'numStartups', 'firstStartTime', 'claudeCodeFirstTokenDate', 'changelogLastFetched',
+  'lastReleaseNotesSeen', 'feedbackSurveyState', 'effortCalloutV2Dismissed',
+  'penguinModeOrgEnabled', 'autoUpdates', 'autoUpdatesProtectedForNative',
+  'claudeAiMcpEverConnected', 'officialMarketplaceAutoInstallAttempted',
+  'officialMarketplaceAutoInstalled', 'opusProMigrationComplete', 'migrationVersion',
+  'pluginUsage', 'unpinFable5LaunchEffort', 'opus48LaunchSeenCount', 'tipLifetimeShownCounts',
+]);
+
+/**
+ * Is this an ephemeral appKey (exact denylist OR a semantic pattern)?
+ * Pure; non-string → false (never throws).
+ * @param {unknown} name
+ * @returns {boolean}
+ */
+function isEphemeralAppKey(name) {
+  if (typeof name !== 'string') return false;
+  if (EPHEMERAL_APP_KEYS.has(name)) return true;
+  return EPHEMERAL_APP_KEY_PATTERNS.some((re) => re.test(name));
+}
+
 /**
  * @param {unknown} v
  * @returns {boolean}
@@ -107,7 +156,9 @@ export function computeFingerprint(facts) {
       ? Math.floor(f.mcpServerCount) : 0;
 
     const mcpTransports = safeStringArr(f.mcpTransports);
-    const appKeys = safeStringArr(f.appKeys);
+    // Filter ephemeral CC-internal keys (see denylist above): thins the SET only,
+    // never masks dimension presence (diffDimensions still catches appKeys vanishing).
+    const appKeys = safeStringArr(f.appKeys).filter((k) => !isEphemeralAppKey(k));
 
     /** @type {SchemaDimensions} */
     const dimensions = {
