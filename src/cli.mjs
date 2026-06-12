@@ -152,6 +152,7 @@ function parseArgs(argv) {
  *   `snapshot unpin`        → `snapshot:unpin`         (consumed 2)
  *   `mcp remove`            → `mcp:remove`             (consumed 2)
  *   `skill propose`         → `skill:propose`          (consumed 2)
+ *   `skill accept`          → `skill:accept`           (consumed 2)
  * A bare `snapshot` (no sub-verb) stays `snapshot` (consumed 1, the create command).
  * Otherwise the first positional is the canonical name verbatim (consumed 1;
  * membership checked later).
@@ -170,6 +171,7 @@ function canonicalize(positionals) {
   if (first === 'snapshot' && positionals[1] === 'unpin') return { canonical: 'snapshot:unpin', consumed: 2 };
   if (first === 'mcp' && positionals[1] === 'remove') return { canonical: 'mcp:remove', consumed: 2 };
   if (first === 'skill' && positionals[1] === 'propose') return { canonical: 'skill:propose', consumed: 2 };
+  if (first === 'skill' && positionals[1] === 'accept') return { canonical: 'skill:accept', consumed: 2 };
   return { canonical: first, consumed: 1 };
 }
 
@@ -266,7 +268,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n  --redact-paths   replace the home-directory prefix in output paths with '~'\n                   (opt-in privacy; without this flag output is unchanged)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n  health                                 severity-layered health report (loadability + advice + hooks)\n\nwrite commands (DRY-RUN by default; pass --apply to execute. Set\nCLAUDE_MGR_ENABLE_WRITES=0 to force-lock all writes):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n  skill propose <name> --from <file> [--reason <msg>] [--apply]\n\ncommands:\n${commandList()}`;
+  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n  --redact-paths   replace the home-directory prefix in output paths with '~'\n                   (opt-in privacy; without this flag output is unchanged)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n  health                                 severity-layered health report (loadability + advice + hooks)\n\nwrite commands (DRY-RUN by default; pass --apply to execute. Set\nCLAUDE_MGR_ENABLE_WRITES=0 to force-lock all writes):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n  skill propose <name> --from <file> [--reason <msg>] [--apply]\n  skill accept <name> [<proposalId>] [--force] [--apply]\n\ncommands:\n${commandList()}`;
 }
 
 /**
