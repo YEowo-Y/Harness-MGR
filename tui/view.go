@@ -556,6 +556,26 @@ func tabBadge(m model, v viewID) (lipgloss.Color, bool) {
 	return "", false
 }
 
+// tabMnemonics maps tabs with NO digit key (indices >= 10) to the uppercase
+// letter that jumps to them in handleKey. This is the SINGLE SOURCE for both
+// the tab-bar accelerator label and the drift-guard test, so the advertised
+// letter and the actual key-handler case cannot diverge silently.
+var tabMnemonics = map[viewID]string{
+	viewHealth:       "H",
+	viewDispositions: "D",
+}
+
+// tabAccelerator returns the prefix shown before a tab label: the digit (1-9
+// then 0) for the first ten tabs, else the mnemonic letter from tabMnemonics,
+// else "" (a future tab with no assigned mnemonic gets no misleading prefix).
+func tabAccelerator(v viewID) string {
+	i := int(v)
+	if i < 10 {
+		return strconv.Itoa((i + 1) % 10)
+	}
+	return tabMnemonics[v] // "" when absent
+}
+
 // tabBarView renders the horizontal tab strip across the full terminal width:
 // the active tab gets the accent background, inactive tabs are dim, and any tab
 // whose data has notable findings carries a small severity dot (red error /
@@ -567,9 +587,13 @@ func tabBarView(m model) string {
 	cells := make([]string, 0, len(tabLabels))
 	for i := range tabLabels {
 		v := viewID(i)
-		// The number-key that jumps to this tab: 1..9 for the first nine, 0 for the
-		// tenth — matching digitToView's "1-9 then 0" convention.
-		text := fmt.Sprintf("%d %s", (i+1)%10, tabLabel(v))
+		// The key that jumps to this tab: digit 1-9 then 0 for the first ten tabs;
+		// a mnemonic letter (H, D, …) for tabs beyond the digit range.
+		accel := tabAccelerator(v)
+		text := tabLabel(v)
+		if accel != "" {
+			text = accel + " " + tabLabel(v)
+		}
 
 		cellStyle := inactiveTabStyle
 		bg := chromeBg
