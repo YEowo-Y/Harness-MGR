@@ -729,6 +729,73 @@ test('assertWritable remove-skill context: outside path -> throws write-outside-
   }
 });
 
+// --- assertWritable: 'propose' context tests (P5.U8) ---
+const PROPOSED_LEAF = 'SKILL.proposed-2026-01-01T00-00-00Z.md';
+
+test('assertWritable propose context: skills/foo/SKILL.proposed-<ts>.md -> returns canonical path', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const result = assertWritable(join(dir, 'skills', 'foo', PROPOSED_LEAF), 'propose');
+    assert.ok(typeof result === 'string' && result.length > 0, 'returns canonical path string');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable propose context: skills/foo/SKILL.md -> throws write-propose-only (cannot overwrite the original)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo', 'SKILL.md'), 'propose'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-propose-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable propose context: skills/foo/SKILL.proposed-<ts>.md in apply -> throws write-rollback-only (propose did NOT widen apply)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo', PROPOSED_LEAF), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable propose context: skills/../settings.json traversal -> refused (canonical collapses; grandparent !== skills/)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // canonical() collapses skills/../settings.json to <dir>/settings.json,
+    // whose grandparent is OUTSIDE skills/ -> refused with write-propose-only.
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', '..', 'settings.json'), 'propose'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-propose-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- security L1: a symlink/junction inside the allowed dir that resolves
 // OUTSIDE the allowlist must be DENIED (realpathSync-before-allowlist). ---
 test('assertWritable DENIES a junction that escapes the allowlist', () => {
