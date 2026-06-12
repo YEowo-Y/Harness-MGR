@@ -204,6 +204,24 @@ var translations = map[string][2]string{
 	"detail.docs":       {"Docs", "文档"},
 	"health.allHealthy": {"all components loadable", "全部组件均可加载"},
 	"health.hooksOk":    {"all hooks resolved", "全部钩子均已解析"},
+
+	// Dispositions tab — same bilingual principle as Health: chrome/guidance translated,
+	// engine data (kind, key, paths, ruleId, suggestion sentences) stays English.
+	"tab.dispositions":            {"Dispositions", "处置建议"},
+	"empty.dispositions":          {"no dispositions", "无处置建议"},
+	"summary.dispositions":        {"%d clusters · %d removable · %d advisory", "%d 簇 · %d 可删除 · %d 建议性"},
+	"disposition.shadowedCount":   {"shadowed", "被遮蔽"},
+	"disposition.winner":          {"Winner", "胜者"},
+	"disposition.shadowed":        {"Shadowed", "被遮蔽组件"},
+	"disposition.none":            {"none", "无"},
+	"disposition.action":          {"Action", "操作"},
+	"disposition.pluginAdvisory":  {"disable or uninstall the plugin to resolve", "禁用或卸载插件以解决"},
+	"disposition.suggestionLabel": {"Suggestion", "建议操作"},
+	"disposition.reference":       {"Reference", "参考"},
+	"disposition.rule":            {"Rule", "规则"},
+	"detail.tier":                 {"Tier", "层级"},
+	"detail.plugin":               {"Plugin", "插件"},
+	"help.dispositions":           {"jump to Dispositions", "跳转到处置建议"},
 }
 
 // tr returns key's text in the active UI language, falling back to English (then
@@ -229,7 +247,9 @@ func tf(key string, args ...any) string {
 
 // tabKeys maps a viewID to its tab-label translation key, in viewID iota order.
 var tabKeys = []string{
-	"tab.inventory", "tab.conflicts", "tab.orphans", "tab.config", "tab.hooks", "tab.selftest", "tab.doctor", "tab.permissions", "tab.drift", "tab.audit", "tab.health",
+	"tab.inventory", "tab.conflicts", "tab.orphans", "tab.config", "tab.hooks",
+	"tab.selftest", "tab.doctor", "tab.permissions", "tab.drift", "tab.audit",
+	"tab.health", "tab.dispositions",
 }
 
 // tabLabel returns the translated tab label for v (empty string if out of range).
