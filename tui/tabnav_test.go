@@ -21,12 +21,12 @@ func TestRightArrowAdvancesTab(t *testing.T) {
 	}
 }
 
-func TestLeftArrowFromFirstWrapsToHealth(t *testing.T) {
+func TestLeftArrowFromFirstWrapsToDispositions(t *testing.T) {
 	m := loadedModel(120, 30)
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	m = mm.(model)
-	if m.currentView != viewHealth {
-		t.Fatalf("left arrow from Inventory should wrap to the last tab (Health), got %v", m.currentView)
+	if m.currentView != viewDispositions {
+		t.Fatalf("left arrow from Inventory should wrap to the last tab (Dispositions), got %v", m.currentView)
 	}
 }
 
