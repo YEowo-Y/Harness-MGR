@@ -22,7 +22,7 @@ import { formatTable } from '../output/table.mjs';
 import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
 import { hooksTable } from './hooks-render.mjs';
 import { healthTable } from './health-render.mjs';
-import { skillProposeTable } from './skill-render.mjs';
+import { skillProposeTable, skillAcceptTable } from './skill-render.mjs';
 
 /**
  * @typedef {import('./commands.mjs').CommandOutput} CommandOutput
@@ -83,6 +83,8 @@ function renderBody(canonical, result) {
     case 'snapshot:gc': return snapshotGcTable(r);
     // skill propose (P5.U8): flat summary + raw unified diff (skill-render.mjs).
     case 'skill:propose': return skillProposeTable(r);
+    // skill accept (P5.U9): flat overwrite summary (skill-render.mjs).
+    case 'skill:accept': return skillAcceptTable(r);
     default: return kvTable(r);
   }
 }
