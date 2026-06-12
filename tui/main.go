@@ -91,6 +91,13 @@ type healthMsg struct {
 	err  error
 }
 
+// dispositionsMsg carries the result of the async `conflicts` fetch parsed for
+// disposition advice (read-only — same endpoint as conflicts, additive overlay).
+type dispositionsMsg struct {
+	data []Disposition
+	err  error
+}
+
 // previewTickMsg is the debounced signal to load the file-body preview for the
 // currently selected Inventory tree node. gen must match model.previewGen at
 // delivery time; stale ticks (from a still-scrolling cursor) are discarded.
@@ -164,6 +171,7 @@ const (
 	viewDrift
 	viewAudit
 	viewHealth
+	viewDispositions
 )
 
 // tabLabels are the tab-bar captions, indexed by viewID. tabCount derives from
@@ -180,6 +188,7 @@ var tabLabels = []string{
 	"Drift",
 	"Audit",
 	"Health",
+	"Dispositions",
 }
 
 // tabCount is the number of tabs, derived from tabLabels. It is a var (not a
@@ -273,16 +282,17 @@ func initialModel(cliPath string) model {
 		// health) start idle and are lazy-fetched on first visit by lazyLoadCurrent
 		// (see Init). Health is the heaviest single fetch, so it lazy-loads too.
 		sections: map[viewID]*sectionState{
-			viewConflicts:   {loading: true, list: newSectionModel(nil)},
-			viewOrphans:     {loading: true, list: newSectionModel(nil)},
-			viewConfig:      {loading: false, list: newSectionModel(nil)},
-			viewHooks:       {loading: false, list: newSectionModel(nil)},
-			viewSelftest:    {loading: true, list: newSectionModel(nil)},
-			viewDoctor:      {loading: true, list: newSectionModel(nil)},
-			viewPermissions: {loading: true, list: newSectionModel(nil)},
-			viewDrift:       {loading: true, list: newSectionModel(nil)},
-			viewAudit:       {loading: false, list: newSectionModel(nil)},
-			viewHealth:      {loading: false, list: newSectionModel(nil)},
+			viewConflicts:    {loading: true, list: newSectionModel(nil)},
+			viewOrphans:      {loading: true, list: newSectionModel(nil)},
+			viewConfig:       {loading: false, list: newSectionModel(nil)},
+			viewHooks:        {loading: false, list: newSectionModel(nil)},
+			viewSelftest:     {loading: true, list: newSectionModel(nil)},
+			viewDoctor:       {loading: true, list: newSectionModel(nil)},
+			viewPermissions:  {loading: true, list: newSectionModel(nil)},
+			viewDrift:        {loading: true, list: newSectionModel(nil)},
+			viewAudit:        {loading: false, list: newSectionModel(nil)},
+			viewHealth:       {loading: false, list: newSectionModel(nil)},
+			viewDispositions: {loading: false, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -407,6 +417,15 @@ func fetchHealthCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchDispositionsCmd returns a tea.Cmd that runs `conflicts --format json`
+// (READ-ONLY) and parses the additive dispositions overlay from the result.
+func fetchDispositionsCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchDispositions(cliPath)
+		return dispositionsMsg{data: data, err: err}
+	}
+}
+
 // sectionFetchCmd returns the read-only fetch command that (re)loads section view
 // v's data, or nil for a non-section view. Same commands Init dispatches.
 func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
@@ -431,6 +450,8 @@ func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
 		return fetchAuditCmd(cliPath)
 	case viewHealth:
 		return fetchHealthCmd(cliPath)
+	case viewDispositions:
+		return fetchDispositionsCmd(cliPath)
 	}
 	return nil
 }
@@ -486,7 +507,7 @@ func (m *model) refreshCurrent() tea.Cmd {
 // badge injects the healthMsg directly.)
 func (m *model) lazyLoadCurrent() tea.Cmd {
 	switch m.currentView {
-	case viewConfig, viewHooks, viewAudit, viewHealth:
+	case viewConfig, viewHooks, viewAudit, viewHealth, viewDispositions:
 	default:
 		return nil
 	}
@@ -661,6 +682,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// completed fetch must mark it loaded to stop lazyLoadCurrent re-fetching.
 		hs := msg.data.Health.Summary
 		m.applySectionResult(viewHealth, msg.err, func() []sectionItem { return healthItems(msg.data) }, "summary.health", []any{hs.NotLoaded, hs.Degraded, msg.data.Advice.Summary.Total}, true)
+		return m, nil
+	case dispositionsMsg:
+		// setsLoaded=true: Dispositions lazy-loads (same tab-badge logic as Health).
+		tallies := dispositionTallies(msg.data)
+		m.applySectionResult(viewDispositions, msg.err, func() []sectionItem { return dispositionItems(msg.data) }, "summary.dispositions", []any{tallies[0], tallies[1], tallies[2]}, true)
 		return m, nil
 	case writeResultMsg:
 		m.writeRunning = false
@@ -844,6 +870,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// address tabs 1-10), so a mnemonic key reaches it without cycling.
 		m.clearFilter()
 		m.currentView = viewHealth
+		m.refreshDetail()
+		return m, m.lazyLoadCurrent()
+	case "D":
+		// Direct jump to the Dispositions tab — the 12th tab, beyond the digit range.
+		m.clearFilter()
+		m.currentView = viewDispositions
 		m.refreshDetail()
 		return m, m.lazyLoadCurrent()
 	case "tab":
@@ -1213,15 +1245,17 @@ func runSnapshot(cliPath string) int {
 		inv:     inv,
 		cliPath: cliPath,
 		sections: map[viewID]*sectionState{
-			viewConflicts:   {list: newSectionModel(nil)},
-			viewOrphans:     {list: newSectionModel(nil)},
-			viewConfig:      {list: newSectionModel(nil)},
-			viewHooks:       {list: newSectionModel(nil)},
-			viewSelftest:    {list: newSectionModel(nil)},
-			viewDoctor:      {list: newSectionModel(nil)},
-			viewPermissions: {list: newSectionModel(nil)},
-			viewDrift:       {list: newSectionModel(nil)},
-			viewAudit:       {list: newSectionModel(nil)},
+			viewConflicts:    {list: newSectionModel(nil)},
+			viewOrphans:      {list: newSectionModel(nil)},
+			viewConfig:       {list: newSectionModel(nil)},
+			viewHooks:        {list: newSectionModel(nil)},
+			viewSelftest:     {list: newSectionModel(nil)},
+			viewDoctor:       {list: newSectionModel(nil)},
+			viewPermissions:  {list: newSectionModel(nil)},
+			viewDrift:        {list: newSectionModel(nil)},
+			viewAudit:        {list: newSectionModel(nil)},
+			viewHealth:       {list: newSectionModel(nil)},
+			viewDispositions: {list: newSectionModel(nil)},
 		},
 		currentView: viewInventory,
 		width:       defaultWidth,
