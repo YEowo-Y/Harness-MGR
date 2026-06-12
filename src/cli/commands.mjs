@@ -22,6 +22,7 @@
 import { scan } from '../discovery/scan.mjs';
 import { detectOrphans } from '../discovery/orphan-detector.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
+import { analyzeDisposition } from '../analysis/disposition.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
 import { mergeSettings, explainEffective } from '../analysis/settings-merge.mjs';
 import { auditPermissions } from '../analysis/permissions.mjs';
@@ -226,9 +227,7 @@ function narrowInventory(s, type) {
  * @returns {number}
  */
 function countKind(components, kind) {
-  let n = 0;
-  for (const c of components) if (c.kind === kind) n += 1;
-  return n;
+  return components.filter((c) => c.kind === kind).length;
 }
 
 // ── conflicts ─────────────────────────────────────────────────────────────────
@@ -255,15 +254,14 @@ export function conflictsCommand(ctx) {
     else extra.push({ severity: 'info', code: 'conflicts-bad-filter', message: `ignoring invalid --name filter: ${name}`, phase: 'cli' });
   }
 
+  // P5.U10 ADDITIVE overlay: rule-backed disposition advice over the (filtered)
+  // clusters. `conflicts` stays byte-identical; dispositions derive from it so
+  // they stay in sync with the --name filter. Gate-safe (pure analysis).
   const diagnostics = [...s.diagnostics, ...c.diagnostics, ...loaderConfidence(undefined).diagnostics, ...extra];
-  return { result: { conflicts }, diagnostics };
+  return { result: { conflicts, dispositions: analyzeDisposition({ conflicts }).dispositions }, diagnostics };
 }
 
-/**
- * Compile a RegExp from a source string without throwing; null on a bad pattern.
- * @param {string} src
- * @returns {RegExp|null}
- */
+/** Compile a RegExp from a source string without throwing; null on a bad pattern. @param {string} src @returns {RegExp|null} */
 function safeRegExp(src) { try { return new RegExp(src); } catch { return null; } }
 
 // ── orphans ─────────────────────────────────────────────────────────────────────
