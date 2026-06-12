@@ -94,8 +94,9 @@ export function buildAllowlistCases(targetClaudeDir, mgrStateDir) {
     { label: 'targetClaudeDir/agents/foo.md apply -> THROW write-rollback-only (remove did NOT widen apply)',
       target: join(targetClaudeDir, 'agents', 'foo.md'), context: 'apply',
       expectAllow: false, expectedCode: 'write-rollback-only' },
-    // 'remove-skill' context (P4b) — single skill-DIRECTORY delete surface.
-    ...buildRemoveSkillCases(targetClaudeDir),
+    // 'remove-skill' (P4b) skill-DIRECTORY delete + 'propose' (P5.U8) skill
+    // self-iteration proposal surfaces — builders below (80-SLOC fn ceiling).
+    ...buildRemoveSkillCases(targetClaudeDir), ...buildProposeCases(targetClaudeDir),
   ];
 }
 
@@ -129,6 +130,44 @@ function buildRemoveSkillCases(targetClaudeDir) {
       expectAllow: false, expectedCode: 'write-remove-skill-only' },
     { label: 'targetClaudeDir/plugins/marketplaces/m/skills/x remove-skill -> THROW write-forbidden (forbidden wins)',
       target: join(targetClaudeDir, 'plugins', 'marketplaces', 'm', 'skills', 'x'), context: 'remove-skill',
+      expectAllow: false, expectedCode: 'write-forbidden' },
+  ];
+}
+
+/**
+ * 'propose' context cases (P5.U8) — extracted to keep buildAllowlistCases
+ * under the 80-SLOC function ceiling.
+ * @param {string} targetClaudeDir
+ * @returns {Array<{label:string, target:string, context:string, expectAllow:boolean, expectedCode?:string}>}
+ */
+function buildProposeCases(targetClaudeDir) {
+  const leaf = 'SKILL.proposed-2026-01-01T00-00-00Z.md';
+  return [
+    { label: 'targetClaudeDir/skills/foo/SKILL.proposed-<ts>.md propose -> ALLOW',
+      target: join(targetClaudeDir, 'skills', 'foo', leaf), context: 'propose', expectAllow: true },
+    { label: 'targetClaudeDir/skills/foo/SKILL.md propose -> THROW write-propose-only (cannot overwrite the original)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'SKILL.md'), context: 'propose',
+      expectAllow: false, expectedCode: 'write-propose-only' },
+    { label: 'targetClaudeDir/skills/foo/SKILL.proposed-<ts>.md apply -> THROW write-rollback-only (propose did NOT widen apply)',
+      target: join(targetClaudeDir, 'skills', 'foo', leaf), context: 'apply',
+      expectAllow: false, expectedCode: 'write-rollback-only' },
+    { label: 'targetClaudeDir/skills/SKILL.proposed-<ts>.md propose -> THROW write-propose-only (directly in skills/)',
+      target: join(targetClaudeDir, 'skills', leaf), context: 'propose',
+      expectAllow: false, expectedCode: 'write-propose-only' },
+    { label: 'targetClaudeDir/skills/foo/sub/SKILL.proposed-<ts>.md propose -> THROW write-propose-only (nested deeper)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'sub', leaf), context: 'propose',
+      expectAllow: false, expectedCode: 'write-propose-only' },
+    { label: 'targetClaudeDir/agents/SKILL.proposed-<ts>.md propose -> THROW write-propose-only (not under skills/)',
+      target: join(targetClaudeDir, 'agents', leaf), context: 'propose',
+      expectAllow: false, expectedCode: 'write-propose-only' },
+    { label: 'targetClaudeDir/skills/foo/SKILL.proposed-not-a-ts.md propose -> THROW write-propose-only (bad ts shape)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'SKILL.proposed-not-a-ts.md'), context: 'propose',
+      expectAllow: false, expectedCode: 'write-propose-only' },
+    { label: 'targetClaudeDir/skills/foo.mgr-old/SKILL.proposed-<ts>.md propose -> THROW write-propose-only (sidecar parent excluded)',
+      target: join(targetClaudeDir, 'skills', 'foo.mgr-old', leaf), context: 'propose',
+      expectAllow: false, expectedCode: 'write-propose-only' },
+    { label: 'targetClaudeDir/plugins/marketplaces/m/skills/x/SKILL.proposed-<ts>.md propose -> THROW write-forbidden (forbidden wins)',
+      target: join(targetClaudeDir, 'plugins', 'marketplaces', 'm', 'skills', 'x', leaf), context: 'propose',
       expectAllow: false, expectedCode: 'write-forbidden' },
   ];
 }
