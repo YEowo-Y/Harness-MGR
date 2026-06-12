@@ -41,6 +41,27 @@ export function skillProposeTable(r) {
   return lines.join('\n');
 }
 
+/**
+ * skill:accept → a flat summary block (status / name / proposal / stale /
+ * snapshotId / overwritten). No diff block — accept is an overwrite, not a preview
+ * of two files. Defensive on malformed input (missing fields → empty lines); pure;
+ * never throws.
+ * @param {unknown} r the skill accept command result (summarizeAccept shape)
+ * @returns {string}
+ */
+export function skillAcceptTable(r) {
+  const o = isObj(r) ? r : {};
+  return [
+    `status: ${scalar(o.status)}`,
+    `name: ${scalar(o.name)}`,
+    `proposal: ${scalar(o.proposalId)}`,
+    `skill: ${scalar(o.skillPath)}`,
+    `stale: ${scalar(o.stale)}`,
+    `snapshotId: ${scalar(o.snapshotId)}`,
+    `overwritten: ${scalar(o.overwritten)}`,
+  ].join('\n');
+}
+
 /** Coerce a value to a one-line, safe string for a summary line. @param {unknown} v */
 function scalar(v) {
   if (v === null || v === undefined) return '';
