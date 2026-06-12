@@ -27,8 +27,38 @@ Every command that mutates governed config is **dry-run by default**. To actuall
 > `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (e.g. in CI); setting it to `1`
 > still works (back-compat). See the off-ramp note below for the evidence and migration.
 
-### Added — Phase 5 (MCP server, P5.U6 — 2026-06-11)
+### Added — Phase 5 (health / advice / hooks explanations / skill self-iteration / conflict dispositions / MCP server)
 
+- **`health`** — one read-only command that aggregates the harness's state for a quick "is anything
+  wrong?" read: every component's loadability (`loadable` / `degraded` / `not-loaded`) with reasons,
+  rule-backed best-practice advice, and plain-English hook explanations — all severity-tiered
+  (error / warn / info) in the table view, and as a `version:1` JSON / ndjson envelope for the TUI /
+  MCP. Passive only (no active probes); writes nothing.
+- **`conflicts`** now also reports **`dispositions`** — for each shadowing cluster it names the loader
+  winner, the shadowed losers, and a cited, honest resolution suggestion: a concrete
+  `remove <kind>:<name>` for a user-tier loser, or a "disable / uninstall the plugin" advisory for a
+  plugin-tier one (never a `remove` that would be refused). Read-only advice; the actual removal
+  routes through the existing gated `remove`. The pre-existing `conflicts` array is unchanged.
+- **`hooks`** now renders a plain-English explanation per hook ("On `<event>`, for tools matching
+  `<matcher>`, runs `<script>` (file / external · found / missing)") alongside the raw structured data.
+- **`skill propose <name> --from <file>`** — write an iterated version of a skill as a NEW
+  `skills/<name>/SKILL.proposed-<timestamp>.md`, **never touching the original `SKILL.md`**. Dry-run
+  by default (shows a unified diff); `--apply` writes the proposal file (plus a provenance record).
+  Undo is just deleting the new file.
+- **`skill accept <name> [<proposalId>] [--force]`** — land a proposal onto the real `SKILL.md`.
+  Auto-snapshots first (reversible with `rollback`). A **stale guard** refuses if `SKILL.md` has
+  drifted from the proposal's recorded source — or if there is no provenance record to check against
+  — unless you pass `--force`. With one proposal the id is
+  optional; with several it lists them and asks. On success it removes the accepted proposal + its
+  provenance and keeps any sibling proposals.
+- **`config show-effective --explain`** — per-key provenance: which settings layer(s) contributed
+  each effective value and the merge strategy used. Secret values stay redacted (`{redacted, sha256}`).
+- **`--redact-paths`** — opt-in output flag that rewrites your home-directory prefix to `~` across all
+  formats, so command output can be shared without leaking the OS username.
+- **Offline best-practice rule pack + advice engine** — `health`'s suggestions come from a curated,
+  versioned rule pack, each rule cited to an official `code.claude.com/docs` page (distilled offline
+  once; the tool itself stays zero-network). Rules carry Chinese (`*Zh`) fields so bilingual
+  consumers (the TUI / an agent) can render advice in 中文.
 - **MCP server** (`node src/mcp/server.mjs`) — exposes the read-only view to Claude Code as a
   Model Context Protocol server over **stdio**: exactly 4 tools, `claude_mgr_inventory` /
   `claude_mgr_health` / `claude_mgr_conflicts` / `claude_mgr_doctor` (passive checks only —
