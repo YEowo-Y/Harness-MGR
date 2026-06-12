@@ -543,6 +543,15 @@ func tabBadge(m model, v viewID) (lipgloss.Color, bool) {
 		if sectionHasColor(m, v, colorOrange) {
 			return colorOrange, true
 		}
+	case viewDispositions:
+		// dispositionItems colors rows by conflict severity (error=red, warn=orange).
+		// Badge appears only after the Dispositions tab is first opened (lazy-loads).
+		if sectionHasColor(m, v, colorRed) {
+			return colorRed, true
+		}
+		if sectionHasColor(m, v, colorOrange) {
+			return colorOrange, true
+		}
 	}
 	return "", false
 }
@@ -1058,6 +1067,7 @@ func helpView(width, height int) string {
 		{"1-0", tr("help.jump")},
 		{"[ / ]  ← / →", tr("help.tabs")},
 		{"H", tr("help.health")},
+		{"D", tr("help.dispositions")},
 		{"/", tr("help.filter")},
 		{"r", tr("help.refresh")},
 		{"w", tr("help.write")},
