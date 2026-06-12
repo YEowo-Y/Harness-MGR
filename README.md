@@ -32,13 +32,16 @@ node src/cli.mjs <command> [flags]
 |------|------|
 | `inventory` | 统计技能/代理/命令/插件/MCP 服务器数量 |
 | `doctor` | 运行 25 项健康检查，报告配置问题 |
-| `conflicts` | 查找加载顺序冲突（名字相同、互相遮蔽） |
+| `health` | 一条命令汇总组件可加载性、最佳实践建议、钩子说明（只读） |
+| `conflicts` | 查找加载顺序冲突（名字相同、互相遮蔽），并给出处置建议 |
 | `config show-effective` | 显示合并后的生效设置（user < local） |
-| `snapshot --apply` | 对 `~/.claude` 拍快照（需要写入门控） |
+| `snapshot --apply` | 对 `~/.claude` 拍快照（写入需加 `--apply`） |
+| `skill propose <名字> --from <文件>` | 为技能生成一份新提案（不动原 `SKILL.md`） |
+| `skill accept <名字>` | 把提案落到真正的 `SKILL.md`（先自动拍快照，可回滚） |
 | `drift` | 对比当前配置与上次快照基准，检测变化 |
 
 **安全须知：**
-所有写入命令默认只预览，不执行任何写操作。要真正写入，必须同时加 `--apply` **和**设置环境变量 `CLAUDE_MGR_ENABLE_WRITES=1`。
+所有写入命令默认只预览，不执行任何写操作。要真正写入，只需加 `--apply`。如果想在 CI 等场景里硬性禁用所有写入，设置环境变量 `CLAUDE_MGR_ENABLE_WRITES=0` 即可（此时写入会被拒绝）。
 
 ---
 
@@ -52,12 +55,14 @@ confidence that writes are auditable and reversible.
 Key properties:
 
 - **Read-mostly**: all inspect commands are pure read-only; no files are
-  modified unless a write command is explicitly invoked with the two-factor gate.
+  modified unless a write command is explicitly invoked with `--apply`.
 - **Dry-run by default**: every write command previews the operation and exits
   without touching any file unless `--apply` is supplied.
-- **Two-factor write gate**: a governed-config write requires *both* `--apply`
-  *and* the environment variable `CLAUDE_MGR_ENABLE_WRITES=1`. Either factor
-  alone refuses with exit code 3.
+- **Write gate with an opt-out lock**: a governed-config write requires
+  `--apply`. The environment variable `CLAUDE_MGR_ENABLE_WRITES` is an explicit
+  opt-out lock — set it to `0` to hard-disable all governed writes (e.g. in CI),
+  and a write then refuses with exit code 3. Unset or `1` (back-compat) leaves
+  writes enabled with `--apply`.
 - **Auto-snapshot + rollback**: every governed write takes an automatic snapshot
   of the governed surface first; `rollback` restores files byte-identical.
 - **One exact-pinned npm runtime dependency**: the CLI imports only Node stdlib
@@ -137,6 +142,27 @@ claude-mgr conflicts --name <pattern>
 ```
 
 - `--name <pattern>` — filter clusters by key using a regex.
+
+The output also includes `dispositions` — for each shadowing cluster, the loader
+winner, the shadowed losers, and a cited resolution suggestion: a concrete
+`remove <kind>:<name>` for a user-tier loser, or a "disable / uninstall the
+plugin" advisory for a plugin-tier one (never a `remove` that would be refused).
+This is read-only advice; the actual removal routes through the gated `remove`
+command. The pre-existing `conflicts` array is unchanged.
+
+#### `health`
+
+Aggregate a quick "is anything wrong?" read of the harness, all in one
+read-only command: every component's loadability (`loadable` / `degraded` /
+`not-loaded`) with reasons, rule-backed best-practice advice, and plain-English
+hook explanations — all severity-tiered (error / warn / info) in the table view.
+Passive only (no active probes); writes nothing. The `version:1` JSON / ndjson
+envelope feeds the TUI and the MCP server.
+
+```
+claude-mgr health
+claude-mgr health --format json
+```
 
 #### `orphans`
 
@@ -297,7 +323,7 @@ claude-mgr snapshot --reason "before update" --apply
 claude-mgr snapshot --include-auth --apply
 ```
 
-- `--apply` — create the snapshot (requires `CLAUDE_MGR_ENABLE_WRITES=1`).
+- `--apply` — create the snapshot (set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
 - `--reason <msg>` — label stored in the snapshot manifest.
 - `--include-auth` — opt-in to include the MCP auth cache file.
 
@@ -324,7 +350,7 @@ claude-mgr snapshot gc --older-than 30d --apply
 
 - `--keep <N>` — keep the N most recent snapshots; prune the rest.
 - `--older-than <duration>` — prune snapshots older than this duration.
-- `--apply` — actually delete (requires `CLAUDE_MGR_ENABLE_WRITES=1`). A
+- `--apply` — actually delete (set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable). A
   criterion (`--keep` or `--older-than`) is required.
 
 #### `snapshot pin <id>` / `snapshot unpin <id>`
@@ -338,12 +364,12 @@ claude-mgr snapshot unpin 2026-06-07T10-00-00Z --apply
 
 ---
 
-### Governed writes (dry-run by default, two-factor gate)
+### Governed writes (dry-run by default, `--apply` to write)
 
 These commands modify `~/.claude` or delegate to the external `claude` CLI.
-Every command previews without writing unless `--apply` is given **and**
-`CLAUDE_MGR_ENABLE_WRITES=1` is set in the environment. A closed gate exits
-with code 3 before loading the write machinery.
+Every command previews without writing unless `--apply` is given. Writes can be
+hard-disabled by setting `CLAUDE_MGR_ENABLE_WRITES=0` in the environment (e.g.
+in CI); a closed lock exits with code 3 before loading the write machinery.
 
 Every governed write takes an **automatic snapshot first** — the snapshot is
 the undo point for `rollback`.
@@ -359,7 +385,7 @@ claude-mgr rollback 2026-06-07T10-00-00Z --force --apply
 ```
 
 - `--force` — proceed even if the live tree has drifted since the snapshot.
-- `--apply` — perform the restore (requires `CLAUDE_MGR_ENABLE_WRITES=1`).
+- `--apply` — perform the restore (set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
 
 #### `recover <id> [--apply]`
 
@@ -393,7 +419,7 @@ claude-mgr lock --break-lock --apply
 - `--break-lock` without `--apply` — dry-run: show holder info and age-based
   caution (live holder / dead holder / absent).
 - `--break-lock --apply` — force-remove the lock and write an audit entry
-  (requires `CLAUDE_MGR_ENABLE_WRITES=1`).
+  (set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
 
 #### `remove <kind>:<name> [--apply]`
 
@@ -411,7 +437,7 @@ claude-mgr remove agent:my-agent --cascade --force --apply
 - `--cascade` — also remove dependent components (requires `--force` when
   dependents exist, to prevent accidental multi-deletes).
 - `--force` — permit the cascade to proceed when the dependent set is non-empty.
-- `--apply` — execute the delete (requires `CLAUDE_MGR_ENABLE_WRITES=1`).
+- `--apply` — execute the delete (set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
 
 The remove is reversible: the auto-snapshot lets `rollback` restore the deleted
 file(s) byte-identical.
@@ -429,7 +455,7 @@ claude-mgr update my-plugin --reason "security fix" --apply
 - `--lock-version <ver>` — acknowledged but reported as unsupported by the
   underlying `claude plugin update` command (it cannot target a version).
 - `--apply` — snapshot first, then run `claude plugin update <key>` via a
-  sandboxed spawn (requires `CLAUDE_MGR_ENABLE_WRITES=1`).
+  sandboxed spawn (set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
 
 **Partial-reversibility note**: the auto-snapshot covers only
 `installed_plugins.json`. The code fetched by `claude` and the plugin cache are
@@ -451,12 +477,55 @@ claude-mgr mcp remove my-server --scope project --apply
   reversible, snapshotted removal of `.mcp.json`.
 - `--reason <msg>` — label stored in the auto-snapshot and audit log.
 - `--apply` — snapshot first, then run `claude mcp remove <name>` via a
-  sandboxed spawn (requires `CLAUDE_MGR_ENABLE_WRITES=1`).
+  sandboxed spawn (set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
 
 **Partial-reversibility note**: for `--scope project` the snapshot covers
 `.mcp.json` and `rollback` can restore it. For `user`/`local` scope (or when
 `--scope` is omitted) the mutation is in `~/.claude.json`, outside
 claude-mgr's snapshot scope.
+
+#### `skill propose <name> --from <file> [--apply]`
+
+Write an iterated version of a skill as a **new**
+`skills/<name>/SKILL.proposed-<timestamp>.md`, **never touching the original
+`SKILL.md`**. Dry-run by default (shows a unified diff between the current
+`SKILL.md` and the proposed content).
+
+```
+claude-mgr skill propose my-skill --from ./my-skill-v2.md
+claude-mgr skill propose my-skill --from ./my-skill-v2.md --reason "tighten wording" --apply
+```
+
+- `--from <file>` — the file whose contents become the proposed `SKILL.md`.
+- `--reason <msg>` — label stored in the provenance record.
+- `--apply` — write the proposal file plus a provenance record (set
+  `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
+
+Because `propose` only adds a new file (the loader ignores `SKILL.proposed-*`),
+no snapshot is needed — undo is simply deleting the new file.
+
+#### `skill accept <name> [<proposalId>] [--force] [--apply]`
+
+Land a proposal onto the real `SKILL.md`. Auto-snapshots first, so it is
+reversible with `rollback`. A **stale guard** refuses if `SKILL.md` has drifted
+from the proposal's recorded source — or if there is no provenance record to
+check against — unless you pass `--force`. With one proposal the id is optional;
+with several it lists them and asks you to name one.
+
+```
+claude-mgr skill accept my-skill
+claude-mgr skill accept my-skill 2026-06-12T10-00-00Z --apply
+claude-mgr skill accept my-skill --force --apply
+```
+
+- `<proposalId>` — pick a specific proposal (the timestamp or full leaf name);
+  optional when exactly one proposal exists.
+- `--force` — accept even when `SKILL.md` has drifted or no provenance exists.
+- `--apply` — snapshot, then overwrite `SKILL.md` (set
+  `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable).
+
+On success the accepted proposal and its provenance record are removed; any
+sibling proposals are kept.
 
 ---
 
@@ -517,26 +586,37 @@ Every write command (rollback, recover, remove, update, mcp remove, snapshot
 with `--apply`) runs a read-only preflight and exits without touching any
 governed file unless `--apply` is explicitly supplied.
 
-### Two-factor write gate
+### Write gate (dry-run + `--apply`, with an opt-out lock)
 
-Performing a governed-config write requires **both** factors:
+Performing a governed-config write requires the `--apply` flag on the command
+line. Without it, the command runs a read-only preflight and writes nothing, so
+a copy-pasted command line or a mistyped flag cannot accidentally trigger a
+write.
 
-1. The `--apply` flag on the command line.
-2. The environment variable `CLAUDE_MGR_ENABLE_WRITES=1`.
+The environment variable `CLAUDE_MGR_ENABLE_WRITES` is an explicit **opt-out
+lock**: set it to `0` to hard-disable all governed writes (the value is trimmed
+before the check). A locked write refuses with exit code 3 **before** the write
+machinery is loaded. Unset, `1` (back-compat), or any other value leaves writes
+enabled with `--apply`.
 
-Either factor alone is refused with exit code 3 **before** the write machinery
-is loaded. This means a copy-pasted command line or a mistyped flag cannot
-accidentally trigger a write.
+> The write gate used to require both `--apply` and `CLAUDE_MGR_ENABLE_WRITES=1`.
+> That second factor was relaxed on 2026-06-09 (see `CHANGELOG.md`): `--apply`
+> alone now writes, and the env var became the opt-out lock described above.
 
 ```powershell
-# Windows PowerShell — set both factors:
-$env:CLAUDE_MGR_ENABLE_WRITES = "1"
+# Windows PowerShell — --apply is all that's needed:
 .\claude-mgr.ps1 remove agent:foo --apply
+
+# To hard-disable writes (e.g. in CI):
+$env:CLAUDE_MGR_ENABLE_WRITES = "0"
 ```
 
 ```sh
-# POSIX — inline:
-CLAUDE_MGR_ENABLE_WRITES=1 ./claude-mgr.sh remove agent:foo --apply
+# POSIX:
+./claude-mgr.sh remove agent:foo --apply
+
+# To hard-disable writes (e.g. in CI):
+CLAUDE_MGR_ENABLE_WRITES=0 ./claude-mgr.sh remove agent:foo --apply
 ```
 
 ### Auto-snapshot + rollback reversibility
@@ -577,7 +657,7 @@ network activity (if any) belongs to that process, not to `claude-mgr`.
 | `0` | Ran cleanly — no error-severity diagnostics |
 | `1` | Ran, but one or more error-severity diagnostics were produced |
 | `2` | Usage error (unknown command or flag) or an unexpected internal throw. Write commands also use `2` for a refused/invalid target (e.g. `remove agent:<missing>` → target not found, unsupported kind, bad `--scope`) |
-| `3` | A write was refused — two-factor gate closed, missing spec, or `--force` required |
+| `3` | A write was refused — write gate locked (`CLAUDE_MGR_ENABLE_WRITES=0`), missing spec, or `--force` required |
 | `4` | Snapshot integrity failure (archive hash mismatch) — write command aborted |
 
 Write commands (remove, update, mcp remove) may additionally use:
@@ -591,5 +671,6 @@ Write commands (remove, update, mcp remove) may additionally use:
 ## Status
 
 Stable. All read commands are safe to run at any time — they are pure and
-modify nothing. Governed writes are gated by the two-factor mechanism and are
-reversible via the auto-snapshot and `rollback`.
+modify nothing. Governed writes are gated by `--apply` (with a
+`CLAUDE_MGR_ENABLE_WRITES=0` opt-out lock) and are reversible via the
+auto-snapshot and `rollback`.
