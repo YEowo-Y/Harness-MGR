@@ -108,6 +108,7 @@ function buildArgvTable(sandbox) {
     'remove': ['remove', 'agent:nonexistent-xyz'], // dry-run → target-not-found refusal
     'update': ['update', 'nonexistent-xyz'], // dry-run → plugin-not-found refusal
     'mcp:remove': ['mcp', 'remove', 'nonexistent-xyz'], // dry-run → advisory
+    'skill:propose': ['skill', 'propose'], // no name → clean exit 3 (not an internal crash)
     'completion': ['completion', 'bash'],
   };
 }
