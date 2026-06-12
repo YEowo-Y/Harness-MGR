@@ -19,6 +19,7 @@
  */
 
 import { formatTable } from '../output/table.mjs';
+import { conflictsTable } from './conflicts-render.mjs';
 import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
 import { hooksTable } from './hooks-render.mjs';
 import { healthTable } from './health-render.mjs';
@@ -99,16 +100,9 @@ function inventoryTable(r) {
   ], rows);
 }
 
-/** conflicts → one row per shadowing cluster. @param {Record<string, unknown>} r */
-function conflictsTable(r) {
-  const clusters = Array.isArray(r.conflicts) ? r.conflicts : [];
-  const rows = clusters.map((c) => ({ kind: c && c.kind, key: c && c.key, likelyWinner: c && c.likelyWinner }));
-  return formatTable([
-    { key: 'kind', header: 'kind' },
-    { key: 'key', header: 'key' },
-    { key: 'likelyWinner', header: 'likelyWinner' },
-  ], rows);
-}
+// conflicts body lives in conflicts-render.mjs (P5.U10 SLOC split — the
+// snapshot-store-render.mjs / health-render.mjs precedent): the cluster table
+// plus the disposition advice section.
 
 /** orphans → one row per orphan fact. @param {Record<string, unknown>} r */
 function orphansTable(r) {
