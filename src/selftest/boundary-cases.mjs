@@ -94,9 +94,9 @@ export function buildAllowlistCases(targetClaudeDir, mgrStateDir) {
     { label: 'targetClaudeDir/agents/foo.md apply -> THROW write-rollback-only (remove did NOT widen apply)',
       target: join(targetClaudeDir, 'agents', 'foo.md'), context: 'apply',
       expectAllow: false, expectedCode: 'write-rollback-only' },
-    // 'remove-skill' (P4b) skill-DIRECTORY delete + 'propose' (P5.U8) skill
-    // self-iteration proposal surfaces — builders below (80-SLOC fn ceiling).
-    ...buildRemoveSkillCases(targetClaudeDir), ...buildProposeCases(targetClaudeDir),
+    // 'remove-skill' (P4b) + 'propose' (P5.U8) + 'accept' (P5.U9) surfaces —
+    // builders below (80-SLOC fn ceiling).
+    ...buildRemoveSkillCases(targetClaudeDir), ...buildProposeCases(targetClaudeDir), ...buildAcceptCases(targetClaudeDir),
   ];
 }
 
@@ -168,6 +168,46 @@ function buildProposeCases(targetClaudeDir) {
       expectAllow: false, expectedCode: 'write-propose-only' },
     { label: 'targetClaudeDir/plugins/marketplaces/m/skills/x/SKILL.proposed-<ts>.md propose -> THROW write-forbidden (forbidden wins)',
       target: join(targetClaudeDir, 'plugins', 'marketplaces', 'm', 'skills', 'x', leaf), context: 'propose',
+      expectAllow: false, expectedCode: 'write-forbidden' },
+  ];
+}
+
+/**
+ * 'accept' context cases (P5.U9) — extracted to keep buildAllowlistCases under
+ * the 80-SLOC function ceiling.
+ * @param {string} targetClaudeDir
+ * @returns {Array<{label:string, target:string, context:string, expectAllow:boolean, expectedCode?:string}>}
+ */
+function buildAcceptCases(targetClaudeDir) {
+  const leaf = 'SKILL.proposed-2026-01-01T00-00-00Z.md';
+  return [
+    { label: 'targetClaudeDir/skills/foo/SKILL.md accept -> ALLOW (overwrite the original)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'SKILL.md'), context: 'accept', expectAllow: true },
+    { label: 'targetClaudeDir/skills/foo/SKILL.proposed-<ts>.md accept -> ALLOW (delete the accepted proposal)',
+      target: join(targetClaudeDir, 'skills', 'foo', leaf), context: 'accept', expectAllow: true },
+    { label: 'targetClaudeDir/skills/foo/SKILL.md apply -> THROW write-rollback-only (accept did NOT widen apply)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'SKILL.md'), context: 'apply',
+      expectAllow: false, expectedCode: 'write-rollback-only' },
+    { label: 'targetClaudeDir/skills/foo/SKILL.md propose -> THROW write-propose-only (propose still cannot touch SKILL.md)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'SKILL.md'), context: 'propose',
+      expectAllow: false, expectedCode: 'write-propose-only' },
+    { label: 'targetClaudeDir/skills/foo/OTHER.md accept -> THROW write-accept-only (only SKILL.md or a proposal leaf)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'OTHER.md'), context: 'accept',
+      expectAllow: false, expectedCode: 'write-accept-only' },
+    { label: 'targetClaudeDir/skills/foo/sub/SKILL.md accept -> THROW write-accept-only (nested)',
+      target: join(targetClaudeDir, 'skills', 'foo', 'sub', 'SKILL.md'), context: 'accept',
+      expectAllow: false, expectedCode: 'write-accept-only' },
+    { label: 'targetClaudeDir/skills/SKILL.md accept -> THROW write-accept-only (directly in skills/)',
+      target: join(targetClaudeDir, 'skills', 'SKILL.md'), context: 'accept',
+      expectAllow: false, expectedCode: 'write-accept-only' },
+    { label: 'targetClaudeDir/agents/SKILL.md accept -> THROW write-accept-only (not under skills/)',
+      target: join(targetClaudeDir, 'agents', 'SKILL.md'), context: 'accept',
+      expectAllow: false, expectedCode: 'write-accept-only' },
+    { label: 'targetClaudeDir/skills/foo.mgr-old/SKILL.md accept -> THROW write-accept-only (sidecar parent excluded)',
+      target: join(targetClaudeDir, 'skills', 'foo.mgr-old', 'SKILL.md'), context: 'accept',
+      expectAllow: false, expectedCode: 'write-accept-only' },
+    { label: 'targetClaudeDir/plugins/marketplaces/m/skills/x/SKILL.md accept -> THROW write-forbidden (forbidden wins)',
+      target: join(targetClaudeDir, 'plugins', 'marketplaces', 'm', 'skills', 'x', 'SKILL.md'), context: 'accept',
       expectAllow: false, expectedCode: 'write-forbidden' },
   ];
 }
