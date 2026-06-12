@@ -796,6 +796,86 @@ test('assertWritable propose context: skills/../settings.json traversal -> refus
   }
 });
 
+// --- assertWritable: 'accept' context tests (P5.U9) ---
+
+test('assertWritable accept context: skills/foo/SKILL.md -> returns canonical path (overwrite the original)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const result = assertWritable(join(dir, 'skills', 'foo', 'SKILL.md'), 'accept');
+    assert.ok(typeof result === 'string' && result.length > 0, 'returns canonical path string');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable accept context: skills/foo/SKILL.proposed-<ts>.md -> returns canonical path (delete the accepted proposal)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    const result = assertWritable(join(dir, 'skills', 'foo', PROPOSED_LEAF), 'accept');
+    assert.ok(typeof result === 'string' && result.length > 0, 'returns canonical path string');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable accept context: skills/foo/OTHER.md -> throws write-accept-only (only SKILL.md or a proposal leaf)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo', 'OTHER.md'), 'accept'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-accept-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable accept context: skills/foo/SKILL.md in apply -> throws write-rollback-only (accept did NOT widen apply)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', 'foo', 'SKILL.md'), 'apply'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-rollback-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('assertWritable accept context: skills/../settings.json traversal -> refused (canonical collapses; grandparent !== skills/)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  process.env.CLAUDE_CONFIG_DIR = dir;
+  try {
+    // canonical() collapses skills/../settings.json to <dir>/settings.json,
+    // whose grandparent is OUTSIDE skills/ -> refused with write-accept-only.
+    assert.throws(
+      () => assertWritable(join(dir, 'skills', '..', 'settings.json'), 'accept'),
+      (e) => e instanceof WriteForbiddenError && e.code === 'write-accept-only',
+    );
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // --- security L1: a symlink/junction inside the allowed dir that resolves
 // OUTSIDE the allowlist must be DENIED (realpathSync-before-allowlist). ---
 test('assertWritable DENIES a junction that escapes the allowlist', () => {
