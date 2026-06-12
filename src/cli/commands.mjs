@@ -46,6 +46,7 @@ import { updateCommand } from './update-command.mjs';
 import { mcpCommand } from './mcp-command.mjs';
 import { hooksCommand } from './hooks-command.mjs';
 import { healthCommand } from './health-command.mjs';
+import { skillProposeCommand } from './skill-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
 import { completionCommand } from './completion.mjs';
 
@@ -433,7 +434,9 @@ export const COMMANDS = Object.freeze({
   'remove': (ctx) => removeCommand(ctx),
   'update': (ctx) => updateCommand(ctx),
   'mcp:remove': (ctx) => mcpCommand(ctx),
+  // skill propose (P5.U8): write skills/<name>/SKILL.proposed-<ts>.md (dry-run default; 'propose' gate).
+  'skill:propose': (ctx) => skillProposeCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, healthCommand, configDiffCommand, completionCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand };
