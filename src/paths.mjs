@@ -54,6 +54,13 @@ const REMOVABLE_LEAF_RE = /^[A-Za-z0-9._-]+\.md$/i;
  *  permits directly in skills/. */
 const SKILL_DIR_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
+/** A skill self-iteration proposal leaf: SKILL.proposed-<ts>.md where <ts> is the
+ *  snapshot-id grammar (YYYY-MM-DDTHH-MM-SSZ). The ONLY name the 'propose' write
+ *  context permits inside skills/<skill>/ (P5.U8). The /i flag is REQUIRED:
+ *  canonical() lowercases the whole path on win32, so the leaf arrives as
+ *  'skill.proposed-...z.md' — without /i this context would NEVER allow on Windows. */
+const PROPOSAL_NAME_RE = /^SKILL\.proposed-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.md$/i;
+
 /**
  * The governed settings files writable in BOTH 'apply' and 'rollback' contexts,
  * each ONLY when placed DIRECTLY under the governed config dir (NOT nested).
@@ -79,12 +86,13 @@ export const MGR_STATE_DIRNAME = '.mgr-state';
  */
 
 /**
- * @typedef {'apply'|'rollback'|'probe'|'remove'|'remove-skill'} WriteContext
+ * @typedef {'apply'|'rollback'|'probe'|'remove'|'remove-skill'|'propose'} WriteContext
  *   - 'apply'        — normal apply operation (default)
  *   - 'rollback'     — snapshot restore: may write to governed content surfaces
  *   - 'probe'        — transient loader-probe artifact: ONLY agents/__mgr-probe-<uuid>.md
  *   - 'remove'       — single-file component delete: ONLY a direct-child .md leaf in agents/ or commands/
  *   - 'remove-skill' — single skill-DIRECTORY delete: ONLY a direct-child dir in skills/
+ *   - 'propose'      — ONLY skills/<skill>/SKILL.proposed-<ts>.md (skill self-iteration proposal, P5.U8)
  */
 
 /**
@@ -233,6 +241,34 @@ function assertRemoveSkillContext(target, claudeDir) {
 }
 
 /**
+ * Inner guard for the 'propose' context: permit ONLY a SKILL.proposed-<ts>.md
+ * leaf placed DIRECTLY inside a skill dir (skills/<skill>/ — NOT skills/ itself,
+ * NOT nested deeper, NOT inside a sidecar/probe-named dir). PROPOSAL_NAME_RE can
+ * never match 'SKILL.md', so overwriting the original skill through this context
+ * is structurally impossible. canonical() defeats skills/../, NTFS ADS, 8.3
+ * short-names, trailing-dot, and a symlinked skills/ that escapes the config dir.
+ * @param {string} target @param {string} claudeDir @returns {string}
+ */
+function assertProposeContext(target, claudeDir) {
+  const canonicalTarget = canonical(target);
+  const leaf = basename(canonicalTarget);
+  const parentDir = dirname(canonicalTarget);
+  const skillName = basename(parentDir);
+  const grandparent = dirname(parentDir);
+  if (grandparent === canonical(join(claudeDir, 'skills'))
+    && SKILL_DIR_NAME_RE.test(skillName)
+    && !isLeftoverSidecar(skillName)
+    && !PROBE_NAME_RE.test(skillName)
+    && PROPOSAL_NAME_RE.test(leaf)) {
+    return canonicalTarget;
+  }
+  throw new WriteForbiddenError(
+    `propose context permits only skills/<skill>/SKILL.proposed-<ts>.md: ${target}`,
+    'write-propose-only',
+  );
+}
+
+/**
  * Enforce the write-allowlist. Throws WriteForbiddenError when `target` is not
  * writable in the given context. Returns the canonical path on success.
  *
@@ -252,19 +288,21 @@ function assertRemoveSkillContext(target, claudeDir) {
  *     leaf in agents/ or commands/ (single-file remove, P4a) — nothing else.
  *   - Remove-skill-only: context === 'remove-skill' permits ONLY a direct-child skill
  *     DIRECTORY in skills/ (skill-directory remove, P4b) — nothing else.
+ *   - Propose-only: context === 'propose' permits ONLY skills/<skill>/SKILL.proposed-<ts>.md
+ *     (skill self-iteration proposal, P5.U8) — nothing else.
  *
  * Per P1-10, U3 is apply-centric; the rollback context is recognized here per
  * the documented signature so P3 can wire it without reshaping the API.
  *
  * @param {string} target            absolute path intended for writing
- * @param {WriteContext} [context]   'apply' (default), 'rollback', 'probe', 'remove', or 'remove-skill'
+ * @param {WriteContext} [context]   'apply' (default), 'rollback', 'probe', 'remove', 'remove-skill', or 'propose'
  * @returns {string} the canonical target path
  */
 export function assertWritable(target, context = 'apply') {
   if (typeof target !== 'string' || target.length === 0) {
     throw new WriteForbiddenError('write target must be a non-empty string', 'write-target-invalid');
   }
-  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill') ? context : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill' || context === 'propose') ? context : 'apply';
   const claudeDir = targetClaudeDir();
   const stateDir = mgrStateDir(claudeDir);
 
@@ -334,6 +372,11 @@ export function assertWritable(target, context = 'apply') {
   // 'remove-skill' context: least-authority skill-DIRECTORY delete (P4b).
   // Reached only AFTER .mgr-state / outside / forbidden / probe / remove checks.
   if (ctx === 'remove-skill') return assertRemoveSkillContext(target, claudeDir);
+
+  // 'propose' context: least-authority skill-proposal write (P5.U8).
+  // Reached only AFTER .mgr-state / outside / forbidden / probe / remove /
+  // remove-skill checks, so the forbidden denials always win.
+  if (ctx === 'propose') return assertProposeContext(target, claudeDir);
 
   // Always-writable governed settings files (plan line 432, "Forbidden vs
   // Rollback-Writable" — the "Always writable (with --apply)" row): exactly
