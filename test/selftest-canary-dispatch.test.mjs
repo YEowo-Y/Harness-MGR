@@ -37,7 +37,9 @@ const BASE_FACTS = {
   hookEvents: ['PostToolUse', 'PreToolUse'],
   mcpServerCount: 3,
   mcpTransports: ['http', 'stdio'],
-  appKeys: ['autoUpdates', 'userID'],
+  // Structural (non-ephemeral) appKeys — the denylist in schema-canary.mjs filters
+  // CC-internal keys (e.g. 'autoUpdates') out of the appKeys dimension.
+  appKeys: ['oauthAccount', 'userID'],
 };
 
 /** A different set of facts guaranteed to produce a different fingerprint. */
