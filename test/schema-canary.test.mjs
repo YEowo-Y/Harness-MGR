@@ -22,7 +22,10 @@ const BASE_FACTS = {
   hookEvents: ['PostToolUse', 'PreToolUse'],
   mcpServerCount: 3,
   mcpTransports: ['http', 'stdio'],
-  appKeys: ['autoUpdates', 'projects', 'userID'],
+  // NOTE: appKeys MUST use structural (non-ephemeral) names — the ephemeral-key
+  // denylist (schema-canary.mjs) filters CC-internal keys out of the appKeys
+  // dimension, so a denylisted name (e.g. 'autoUpdates') would be invisible here.
+  appKeys: ['oauthAccount', 'projects', 'userID'],
 };
 
 // ── computeFingerprint ────────────────────────────────────────────────────────
@@ -39,7 +42,7 @@ describe('computeFingerprint', () => {
     assert.equal(dimensions.mcpServerCount, 3);
     assert.deepEqual(dimensions.mcpTransports, ['http', 'stdio']);
     assert.equal(dimensions.pluginSchemaVersion, 2);
-    assert.deepEqual(dimensions.appKeys, ['autoUpdates', 'projects', 'userID']);
+    assert.deepEqual(dimensions.appKeys, ['oauthAccount', 'projects', 'userID']);
   });
 
   it('produces a DETERMINISTIC fingerprint — pinned golden hex', () => {
@@ -229,7 +232,7 @@ describe('compareFingerprint', () => {
   });
 
   it('remove an appKey → drifted, 1 change on appKeys', () => {
-    const cur = buildResult({ ...BASE_FACTS, appKeys: ['autoUpdates', 'projects'] });
+    const cur = buildResult({ ...BASE_FACTS, appKeys: ['oauthAccount', 'projects'] });
     const base = buildResult(BASE_FACTS);
     const r = compareFingerprint({ current: cur, baseline: base });
     assert.equal(r.status, 'drifted');
