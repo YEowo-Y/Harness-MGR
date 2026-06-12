@@ -312,6 +312,72 @@ type conflictsEnvelope struct {
 	} `json:"result"`
 }
 
+// ── Dispositions (P5.U10) ─────────────────────────────────────────────────────
+
+// DispositionWinner is the loader-winner component in a disposition record.
+type DispositionWinner struct {
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Tier   string `json:"tier"`
+	Plugin string `json:"plugin"`
+}
+
+// DispositionShadowed is one shadowed loser component. Removable is true only
+// when the loser is user-tier (remove can delete it); RemoveCommand is the
+// ready-to-run `remove <kind>:<name>` string when removable, else "".
+type DispositionShadowed struct {
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	Tier          string `json:"tier"`
+	Plugin        string `json:"plugin"`
+	Removable     bool   `json:"removable"`
+	RemoveCommand string `json:"removeCommand"`
+}
+
+// Disposition is one actionable record from result.dispositions in the
+// `conflicts --format json` envelope. Kind/Key/Severity mirror the underlying
+// ConflictCluster. Suggestion is the engine-composed English resolution hint.
+// RuleID/DocURL/DocVersion link to the cited best-practice rule.
+type Disposition struct {
+	Kind       string                `json:"kind"`
+	Key        string                `json:"key"`
+	Severity   string                `json:"severity"`
+	Winner     DispositionWinner     `json:"winner"`
+	Shadowed   []DispositionShadowed `json:"shadowed"`
+	Suggestion string                `json:"suggestion"`
+	RuleID     string                `json:"ruleId"`
+	DocURL     string                `json:"docUrl"`
+	DocVersion string                `json:"docVersion"`
+}
+
+// dispositionsEnvelope is a narrow struct used only to decode the dispositions
+// array from the `conflicts --format json` response.
+type dispositionsEnvelope struct {
+	Result struct {
+		Dispositions []Disposition `json:"dispositions"`
+	} `json:"result"`
+}
+
+// parseDispositions unmarshals a raw `conflicts --format json` envelope into a
+// Disposition slice. Pure function — no exec, never panics.
+func parseDispositions(data []byte) ([]Disposition, error) {
+	var env dispositionsEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("parsing dispositions JSON: %w", err)
+	}
+	return env.Result.Dispositions, nil
+}
+
+// fetchDispositions shells out to `node <cliPath> conflicts --format json`,
+// captures stdout, and unmarshals the dispositions array. It never panics.
+func fetchDispositions(cliPath string) ([]Disposition, error) {
+	data, err := runJSON(cliPath, "conflicts", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	return parseDispositions(data)
+}
+
 type orphansEnvelope struct {
 	Result struct {
 		Orphans []Orphan      `json:"orphans"`
