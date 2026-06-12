@@ -56,7 +56,7 @@ const FAKE_APPLY_WRITABLE_FILES = ['settings.json', 'settings.local.json', '.mcp
  */
 function fakeAssertWritable(target, context = 'apply') {
   const { targetClaudeDir, mgrStateDir } = fakeRoots;
-  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill') ? context : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill' || context === 'propose') ? context : 'apply';
 
   // Always writable: under mgrStateDir
   if (isUnderFake(target, mgrStateDir)) {
@@ -121,6 +121,26 @@ function fakeAssertWritable(target, context = 'apply') {
       return target;
     }
     throw Object.assign(new Error('remove-skill-only: ' + target), { code: 'write-remove-skill-only' });
+  }
+
+  // 'propose' context: allow ONLY SKILL.proposed-<ts>.md directly inside a
+  // skill dir (skills/<skill>/). NOTE: string-only, no canonical()/realpath —
+  // mirrors the remove-skill branch above.
+  if (ctx === 'propose') {
+    const skillsDir = join(targetClaudeDir, 'skills');
+    const parentDir = target.slice(0, target.lastIndexOf(sep));
+    const filename = target.slice(target.lastIndexOf(sep) + 1);
+    const grandDir = parentDir.slice(0, parentDir.lastIndexOf(sep));
+    const skillName = parentDir.slice(parentDir.lastIndexOf(sep) + 1);
+    const FAKE_PROPOSAL_NAME_RE = /^SKILL\.proposed-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z\.md$/i;
+    const FAKE_SKILL_DIR_NAME_RE = /^[A-Za-z0-9._-]+$/;
+    const FAKE_LEFTOVER_SUFFIXES = ['.mgr-new', '.mgr-old'];
+    const isLeftover = FAKE_LEFTOVER_SUFFIXES.some((s) => skillName.endsWith(s));
+    if (grandDir === skillsDir && FAKE_SKILL_DIR_NAME_RE.test(skillName) && !isLeftover
+      && !FAKE_PROBE_NAME_RE.test(skillName) && FAKE_PROPOSAL_NAME_RE.test(filename)) {
+      return target;
+    }
+    throw Object.assign(new Error('propose-only: ' + target), { code: 'write-propose-only' });
   }
 
   // Always-writable governed settings files (plan line 432): exact basename,
