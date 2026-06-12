@@ -109,6 +109,7 @@ function buildArgvTable(sandbox) {
     'update': ['update', 'nonexistent-xyz'], // dry-run → plugin-not-found refusal
     'mcp:remove': ['mcp', 'remove', 'nonexistent-xyz'], // dry-run → advisory
     'skill:propose': ['skill', 'propose'], // no name → clean exit 3 (not an internal crash)
+    'skill:accept': ['skill', 'accept'], // no name → clean exit 3 (not an internal crash)
     'completion': ['completion', 'bash'],
   };
 }
