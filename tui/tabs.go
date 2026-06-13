@@ -76,34 +76,34 @@ func conflictDetail(c ConflictCluster, width int) string {
 	b.WriteString(detailTitle(c.Key, fg, typeIcon(c.Kind), width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Classification", fg, width))
-	b.WriteString(detailField("Kind", c.Kind, width))
-	b.WriteString(detailField("Confidence", c.Confidence, width))
+	b.WriteString(detailSection(tr("detail.classification"), fg, width))
+	b.WriteString(detailField(tr("detail.kind"), c.Kind, width))
+	b.WriteString(detailField(tr("detail.confidence"), c.Confidence, width))
 	if s := strings.TrimSpace(c.Severity); s != "" {
-		b.WriteString(detailField("Severity", s, width))
+		b.WriteString(detailField(tr("detail.severity"), s, width))
 	}
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Resolution", fg, width))
+	b.WriteString(detailSection(tr("detail.resolution"), fg, width))
 	winnerDesc := c.LikelyWinner.Name
 	if src := sourceSummary(c.LikelyWinner.Source); src != "" && src != "—" {
 		winnerDesc += " (" + src + ")"
 	}
-	b.WriteString(detailField("Likely winner", winnerDesc, width))
+	b.WriteString(detailField(tr("detail.likelyWinner"), winnerDesc, width))
 	if p := strings.TrimSpace(c.LikelyWinner.Path); p != "" {
-		b.WriteString(detailField("Winner path", p, width))
+		b.WriteString(detailField(tr("detail.winnerPath"), p, width))
 	}
 
 	names := make([]string, 0, len(c.PossibleWinners))
 	for _, pw := range c.PossibleWinners {
 		names = append(names, pw.Name)
 	}
-	b.WriteString(detailField("Possible winners", strings.Join(names, ", "), width))
+	b.WriteString(detailField(tr("detail.possibleWinners"), strings.Join(names, ", "), width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Explanation", fg, width))
-	b.WriteString(detailField("Reason", c.Reason, width))
-	b.WriteString(detailField("Fix", c.Fix, width))
+	b.WriteString(detailSection(tr("detail.explanation"), fg, width))
+	b.WriteString(detailField(tr("detail.reason"), c.Reason, width))
+	b.WriteString(detailField(tr("detail.fix"), c.Fix, width))
 	return b.String()
 }
 
@@ -145,18 +145,18 @@ func orphanDetail(o Orphan, width int) string {
 	b.WriteString(detailTitle(o.Name, fg, "", width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Classification", fg, width))
-	b.WriteString(detailField("Category", o.Category, width))
-	b.WriteString(detailField("Entry type", o.EntryType, width))
-	b.WriteString(detailField("Container", o.Container, width))
+	b.WriteString(detailSection(tr("detail.classification"), fg, width))
+	b.WriteString(detailField(tr("detail.category"), o.Category, width))
+	b.WriteString(detailField(tr("detail.entryType"), o.EntryType, width))
+	b.WriteString(detailField(tr("detail.container"), o.Container, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Explanation", fg, width))
-	b.WriteString(detailField("Reason", o.Reason, width))
+	b.WriteString(detailSection(tr("detail.explanation"), fg, width))
+	b.WriteString(detailField(tr("detail.reason"), o.Reason, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Location", fg, width))
-	b.WriteString(detailField("Path", o.Path, width))
+	b.WriteString(detailSection(tr("detail.location"), fg, width))
+	b.WriteString(detailField(tr("detail.path"), o.Path, width))
 	return b.String()
 }
 
@@ -308,20 +308,20 @@ func configDetail(ck ConfigKey, width int) string {
 	b.WriteString(detailTitle(ck.Key, fg, "", width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Merge", fg, width))
-	b.WriteString(detailField("Merge confidence", ck.MergeConfidence, width))
-	b.WriteString(detailField("Strategy", ck.Strategy, width))
+	b.WriteString(detailSection(tr("detail.merge"), fg, width))
+	b.WriteString(detailField(tr("detail.mergeConfidence"), ck.MergeConfidence, width))
+	b.WriteString(detailField(tr("detail.strategy"), ck.Strategy, width))
 
 	if len(ck.PerLayer) > 0 {
 		b.WriteString("\n")
-		b.WriteString(detailSection("Layers", fg, width))
+		b.WriteString(detailSection(tr("detail.layers"), fg, width))
 		for _, layer := range ck.PerLayer {
 			v := strings.TrimSpace(string(layer.Value))
 			var buf bytes.Buffer
 			if err := json.Compact(&buf, layer.Value); err == nil && buf.Len() > 0 {
 				v = buf.String()
 			}
-			b.WriteString(detailField("Layer "+layer.Name, v, width))
+			b.WriteString(detailField(tr("detail.layer")+" "+layer.Name, v, width))
 		}
 	}
 	return b.String()
@@ -402,8 +402,8 @@ func selftestDetail(ch SelftestCheck, width int) string {
 	b.WriteString(detailTitle(ch.Name, color, "", width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Result", color, width))
-	b.WriteString(detailField("Status", status, width))
+	b.WriteString(detailSection(tr("detail.result"), color, width))
+	b.WriteString(detailField(tr("detail.status"), status, width))
 	return b.String()
 }
 
@@ -543,17 +543,17 @@ func doctorDetail(ch DoctorCheck, diags []Diagnostic, width int) string {
 	b.WriteString(detailTitle(ch.Code, fg, "", width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Result", fg, width))
-	b.WriteString(detailField("Status", status, width))
-	b.WriteString(detailField("Probe level", ch.ProbeLevel, width))
+	b.WriteString(detailSection(tr("detail.result"), fg, width))
+	b.WriteString(detailField(tr("detail.status"), status, width))
+	b.WriteString(detailField(tr("detail.probeLevel"), ch.ProbeLevel, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Findings", fg, width))
+	b.WriteString(detailSection(tr("detail.findings"), fg, width))
 	if len(diags) == 0 {
 		if sev == doctorSkipped {
-			b.WriteString(detailField("—", "active probe skipped in passive run", width))
+			b.WriteString(detailField("—", tr("detail.activeProbeSkipped"), width))
 		} else {
-			b.WriteString(detailField("—", "passed — no findings", width))
+			b.WriteString(detailField("—", tr("detail.noFindings"), width))
 		}
 		return b.String()
 	}
@@ -561,10 +561,10 @@ func doctorDetail(ch DoctorCheck, diags []Diagnostic, width int) string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(detailField("Severity", d.Severity, width))
-		b.WriteString(detailField("Message", d.Message, width))
+		b.WriteString(detailField(tr("detail.severity"), d.Severity, width))
+		b.WriteString(detailField(tr("detail.message"), d.Message, width))
 		if fix := strings.TrimSpace(d.Fix); fix != "" {
-			b.WriteString(detailField("Fix", fix, width))
+			b.WriteString(detailField(tr("detail.fix"), fix, width))
 		}
 	}
 	return b.String()
@@ -696,9 +696,9 @@ func permissionsDetail(rule string, cat permissionsCategory, diags []Diagnostic,
 	b.WriteString(detailTitle(rule, fg, "", width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Permission", fg, width))
-	b.WriteString(detailField("Category", categoryLabel, width))
-	b.WriteString(detailField("Overbroad", overbroad, width))
+	b.WriteString(detailSection(tr("detail.permission"), fg, width))
+	b.WriteString(detailField(tr("detail.category"), categoryLabel, width))
+	b.WriteString(detailField(tr("detail.overbroad"), overbroad, width))
 
 	// Collect diagnostics whose message mentions this rule. The rule is wrapped in
 	// double-quotes in the diagnostic message (e.g. `...rule: "Edit(*)"`) so we
@@ -713,15 +713,15 @@ func permissionsDetail(rule string, cat permissionsCategory, diags []Diagnostic,
 	}
 	if len(matching) > 0 {
 		b.WriteString("\n")
-		b.WriteString(detailSection("Why", fg, width))
+		b.WriteString(detailSection(tr("detail.why"), fg, width))
 		for i, d := range matching {
 			if i > 0 {
 				b.WriteString("\n")
 			}
-			b.WriteString(detailField("Severity", d.Severity, width))
-			b.WriteString(detailField("Message", d.Message, width))
+			b.WriteString(detailField(tr("detail.severity"), d.Severity, width))
+			b.WriteString(detailField(tr("detail.message"), d.Message, width))
 			if fix := strings.TrimSpace(d.Fix); fix != "" {
-				b.WriteString(detailField("Fix", fix, width))
+				b.WriteString(detailField(tr("detail.fix"), fix, width))
 			}
 		}
 	}
@@ -785,12 +785,12 @@ func driftDetail(c DriftChange, width int) string {
 	b.WriteString(detailTitle(c.Path, fg, "", width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Change", fg, width))
-	b.WriteString(detailField("Kind", c.Change, width))
+	b.WriteString(detailSection(tr("detail.change"), fg, width))
+	b.WriteString(detailField(tr("detail.kind"), c.Change, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Location", fg, width))
-	b.WriteString(detailField("Path", c.Path, width))
+	b.WriteString(detailSection(tr("detail.location"), fg, width))
+	b.WriteString(detailField(tr("detail.path"), c.Path, width))
 	return b.String()
 }
 
@@ -874,9 +874,9 @@ func auditDetail(e AuditEntry, width int) string {
 	}
 	sort.Strings(keys)
 
-	b.WriteString(detailSection("Fields", accent, width))
+	b.WriteString(detailSection(tr("detail.fields"), accent, width))
 	if len(keys) == 0 {
-		b.WriteString(detailField("—", "empty entry", width))
+		b.WriteString(detailField("—", tr("detail.emptyEntry"), width))
 		return b.String()
 	}
 	for _, k := range keys {
