@@ -372,11 +372,14 @@ func healthAdviceDetail(a AdviceItem, width int) string {
 
 	b.WriteString(detailSection(tr("detail.advice"), fg, width))
 	b.WriteString(detailField(tr("detail.severity"), healthSevLabel(a.Severity), width))
-	b.WriteString(detailField(tr("detail.advice"), adviceText(a), width))
+	// The advice text is the section's content — a repeated "建议"/"Advice" field
+	// label would be redundant with the section header, so use the "—" continuation
+	// marker (same as the hook-explanation sentence below).
+	b.WriteString(detailField("—", adviceText(a), width))
 
 	b.WriteString("\n")
 	b.WriteString(detailSection(tr("detail.fix"), fg, width))
-	b.WriteString(detailField(tr("detail.fix"), adviceFix(a), width))
+	b.WriteString(detailField("—", adviceFix(a), width))
 	if len(a.AffectedPaths) > 0 {
 		b.WriteString(detailField(tr("detail.path"), strings.Join(a.AffectedPaths, ", "), width))
 	}
