@@ -415,8 +415,13 @@ func (t *treeModel) ensureVisible(height int) {
 }
 
 // renderRow renders a single visible row at index i, truncated to width. It
-// dispatches on folder vs item and on whether the cursor is on this row.
+// dispatches on folder vs item and on whether the cursor is on this row. An
+// out-of-range i yields "" (mirrors sectionModel.renderRow), so a desynced
+// render loop can never index past t.visible and panic the whole TUI.
 func (t *treeModel) renderRow(i, width int) string {
+	if i < 0 || i >= len(t.visible) {
+		return ""
+	}
 	row := t.visible[i]
 	selected := i == t.cursor
 	meta := kindMetas[t.folders[row.folderIdx].kind]
