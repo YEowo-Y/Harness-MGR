@@ -65,12 +65,36 @@ func TestHKeyFromDoctorAlsoJumpsToHealth(t *testing.T) {
 	}
 }
 
+// TestMnemonicsAreCaseInsensitive guards the real-user keypress: the tab bar
+// shows "H"/"D" but users naturally press LOWERCASE h/d (no Shift). Both cases
+// must jump. Before the fix, lowercase "h" was a no-op and lowercase "d" was a
+// page-down alias — so this is the falsifiable oracle for the reported bug.
+func TestMnemonicsAreCaseInsensitive(t *testing.T) {
+	cases := []struct {
+		key  string
+		want viewID
+	}{
+		{"h", viewHealth},
+		{"H", viewHealth},
+		{"d", viewDispositions},
+		{"D", viewDispositions},
+	}
+	for _, c := range cases {
+		m := loadedModel(120, 30)
+		m.currentView = viewInventory // start elsewhere so the jump is observable
+		mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(c.key)})
+		if got := mm.(model).currentView; got != c.want {
+			t.Errorf("pressing %q should jump to %v, got %v", c.key, c.want, got)
+		}
+	}
+}
+
 // The status bar advertises the arrow fallback, and the help overlay lists H.
 
 func TestStatusBarShowsArrowHint(t *testing.T) {
 	m := loadedModel(120, 30)
-	if out := m.View(); !strings.Contains(out, "1-0/←→") {
-		t.Fatalf("status bar should advertise the arrow tab keys (1-0/←→):\n%s", out)
+	if out := m.View(); !strings.Contains(out, "1-0/H/D/←→") {
+		t.Fatalf("status bar should advertise the tab keys (1-0/H/D/←→):\n%s", out)
 	}
 }
 
