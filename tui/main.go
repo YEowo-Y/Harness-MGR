@@ -608,7 +608,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applySectionResult(viewConfig, msg.err, func() []sectionItem { return configItems(msg.data) }, "summary.config", []any{len(msg.data.Keys)}, true)
 		return m, nil
 	case hooksMsg:
-		m.applySectionResult(viewHooks, msg.err, func() []sectionItem { return hooksItems(msg.data) }, "summary.hooks", []any{len(msg.data.Hooks)}, true)
+		t := hookExplainTallies(msg.data.Explanations)
+		m.applySectionResult(viewHooks, msg.err, func() []sectionItem { return hooksItems(msg.data) }, "summary.hooks", []any{t[0], t[1], t[2]}, true)
 		return m, nil
 	case selftestMsg:
 		n := len(msg.data.Checks)
