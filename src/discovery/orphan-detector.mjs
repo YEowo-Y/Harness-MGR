@@ -153,32 +153,104 @@ function compareSoft(a, b) {
 /** The combined known-dir set: CC-native (from settings.mjs) + OMC ecosystem. */
 const ALL_KNOWN_TOP_DIRS = new Set([...KNOWN_TOP_DIRS, ...KNOWN_ECOSYSTEM_TOP_DIRS]);
 
-/** Frozen Set for O(1) exact-name look-ups against KNOWN_TOP_FILES. */
-const KNOWN_TOP_FILE_SET = new Set(KNOWN_TOP_FILES);
+/**
+ * The DEFAULT claude component kinds, used when no descriptor is supplied. Mirrors
+ * the historically hardwired ['skills','agents','commands'] walk + their layouts.
+ */
+const DEFAULT_COMPONENT_KINDS = Object.freeze([
+  Object.freeze({ dir: 'skills', layout: 'skill-md' }),
+  Object.freeze({ dir: 'agents', layout: 'flat-md' }),
+  Object.freeze({ dir: 'commands', layout: 'flat-md' }),
+]);
 
 /**
- * Returns true if `name` is a recognised top-level file (exact match OR matches
- * any pattern in KNOWN_TOP_FILE_PATTERNS). Pure, never throws.
+ * Returns true if `name` is a recognised top-level file (exact match in
+ * `fileSet` OR matches any pattern in `patterns`). Pure, never throws.
  * @param {string} name
+ * @param {Set<string>} fileSet
+ * @param {RegExp[]} patterns
  * @returns {boolean}
  */
-function isKnownTopFile(name) {
-  if (KNOWN_TOP_FILE_SET.has(name)) return true;
-  for (const re of KNOWN_TOP_FILE_PATTERNS) {
-    if (re.test(name)) return true;
+function isKnownTopFile(name, fileSet, patterns) {
+  if (fileSet.has(name)) return true;
+  for (const re of patterns) {
+    if (re && typeof re.test === 'function' && re.test(name)) return true;
   }
   return false;
 }
+
+/**
+ * Build a proto-safe Map(dirName -> layout) from a list of component-kind specs,
+ * skipping non-object kinds and non-string dir/layout fields.
+ * @param {Array<{dir?: unknown, layout?: unknown}>} kinds
+ * @returns {Map<string, string>}
+ */
+function buildComponentDirs(kinds) {
+  /** @type {Map<string, string>} */
+  const map = new Map();
+  if (!Array.isArray(kinds)) return map;
+  for (const k of kinds) {
+    if (!k || typeof k !== 'object') continue;
+    const dir = k.dir;
+    const layout = k.layout;
+    if (typeof dir !== 'string' || dir.length === 0) continue;
+    if (typeof layout !== 'string' || layout.length === 0) continue;
+    if (!map.has(dir)) map.set(dir, layout);
+  }
+  return map;
+}
+
+/**
+ * Returns true if `name` is a soft orphan for the given component-dir `layout`,
+ * mirroring the historical regex idioms. Pure, never throws.
+ * @param {string} name
+ * @param {string} layout
+ * @returns {boolean}
+ */
+function isSoftOrphanForLayout(name, layout) {
+  switch (layout) {
+    case 'skill-md':  return true;                  // any loose FILE is soft
+    case 'flat-md':   return !/\.md$/i.test(name);  // non-.md file
+    case 'flat-toml': return !/\.toml$/i.test(name); // non-.toml file
+    default:          return false;                 // unknown layout: flag nothing
+  }
+}
+
+/**
+ * The exact soft-orphan reason string for a `layout` + `dir`. Kept EXACTLY as the
+ * historical strings so the claude (skill-md + flat-md) paths reproduce today's
+ * output byte-for-byte (the back-compat deepEqual depends on it).
+ * @param {string} layout
+ * @param {string} dir
+ * @returns {string}
+ */
+function softOrphanReason(layout, dir) {
+  switch (layout) {
+    case 'skill-md':  return `loose file in ${dir}/ (skills must be <name>/SKILL.md)`;
+    case 'flat-md':   return `non-.md file in ${dir}/`;
+    case 'flat-toml': return `non-.toml file in ${dir}/`;
+    default:          return `unexpected file in ${dir}/`;
+  }
+}
+
+/**
+ * @typedef {Object} ResolvedTables
+ * @property {Set<string>} knownTopDirsSet     known top-level dir names
+ * @property {Set<string>} knownTopFileSet     known top-level file names (exact)
+ * @property {RegExp[]} knownTopFilePatterns   known top-level file name patterns
+ * @property {Map<string, string>} componentDirs   dirName -> layout
+ */
 
 /**
  * Read and classify all top-level entries of `rootDir`.
  * Returns {hard, componentDirsPresent} or null when the root is unreadable/missing.
  * @param {string} rootDir
  * @param {Set<string>} ownTopDirs
+ * @param {ResolvedTables} tables
  * @param {DiagnosticBag} bag
  * @returns {{hard: OrphanRecord[], componentDirsPresent: Set<string>}|null}
  */
-function classifyTopLevel(rootDir, ownTopDirs, bag) {
+function classifyTopLevel(rootDir, ownTopDirs, tables, bag) {
   let topEntries;
   try {
     topEntries = readdirSync(rootDir, { withFileTypes: true });
@@ -187,6 +259,8 @@ function classifyTopLevel(rootDir, ownTopDirs, bag) {
     bag.add({ severity: 'error', code: 'orphans-unreadable', message: err instanceof Error ? err.message : String(err ?? ''), path: rootDir, phase: 'orphans' });
     return null;
   }
+
+  const { knownTopDirsSet, knownTopFileSet, knownTopFilePatterns, componentDirs } = tables;
 
   /** @type {OrphanRecord[]} */
   const hard = [];
@@ -200,14 +274,12 @@ function classifyTopLevel(rootDir, ownTopDirs, bag) {
     if (ownTopDirs.has(name)) continue;
 
     if (entryType === 'dir') {
-      if (ALL_KNOWN_TOP_DIRS.has(name)) {
-        if (name === 'skills' || name === 'agents' || name === 'commands') {
-          componentDirsPresent.add(name);
-        }
+      if (knownTopDirsSet.has(name)) {
+        if (componentDirs.has(name)) componentDirsPresent.add(name);
       } else {
         hard.push({ category: 'hard', entryType: 'dir', name, path: join(rootDir, name), container: '', reason: 'unknown top-level directory' });
       }
-    } else if (!isKnownTopFile(name)) {
+    } else if (!isKnownTopFile(name, knownTopFileSet, knownTopFilePatterns)) {
       hard.push({ category: 'hard', entryType: 'file', name, path: join(rootDir, name), container: '', reason: 'unknown top-level file' });
     }
   }
@@ -216,19 +288,23 @@ function classifyTopLevel(rootDir, ownTopDirs, bag) {
 }
 
 /**
- * Walk skills/, agents/, and commands/ directly (one level deep) and collect
- * soft orphans: loose files under skills/, non-.md files under agents/ or commands/.
+ * Walk each PRESENT component dir directly (one level deep) and collect soft
+ * orphans by the dir's declared LAYOUT:
+ *   - 'skill-md'  → any loose FILE is soft (skills must be <name>/SKILL.md).
+ *   - 'flat-md'   → a file whose name does NOT end in .md (case-insensitive).
+ *   - 'flat-toml' → a file whose name does NOT end in .toml (case-insensitive).
  * @param {string} rootDir
  * @param {Set<string>} componentDirsPresent
+ * @param {Map<string, string>} componentDirs   dirName -> layout
  * @param {DiagnosticBag} bag
  * @returns {OrphanRecord[]}
  */
-function collectSoftOrphans(rootDir, componentDirsPresent, bag) {
+function collectSoftOrphans(rootDir, componentDirsPresent, componentDirs, bag) {
   /** @type {OrphanRecord[]} */
   const soft = [];
 
-  for (const container of ['skills', 'agents', 'commands']) {
-    if (!componentDirsPresent.has(container)) continue;
+  for (const container of componentDirsPresent) {
+    const layout = componentDirs.get(container);
     const subDir = join(rootDir, container);
     let subEntries;
     try {
@@ -245,10 +321,8 @@ function collectSoftOrphans(rootDir, componentDirsPresent, bag) {
       const entryType = resolveEntryType(entry, subDir);
       if (entryType === null || entryType === 'dir') continue; // dirs are not flagged
 
-      if (container === 'skills') {
-        soft.push({ category: 'soft', entryType: 'file', name, path: join(subDir, name), container: 'skills', reason: 'loose file in skills/ (skills must be <name>/SKILL.md)' });
-      } else if (!/\.md$/i.test(name)) {
-        soft.push({ category: 'soft', entryType: 'file', name, path: join(subDir, name), container, reason: `non-.md file in ${container}/` });
+      if (isSoftOrphanForLayout(name, layout)) {
+        soft.push({ category: 'soft', entryType: 'file', name, path: join(subDir, name), container, reason: softOrphanReason(layout, container) });
       }
     }
   }
@@ -257,10 +331,35 @@ function collectSoftOrphans(rootDir, componentDirsPresent, bag) {
 }
 
 /**
- * Detect hard and soft orphans in a Claude Code config root.
+ * Resolve the active classification tables ONCE, descriptor-or-default. When
+ * `descriptor` is absent the result is the historical claude behavior (the
+ * module-level consts), so `detectOrphans(dir)` stays byte-identical to today.
+ * Pure / never-throws / proto-safe.
+ * @param {import('../targets/descriptor.mjs').TargetDescriptor} [descriptor]
+ * @returns {ResolvedTables}
+ */
+function resolveTables(descriptor) {
+  const knownTopDirsSet = new Set(
+    descriptor ? descriptor.knownTopDirs : ALL_KNOWN_TOP_DIRS,
+  );
+  const knownTopFileSet = new Set(descriptor?.knownTopFiles ?? KNOWN_TOP_FILES);
+  const knownTopFilePatterns = descriptor?.knownTopFilePatterns ?? KNOWN_TOP_FILE_PATTERNS;
+  const componentDirs = buildComponentDirs(
+    descriptor?.componentKinds ?? DEFAULT_COMPONENT_KINDS,
+  );
+  return { knownTopDirsSet, knownTopFileSet, knownTopFilePatterns, componentDirs };
+}
+
+/**
+ * Detect hard and soft orphans in a config root.
+ *
+ * When `opts.descriptor` is supplied, classification uses the descriptor's
+ * known-top-dirs/files/patterns and derives the soft-orphan component-dir walk
+ * from its componentKinds. When absent, behavior is BYTE-IDENTICAL to the
+ * historical Claude Code hardwiring (back-compat).
  *
  * @param {string} rootDir
- * @param {{ownTopDirs?: string[]}} [opts]
+ * @param {{ownTopDirs?: string[], descriptor?: import('../targets/descriptor.mjs').TargetDescriptor}} [opts]
  * @returns {OrphanResult}
  */
 export function detectOrphans(rootDir, opts) {
@@ -272,12 +371,13 @@ export function detectOrphans(rootDir, opts) {
   }
 
   const ownTopDirs = new Set(opts?.ownTopDirs ?? DEFAULT_OWN_TOP_DIRS);
-  const top = classifyTopLevel(rootDir, ownTopDirs, bag);
+  const tables = resolveTables(opts?.descriptor);
+  const top = classifyTopLevel(rootDir, ownTopDirs, tables, bag);
 
   if (top === null) return { hard: [], soft: [], diagnostics: bag.all() };
 
   const { hard, componentDirsPresent } = top;
-  const soft = collectSoftOrphans(rootDir, componentDirsPresent, bag);
+  const soft = collectSoftOrphans(rootDir, componentDirsPresent, tables.componentDirs, bag);
 
   hard.sort(compareHard);
   soft.sort(compareSoft);
