@@ -475,18 +475,90 @@ func TestConflictDetailGrouped(t *testing.T) {
 	}
 }
 
-// TestHooksDetailGrouped verifies hooksDetail groups each entry under a
-// "Binding N" header while preserving the Matcher/Command labels.
-func TestHooksDetailGrouped(t *testing.T) {
-	entries := []HookEntry{
-		{Matcher: "Bash", Hooks: []HookCmd{{Type: "command", Command: "echo a"}}},
-		{Hooks: []HookCmd{{Type: "command", Command: "echo b"}}},
+// TestHookExplainTalliesCountsCorrectly verifies hookExplainTallies returns
+// [total, missing, indeterminate] with the right values.
+func TestHookExplainTalliesCountsCorrectly(t *testing.T) {
+	expls := []HookExplanation{
+		{Status: "found"},
+		{Status: "missing"},
+		{Status: "indeterminate"},
+		{Status: "missing"},
+		{Status: "found"},
 	}
-	out := stripANSI(hooksDetail("PreToolUse", entries, 80))
-	for _, want := range []string{"Binding 1", "Binding 2", "Matcher", "Command"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("hooksDetail missing %q:\n%s", want, out)
-		}
+	got := hookExplainTallies(expls)
+	if got[0] != 5 {
+		t.Fatalf("total = %d, want 5", got[0])
+	}
+	if got[1] != 2 {
+		t.Fatalf("missing = %d, want 2", got[1])
+	}
+	if got[2] != 1 {
+		t.Fatalf("indeterminate = %d, want 1", got[2])
+	}
+}
+
+// TestHookExplainTalliesEmpty verifies hookExplainTallies returns all zeros on
+// an empty slice without panicking.
+func TestHookExplainTalliesEmpty(t *testing.T) {
+	got := hookExplainTallies(nil)
+	if got != ([3]int{0, 0, 0}) {
+		t.Fatalf("expected [0,0,0], got %v", got)
+	}
+}
+
+// TestHooksItemsEngineOrder verifies hooksItems preserves engine order (no sort)
+// and that each item title contains the hook event name.
+func TestHooksItemsEngineOrder(t *testing.T) {
+	r := HooksResult{
+		Explanations: []HookExplanation{
+			{Event: "PostToolUse", Status: "found", Explanation: "sentence A"},
+			{Event: "PreToolUse", Status: "missing", Explanation: "sentence B"},
+		},
+	}
+	items := hooksItems(r)
+	if len(items) != 2 {
+		t.Fatalf("items count = %d, want 2", len(items))
+	}
+	if !strings.Contains(items[0].title, "PostToolUse") {
+		t.Fatalf("item[0] title %q missing PostToolUse", items[0].title)
+	}
+	if !strings.Contains(items[1].title, "PreToolUse") {
+		t.Fatalf("item[1] title %q missing PreToolUse", items[1].title)
+	}
+}
+
+// TestHooksItemsDetailContainsExplanation verifies the detail pane renders the
+// verbatim explanation sentence from the engine.
+func TestHooksItemsDetailContainsExplanation(t *testing.T) {
+	explanation := `On PostToolUse, for "Bash", runs the script "/hooks/post.mjs" (file, found).`
+	r := HooksResult{
+		Explanations: []HookExplanation{
+			{Event: "PostToolUse", Matcher: "Bash", Command: "echo x", Kind: "file",
+				Target: "/hooks/post.mjs", Status: "found", Explanation: explanation},
+		},
+	}
+	items := hooksItems(r)
+	if len(items) != 1 {
+		t.Fatalf("items count = %d, want 1", len(items))
+	}
+	out := stripANSI(items[0].detail(80))
+	// The explanation sentence may be word-wrapped; check for a short unique prefix
+	// that fits within one rendered line.
+	wantPrefix := `On PostToolUse, for "Bash"`
+	if !strings.Contains(out, wantPrefix) {
+		t.Fatalf("detail missing explanation prefix %q:\n%s", wantPrefix, out)
+	}
+}
+
+// TestHooksItemsNoPanicEmpty verifies hooksItems returns an empty slice (not nil)
+// without panicking on an empty HooksResult.
+func TestHooksItemsNoPanicEmpty(t *testing.T) {
+	items := hooksItems(HooksResult{})
+	if items == nil {
+		t.Fatal("expected non-nil slice, got nil")
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected 0 items, got %d", len(items))
 	}
 }
 
@@ -507,18 +579,6 @@ func TestConflictDetailShowsSeverityAndWinnerPath(t *testing.T) {
 	for _, want := range []string{"Severity", "warn", "Winner path", "/user/seo.md"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("conflictDetail missing %q:\n%s", want, out)
-		}
-	}
-}
-
-// TestHooksDetailShowsType verifies hooksDetail surfaces each command's Type
-// alongside its Command.
-func TestHooksDetailShowsType(t *testing.T) {
-	entries := []HookEntry{{Matcher: "Bash", Hooks: []HookCmd{{Type: "command", Command: "echo a"}}}}
-	out := stripANSI(hooksDetail("PreToolUse", entries, 80))
-	for _, want := range []string{"Type", "command"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("hooksDetail missing %q:\n%s", want, out)
 		}
 	}
 }
