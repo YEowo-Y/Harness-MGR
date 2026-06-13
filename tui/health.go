@@ -138,9 +138,10 @@ func healthStatusLabel(status string) string {
 
 // ── Hook status → color / label ──────────────────────────────────────────────
 
-// healthHookColor maps a hook resolution status to a palette color: missing→red,
+// hookExplainColor maps a hook resolution status to a palette color: missing→red,
 // indeterminate→orange, found→green, unprobed→gray.
-func healthHookColor(status string) lipgloss.Color {
+// Shared by both the Hooks tab and the Health tab's problem-hook tier.
+func hookExplainColor(status string) lipgloss.Color {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "missing":
 		return colorRed
@@ -153,9 +154,10 @@ func healthHookColor(status string) lipgloss.Color {
 	}
 }
 
-// healthHookIcon maps a hook status to its glyph: missing ✗, indeterminate ⚠,
+// hookExplainIcon maps a hook status to its glyph: missing ✗, indeterminate ⚠,
 // found ✓, unprobed ○.
-func healthHookIcon(status string) string {
+// Shared by both the Hooks tab and the Health tab's problem-hook tier.
+func hookExplainIcon(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "missing":
 		return glyph("✗", "[x]")
@@ -168,9 +170,10 @@ func healthHookIcon(status string) string {
 	}
 }
 
-// healthHookStatusLabel returns the TRANSLATED hook-status label
+// hookExplainStatusLabel returns the TRANSLATED hook-status label
 // (found→存在, missing→缺失, indeterminate→不确定, unprobed→未探测). Unknown echoes.
-func healthHookStatusLabel(status string) string {
+// Shared by both the Hooks tab and the Health tab's problem-hook tier.
+func hookExplainStatusLabel(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "found":
 		return tr("hookstatus.found")
@@ -185,9 +188,10 @@ func healthHookStatusLabel(status string) string {
 	}
 }
 
-// healthHookKindLabel returns the TRANSLATED hook-kind label
+// hookExplainKindLabel returns the TRANSLATED hook-kind label
 // (file→文件, external→外部命令, opaque→未解析). Unknown echoes.
-func healthHookKindLabel(kind string) string {
+// Shared by both the Hooks tab and the Health tab's problem-hook tier.
+func hookExplainKindLabel(kind string) string {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case "file":
 		return tr("hookkind.file")
@@ -285,9 +289,9 @@ func healthItems(report HealthReport) []sectionItem {
 		}
 		h := h // shadow for closure capture
 		items = append(items, sectionItem{
-			title:  healthHookRowTitle(h),
-			color:  healthHookColor(h.Status),
-			detail: func(w int) string { return healthHookDetail(h, w) },
+			title:  hookExplainRowTitle(h),
+			color:  hookExplainColor(h.Status),
+			detail: func(w int) string { return hookExplainDetail(h, w) },
 		})
 	}
 
@@ -310,12 +314,13 @@ func healthAdviceRowTitle(a AdviceItem) string {
 		healthSevIcon(a.Severity), adviceTitle(a), healthSevLabel(a.Severity))
 }
 
-// healthHookRowTitle builds a problem-hook row label: "<icon> <event> ·
+// hookExplainRowTitle builds a problem-hook row label: "<icon> <event> ·
 // <translated status>". Event is engine DATA (English); the status tag is
 // translated.
-func healthHookRowTitle(h HookExplanation) string {
+// Shared by both the Hooks tab and the Health tab's problem-hook tier.
+func hookExplainRowTitle(h HookExplanation) string {
 	return fmt.Sprintf("%s %s · %s",
-		healthHookIcon(h.Status), h.Event, healthHookStatusLabel(h.Status))
+		hookExplainIcon(h.Status), h.Event, hookExplainStatusLabel(h.Status))
 }
 
 // ── Detail panes ─────────────────────────────────────────────────────────────
@@ -381,16 +386,17 @@ func healthAdviceDetail(a AdviceItem, width int) string {
 	return b.String()
 }
 
-// healthHookDetail builds the detail body for a problem hook: a translated Hook
-// section (event + matcher + kind + target + status) and the engine's ENGLISH
-// explanation sentence under a translated label (label translated, sentence
-// English — the documented hook-sentence scope). All values except the labels
-// are engine DATA (English).
-func healthHookDetail(h HookExplanation, width int) string {
-	fg := healthHookColor(h.Status)
+// hookExplainDetail builds the detail body for a hook explanation: a translated
+// Hook section (event + matcher + kind + target + status) and the engine's
+// ENGLISH explanation sentence under a translated label (label translated,
+// sentence English — the documented hook-sentence scope). All values except the
+// labels are engine DATA (English).
+// Shared by both the Hooks tab and the Health tab's problem-hook tier.
+func hookExplainDetail(h HookExplanation, width int) string {
+	fg := hookExplainColor(h.Status)
 
 	var b strings.Builder
-	b.WriteString(detailTitle(h.Event, fg, healthHookIcon(h.Status), width))
+	b.WriteString(detailTitle(h.Event, fg, hookExplainIcon(h.Status), width))
 	b.WriteString("\n\n")
 
 	b.WriteString(detailSection(tr("detail.hook"), fg, width))
@@ -398,11 +404,11 @@ func healthHookDetail(h HookExplanation, width int) string {
 	if strings.TrimSpace(h.Matcher) != "" {
 		b.WriteString(detailField(tr("detail.matcher"), h.Matcher, width))
 	}
-	b.WriteString(detailField(tr("detail.kind"), healthHookKindLabel(h.Kind), width))
+	b.WriteString(detailField(tr("detail.kind"), hookExplainKindLabel(h.Kind), width))
 	if strings.TrimSpace(h.Target) != "" {
 		b.WriteString(detailField(tr("detail.path"), h.Target, width))
 	}
-	b.WriteString(detailField(tr("detail.status"), healthHookStatusLabel(h.Status), width))
+	b.WriteString(detailField(tr("detail.status"), hookExplainStatusLabel(h.Status), width))
 
 	if strings.TrimSpace(h.Explanation) != "" {
 		b.WriteString("\n")
