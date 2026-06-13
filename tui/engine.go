@@ -476,21 +476,11 @@ type ConfigResult struct {
 
 // ── Hooks structs ────────────────────────────────────────────────────────────
 
-// HookCmd is one command entry inside a HookEntry.
-type HookCmd struct {
-	Type    string `json:"type"`
-	Command string `json:"command"`
-}
-
-// HookEntry is one entry in a hook event's array.
-type HookEntry struct {
-	Matcher string    `json:"matcher"`
-	Hooks   []HookCmd `json:"hooks"`
-}
-
-// HooksResult bundles the hooks map from the `hooks --format json` command.
+// HooksResult bundles the hook explanations from the `hooks --format json`
+// command. The raw hooks map is not decoded; only the explanations slice
+// (result.explanations) is consumed by the TUI.
 type HooksResult struct {
-	Hooks map[string][]HookEntry `json:"hooks"`
+	Explanations []HookExplanation `json:"explanations"`
 }
 
 // ── Selftest structs ──────────────────────────────────────────────────────────
@@ -541,7 +531,7 @@ type configEnvelope struct {
 
 type hooksEnvelope struct {
 	Result struct {
-		Hooks map[string][]HookEntry `json:"hooks"`
+		Explanations []HookExplanation `json:"explanations"`
 	} `json:"result"`
 }
 
@@ -576,13 +566,14 @@ func parseConfig(data []byte) (ConfigResult, error) {
 }
 
 // parseHooks unmarshals a raw `hooks --format json` envelope into a HooksResult.
+// It reads result.explanations (the U4 human-readable explanation slice).
 // Pure function — no exec, never panics.
 func parseHooks(data []byte) (HooksResult, error) {
 	var env hooksEnvelope
 	if err := json.Unmarshal(data, &env); err != nil {
 		return HooksResult{}, fmt.Errorf("parsing hooks JSON: %w", err)
 	}
-	return HooksResult{Hooks: env.Result.Hooks}, nil
+	return HooksResult{Explanations: env.Result.Explanations}, nil
 }
 
 // parseSelftest unmarshals a raw `selftest --format json` envelope into a
