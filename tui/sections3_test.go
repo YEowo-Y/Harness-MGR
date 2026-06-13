@@ -45,20 +45,24 @@ func sampleConfigResult() ConfigResult {
 
 func sampleHooksResult() HooksResult {
 	return HooksResult{
-		Hooks: map[string][]HookEntry{
-			"PostToolUse": {
-				{
-					Matcher: "Bash",
-					Hooks:   []HookCmd{{Type: "command", Command: "echo done"}},
-				},
+		Explanations: []HookExplanation{
+			{
+				Event:       "PostToolUse",
+				Matcher:     "Bash",
+				Command:     "echo done",
+				Kind:        "file",
+				Target:      "/hooks/post.mjs",
+				Status:      "found",
+				Explanation: `On PostToolUse (after a tool call completes), for tools matching "Bash", runs the script "/hooks/post.mjs" (file, found).`,
 			},
-			"PreToolUse": {
-				{
-					Hooks: []HookCmd{
-						{Type: "command", Command: "echo pre"},
-						{Type: "command", Command: "logger pre"},
-					},
-				},
+			{
+				Event:       "PreToolUse",
+				Matcher:     "",
+				Command:     "echo pre",
+				Kind:        "external",
+				Target:      "echo",
+				Status:      "found",
+				Explanation: `On PreToolUse (before a tool call runs), for all tools, runs the command "echo pre" (external, found).`,
 			},
 		},
 	}
@@ -166,14 +170,17 @@ var sampleHooksJSON = []byte(`{
 	"command": "hooks",
 	"version": 1,
 	"result": {
-		"hooks": {
-			"PostToolUse": [
-				{
-					"matcher": "Bash",
-					"hooks": [{"type": "command", "command": "echo done"}]
-				}
-			]
-		}
+		"explanations": [
+			{
+				"event": "PostToolUse",
+				"matcher": "Bash",
+				"command": "echo done",
+				"kind": "file",
+				"target": "/hooks/post.mjs",
+				"status": "found",
+				"explanation": "On PostToolUse (after a tool call completes), for tools matching \"Bash\", runs the script \"/hooks/post.mjs\" (file, found)."
+			}
+		]
 	},
 	"diagnostics": []
 }`)
@@ -183,35 +190,36 @@ func TestParseHooksHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseHooks error: %v", err)
 	}
-	if len(r.Hooks) != 1 {
-		t.Fatalf("Hooks count = %d, want 1", len(r.Hooks))
+	if len(r.Explanations) != 1 {
+		t.Fatalf("Explanations count = %d, want 1", len(r.Explanations))
 	}
-	entries, ok := r.Hooks["PostToolUse"]
-	if !ok {
-		t.Fatal("expected event 'PostToolUse'")
+	h := r.Explanations[0]
+	if h.Event != "PostToolUse" {
+		t.Fatalf("Event = %q, want %q", h.Event, "PostToolUse")
 	}
-	if len(entries) != 1 {
-		t.Fatalf("entries count = %d, want 1", len(entries))
+	if h.Matcher != "Bash" {
+		t.Fatalf("Matcher = %q, want %q", h.Matcher, "Bash")
 	}
-	if entries[0].Matcher != "Bash" {
-		t.Fatalf("Matcher = %q, want %q", entries[0].Matcher, "Bash")
+	if h.Command != "echo done" {
+		t.Fatalf("Command = %q, want %q", h.Command, "echo done")
 	}
-	if len(entries[0].Hooks) != 1 {
-		t.Fatalf("Hooks count = %d, want 1", len(entries[0].Hooks))
+	if h.Status != "found" {
+		t.Fatalf("Status = %q, want %q", h.Status, "found")
 	}
-	if entries[0].Hooks[0].Command != "echo done" {
-		t.Fatalf("Command = %q, want %q", entries[0].Hooks[0].Command, "echo done")
+	wantExpl := `On PostToolUse (after a tool call completes), for tools matching "Bash", runs the script "/hooks/post.mjs" (file, found).`
+	if h.Explanation != wantExpl {
+		t.Fatalf("Explanation = %q, want %q", h.Explanation, wantExpl)
 	}
 }
 
 func TestParseHooksEmpty(t *testing.T) {
-	data := []byte(`{"command":"hooks","version":1,"result":{"hooks":{}},"diagnostics":[]}`)
+	data := []byte(`{"command":"hooks","version":1,"result":{"explanations":[]},"diagnostics":[]}`)
 	r, err := parseHooks(data)
 	if err != nil {
 		t.Fatalf("parseHooks error: %v", err)
 	}
-	if len(r.Hooks) != 0 {
-		t.Fatalf("expected 0 events, got %d", len(r.Hooks))
+	if len(r.Explanations) != 0 {
+		t.Fatalf("expected 0 explanations, got %d", len(r.Explanations))
 	}
 }
 
@@ -370,60 +378,67 @@ func TestHooksItemsCount(t *testing.T) {
 	}
 }
 
-func TestHooksItemsSortedOrder(t *testing.T) {
+// TestHooksItemsEngineOrderS3 verifies items preserve the engine order of
+// Explanations (PostToolUse first, PreToolUse second) without sorting.
+func TestHooksItemsEngineOrderS3(t *testing.T) {
 	items := hooksItems(sampleHooksResult())
-	// sorted: "PostToolUse", "PreToolUse"
-	if !strings.HasPrefix(items[0].title, "PostToolUse") {
-		t.Fatalf("items[0].title = %q, want prefix PostToolUse", items[0].title)
+	if !strings.Contains(items[0].title, "PostToolUse") {
+		t.Fatalf("items[0].title = %q, want to contain PostToolUse", items[0].title)
 	}
-	if !strings.HasPrefix(items[1].title, "PreToolUse") {
-		t.Fatalf("items[1].title = %q, want prefix PreToolUse", items[1].title)
-	}
-}
-
-func TestHooksItemsTitleIncludesCount(t *testing.T) {
-	items := hooksItems(sampleHooksResult())
-	// PostToolUse has 1 entry; PreToolUse has 1 entry
-	if !strings.Contains(items[0].title, "(1)") {
-		t.Fatalf("hooksItems title missing entry count: %q", items[0].title)
+	if !strings.Contains(items[1].title, "PreToolUse") {
+		t.Fatalf("items[1].title = %q, want to contain PreToolUse", items[1].title)
 	}
 }
 
-func TestHooksItemsColor(t *testing.T) {
-	items := hooksItems(sampleHooksResult())
-	if items[0].color != accent {
-		t.Fatalf("hooks item color = %v, want accent", items[0].color)
+// TestHooksItemsColorIsStatusBased verifies hookExplainColor maps status → color
+// in BOTH directions: a "found" hook is green (colorPlugin) and a "missing" hook
+// is red (colorRed). Asserting the concrete colors (not merely "non-red") catches
+// a status→color swap mutation, which a single negative assertion would survive.
+func TestHooksItemsColorIsStatusBased(t *testing.T) {
+	found := hooksItems(sampleHooksResult())
+	// sampleHooksResult's first entry is "found" → green.
+	if found[0].color != colorPlugin {
+		t.Fatalf("hooks item[0] color = %v, want colorPlugin for 'found' status", found[0].color)
+	}
+	// A "missing" hook must be red.
+	missing := hooksItems(HooksResult{Explanations: []HookExplanation{
+		{Event: "PreToolUse", Kind: "file", Target: "/hooks/gone.mjs", Status: "missing"},
+	}})
+	if missing[0].color != colorRed {
+		t.Fatalf("hooks item[0] color = %v, want colorRed for 'missing' status", missing[0].color)
 	}
 }
 
 func TestHooksItemsDetailContainsMatcher(t *testing.T) {
 	items := hooksItems(sampleHooksResult())
-	// PostToolUse has matcher "Bash"
+	// PostToolUse entry has Matcher "Bash"
 	if !strings.Contains(items[0].detail(80), "Bash") {
 		t.Fatalf("hooks detail missing matcher:\n%s", items[0].detail(80))
 	}
 }
 
-func TestHooksItemsDetailContainsCommand(t *testing.T) {
+func TestHooksItemsDetailContainsTarget(t *testing.T) {
 	items := hooksItems(sampleHooksResult())
-	if !strings.Contains(items[0].detail(80), "echo done") {
-		t.Fatalf("hooks detail missing command:\n%s", items[0].detail(80))
+	// PostToolUse entry has Target "/hooks/post.mjs" (shown as Path for file-kind hooks)
+	if !strings.Contains(items[0].detail(80), "/hooks/post.mjs") {
+		t.Fatalf("hooks detail missing target:\n%s", items[0].detail(80))
 	}
 }
 
 func TestHooksItemsEmpty(t *testing.T) {
-	items := hooksItems(HooksResult{Hooks: map[string][]HookEntry{}})
+	items := hooksItems(HooksResult{Explanations: []HookExplanation{}})
 	if len(items) != 0 {
 		t.Fatalf("hooksItems(empty) count = %d, want 0", len(items))
 	}
 }
 
-// TestHooksItemsNilHooks covers a nil Hooks map (what `"hooks": null` decodes
-// to), which must yield zero items without panicking.
-func TestHooksItemsNilHooks(t *testing.T) {
+// TestHooksItemsNilExplanations covers a nil Explanations slice (what
+// `"explanations": null` decodes to), which must yield zero items without
+// panicking.
+func TestHooksItemsNilExplanations(t *testing.T) {
 	items := hooksItems(HooksResult{})
 	if len(items) != 0 {
-		t.Fatalf("hooksItems(nil hooks) count = %d, want 0", len(items))
+		t.Fatalf("hooksItems(nil explanations) count = %d, want 0", len(items))
 	}
 }
 
@@ -520,8 +535,8 @@ func TestHooksMsgSetsListAndSummary(t *testing.T) {
 	if len(st.list.items) != 2 {
 		t.Fatalf("list items = %d, want 2", len(st.list.items))
 	}
-	if !strings.Contains(st.summaryText(), "2 events") {
-		t.Fatalf("summary = %q, want to contain %q", st.summaryText(), "2 events")
+	if !strings.Contains(st.summaryText(), "2 hooks") {
+		t.Fatalf("summary = %q, want to contain %q", st.summaryText(), "2 hooks")
 	}
 }
 
