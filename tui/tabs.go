@@ -329,50 +329,35 @@ func configDetail(ck ConfigKey, width int) string {
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
-// hooksItems converts a HooksResult into sectionItems for the Hooks list.
-// One item per event, sorted by event name. The title includes the entry count.
-// Color is accent (teal). The detail lists matchers and commands per entry.
-func hooksItems(r HooksResult) []sectionItem {
-	events := make([]string, 0, len(r.Hooks))
-	for e := range r.Hooks {
-		events = append(events, e)
+// hookExplainTallies returns [total, missing, indeterminate] counts across a
+// slice of HookExplanation entries. Used to build the 3-arg summary.hooks badge.
+func hookExplainTallies(expls []HookExplanation) [3]int {
+	var missing, indeterminate int
+	for _, h := range expls {
+		switch strings.ToLower(strings.TrimSpace(h.Status)) {
+		case "missing":
+			missing++
+		case "indeterminate":
+			indeterminate++
+		}
 	}
-	sort.Strings(events)
+	return [3]int{len(expls), missing, indeterminate}
+}
 
-	items := make([]sectionItem, 0, len(events))
-	for _, e := range events {
-		e := e // shadow for closure capture
-		entries := r.Hooks[e]
+// hooksItems converts a HooksResult into sectionItems for the Hooks list.
+// One item per explanation entry, in engine order (no sort). Color reflects the
+// hook status via hookExplainColor; detail reuses hookExplainDetail from health.go.
+func hooksItems(r HooksResult) []sectionItem {
+	items := make([]sectionItem, 0, len(r.Explanations))
+	for _, h := range r.Explanations {
+		h := h // shadow for closure capture
 		items = append(items, sectionItem{
-			title:  fmt.Sprintf("%s (%d)", e, len(entries)),
-			color:  accent,
-			detail: func(w int) string { return hooksDetail(e, entries, w) },
+			title:  hookExplainRowTitle(h),
+			color:  hookExplainColor(h.Status),
+			detail: func(w int) string { return hookExplainDetail(h, w) },
 		})
 	}
 	return items
-}
-
-// hooksDetail builds the detail body for a hook event at the given pane width.
-func hooksDetail(event string, entries []HookEntry, width int) string {
-	var b strings.Builder
-	b.WriteString(detailTitle(event, accent, "", width))
-	b.WriteString("\n\n")
-	for i, entry := range entries {
-		if i > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(detailSection(fmt.Sprintf("Binding %d", i+1), accent, width))
-		if entry.Matcher != "" {
-			b.WriteString(detailField("Matcher", entry.Matcher, width))
-		}
-		for _, cmd := range entry.Hooks {
-			if t := strings.TrimSpace(cmd.Type); t != "" {
-				b.WriteString(detailField("Type", t, width))
-			}
-			b.WriteString(detailField("Command", cmd.Command, width))
-		}
-	}
-	return b.String()
 }
 
 // ── Selftest ─────────────────────────────────────────────────────────────────
