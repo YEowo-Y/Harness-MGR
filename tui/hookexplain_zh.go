@@ -68,14 +68,14 @@ func hookMatcherClauseZh(event, matcher string) string {
 	m := strings.TrimSpace(matcher)
 	if m == "" || m == "*" {
 		if isTool {
-			return "对所有工具调用,"
+			return "对所有工具调用，"
 		}
 		return ""
 	}
 	if isTool {
-		return fmt.Sprintf("对匹配 \"%s\" 的工具,", matcher)
+		return fmt.Sprintf("对匹配“%s”的工具，", matcher)
 	}
-	return fmt.Sprintf("匹配 \"%s\" 时,", matcher)
+	return fmt.Sprintf("匹配“%s”时，", matcher)
 }
 
 // hookStatusTextZh returns the Chinese status text for a hook entry. The
@@ -85,15 +85,15 @@ func hookStatusTextZh(status, kind string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "missing":
 		if strings.ToLower(strings.TrimSpace(kind)) == "file" {
-			return "缺失 — 文件未找到"
+			return "缺失：文件未找到"
 		}
-		return "缺失 — PATH 中未找到"
+		return "缺失：PATH 中未找到"
 	case "found":
 		return "存在"
 	case "indeterminate":
-		return "不确定 — 含未展开的运行时变量"
+		return "不确定：含未展开的运行时变量"
 	case "unprobed":
-		return "未探测 — 本次运行未解析"
+		return "未探测：本次运行未解析"
 	default:
 		return status
 	}
@@ -119,9 +119,9 @@ func hookExplainKindLabelZh(kind string) string {
 //
 // Sentence patterns:
 //
-//	opaque: 在 Event(phrase),matcherClause 运行命令 "target"(无法解析命令形式,statusZh)。
-//	file:   在 Event(phrase),matcherClause 运行脚本 "target"(kindLabel,statusZh)。
-//	other:  在 Event(phrase),matcherClause 运行外部命令 "target"(kindLabel,statusZh)。
+//	opaque: 在 Event（phrase），matcherClause运行命令“target”（无法解析命令形式，statusZh）。
+//	file:   在 Event（phrase），matcherClause运行脚本“target”（kindLabel，statusZh）。
+//	other:  在 Event（phrase），matcherClause运行外部命令“target”（kindLabel，statusZh）。
 //
 // Embedded engine DATA (Event key, matcher value, target path) stays English.
 // Kind/status labels are translated via hookExplainKindLabel / hookStatusTextZh.
@@ -131,23 +131,23 @@ func hookExplainSentenceZh(h HookExplanation) string {
 
 	var head string
 	if matcherPart != "" {
-		head = fmt.Sprintf("在 %s(%s),%s", h.Event, hookEventPhraseZh(h.Event), matcherPart)
+		head = fmt.Sprintf("在 %s（%s），%s", h.Event, hookEventPhraseZh(h.Event), matcherPart)
 	} else {
-		head = fmt.Sprintf("在 %s(%s),", h.Event, hookEventPhraseZh(h.Event))
+		head = fmt.Sprintf("在 %s（%s），", h.Event, hookEventPhraseZh(h.Event))
 	}
 
 	st := hookStatusTextZh(h.Status, h.Kind)
 
 	if strings.ToLower(strings.TrimSpace(h.Kind)) == "opaque" {
-		return fmt.Sprintf("%s运行命令 \"%s\"(无法解析命令形式,%s)。", head, h.Target, st)
+		return fmt.Sprintf("%s运行命令“%s”（无法解析命令形式，%s）。", head, h.Target, st)
 	}
 
 	kindLabel := hookExplainKindLabelZh(h.Kind)
 	var action string
 	if strings.ToLower(strings.TrimSpace(h.Kind)) == "file" {
-		action = fmt.Sprintf("运行脚本 \"%s\"", h.Target)
+		action = fmt.Sprintf("运行脚本“%s”", h.Target)
 	} else {
-		action = fmt.Sprintf("运行外部命令 \"%s\"", h.Target)
+		action = fmt.Sprintf("运行外部命令“%s”", h.Target)
 	}
-	return fmt.Sprintf("%s%s(%s,%s)。", head, action, kindLabel, st)
+	return fmt.Sprintf("%s%s（%s，%s）。", head, action, kindLabel, st)
 }
