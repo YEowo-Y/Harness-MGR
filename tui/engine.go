@@ -936,9 +936,9 @@ type AdviceSection struct {
 // HookExplanation is one element of result.hooks.explanations: a configured hook
 // with its resolution status and the engine's English explanation sentence. Kind
 // is "file" | "external" | "opaque"; Status is "found" | "missing" |
-// "indeterminate" | "unprobed". The Explanation sentence stays English (engine
-// data) — only its surrounding label is translated (see the hook-sentence-scope
-// note in the bilingual design).
+// "indeterminate" | "unprobed". Explanation is the engine's English sentence,
+// used verbatim in en mode; in zh mode the TUI recomposes a Chinese sentence
+// from the other fields (hookExplainSentenceZh) rather than translating it.
 type HookExplanation struct {
 	Event       string `json:"event"`
 	Matcher     string `json:"matcher"`
