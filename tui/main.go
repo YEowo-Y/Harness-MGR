@@ -866,15 +866,17 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = (m.currentView - 1 + tabCount) % tabCount
 		m.refreshDetail()
 		return m, m.lazyLoadCurrent()
-	case "H":
+	case "h", "H":
 		// Direct jump to the Health tab — the 11th tab has no single digit (1-0
 		// address tabs 1-10), so a mnemonic key reaches it without cycling.
+		// Case-insensitive: the tab bar shows "H" but users naturally press lowercase.
 		m.clearFilter()
 		m.currentView = viewHealth
 		m.refreshDetail()
 		return m, m.lazyLoadCurrent()
-	case "D":
+	case "d", "D":
 		// Direct jump to the Dispositions tab — the 12th tab, beyond the digit range.
+		// Case-insensitive (lowercase "d" was a page-down alias; page-down keeps f/PgDn).
 		m.clearFilter()
 		m.currentView = viewDispositions
 		m.refreshDetail()
@@ -1091,7 +1093,7 @@ func (m *model) moveSectionCursor(msg tea.KeyMsg) {
 		st.list.gotoTop()
 	case "G", "end":
 		st.list.gotoBottom()
-	case "pgdown", "f", "d":
+	case "pgdown", "f":
 		st.list.moveDown(page)
 	case "pgup", "b", "u":
 		st.list.moveUp(page)
@@ -1118,7 +1120,7 @@ func (m *model) moveTreeCursor(msg tea.KeyMsg) {
 		m.tree.gotoTop()
 	case "G", "end":
 		m.tree.gotoBottom()
-	case "pgdown", "f", "d":
+	case "pgdown", "f":
 		m.tree.moveDown(page)
 	case "pgup", "b", "u":
 		m.tree.moveUp(page)
