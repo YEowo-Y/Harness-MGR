@@ -400,10 +400,11 @@ func TestHealthComponentDetailBilingual(t *testing.T) {
 	}
 }
 
-// TestHealthHookDetailKeepsEnglishExplanation asserts the problem-hook detail
-// translates its labels (事件/状态) but keeps the engine's English explanation
-// sentence (the documented hook-sentence scope).
-func TestHealthHookDetailKeepsEnglishExplanation(t *testing.T) {
+// TestHealthHookDetailZhExplanation asserts the problem-hook detail translates
+// its labels (事件/状态) AND its explanation sentence into Chinese (zh mode).
+// Engine DATA embedded in the sentence (event key, target path) must appear
+// verbatim (English). En mode keeps the engine's English sentence unchanged.
+func TestHealthHookDetailZhExplanation(t *testing.T) {
 	defer func() { uiLang = langEN }()
 	uiLang = langZH
 	items := healthItems(sampleHealthReport())
@@ -414,12 +415,20 @@ func TestHealthHookDetailKeepsEnglishExplanation(t *testing.T) {
 	if !strings.Contains(body, "缺失") {
 		t.Fatalf("ZH hook detail missing translated missing status 缺失:\n%s", body)
 	}
-	// Engine DATA: the explanation sentence + event name stay English.
-	if !strings.Contains(body, "runs the script") {
-		t.Fatalf("ZH hook detail should keep the English explanation sentence:\n%s", body)
+	// ZH mode: explanation sentence is Chinese — must contain zh prose.
+	if !strings.Contains(body, "运行脚本") {
+		t.Fatalf("ZH hook detail should show Chinese explanation sentence (运行脚本):\n%s", body)
 	}
+	// Engine DATA: event key and target path appear verbatim in the Chinese sentence.
 	if !strings.Contains(body, "PreToolUse") {
-		t.Fatalf("ZH hook detail should keep the English event name:\n%s", body)
+		t.Fatalf("ZH hook detail should keep the English event name PreToolUse:\n%s", body)
+	}
+	if !strings.Contains(body, "/cfg/hooks/missing.mjs") {
+		t.Fatalf("ZH hook detail should keep the English target path verbatim:\n%s", body)
+	}
+	// ZH mode must NOT show the English explanation sentence verbatim.
+	if strings.Contains(body, "runs the script") {
+		t.Fatalf("ZH hook detail must NOT show the English explanation sentence in zh mode:\n%s", body)
 	}
 }
 
