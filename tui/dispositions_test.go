@@ -330,6 +330,31 @@ func TestDispositionPluginAdvisoryZH(t *testing.T) {
 	}
 }
 
+// TestDispositionDetailRemovableEmptyCommand pins the non-reachable edge where a
+// loser is Removable=true but RemoveCommand=="" — produced by the engine only for
+// an empty-name user-tier loser (tier==='user' ⇒ removable, but an empty name ⇒
+// removeCommand=null). Real scans never emit an empty component name (engine U10
+// cosmetic, acknowledged). For this SAME edge the engine's own `suggestion` field
+// also falls to the plugin-advisory branch, so the detail pane staying advisory
+// here is engine-CONSISTENT, not a divergence — a "neutral" fallback would make
+// the Action contradict the Suggestion shown right below it. This pins that the
+// branch renders gracefully (no panic) and keeps the engine-consistent advisory.
+func TestDispositionDetailRemovableEmptyCommand(t *testing.T) {
+	defer func() { uiLang = langEN }()
+	uiLang = langEN
+	d := Disposition{
+		Kind: "agent", Key: "ghost", Severity: "warn",
+		Winner: DispositionWinner{Name: "ghost", Path: "/cfg/agents/ghost.md", Tier: "user"},
+		Shadowed: []DispositionShadowed{
+			{Name: "", Path: "/cfg/agents/dup.md", Tier: "user", Removable: true, RemoveCommand: ""},
+		},
+	}
+	body := dispositionDetail(d, 120) // must not panic on the empty-command edge
+	if !strings.Contains(body, "disable or uninstall the plugin") {
+		t.Fatalf("empty-command removable loser should render engine-consistent advisory:\n%s", body)
+	}
+}
+
 // ── docWithVersion helper ─────────────────────────────────────────────────────
 
 func TestDocWithVersion(t *testing.T) {
@@ -487,9 +512,19 @@ func TestDKeyNavigatesToDispositions(t *testing.T) {
 }
 
 func TestDispositionsReachableByCycle(t *testing.T) {
+	// Forward-cycle reachability: pressing ']' from Inventory exactly
+	// int(viewDispositions) times must land on the last tab. Unlike the rendering
+	// tests (which set currentView directly via switchToDispositions), this drives
+	// REAL keypresses through Update, so it guards that Dispositions is genuinely
+	// part of the ] cycle — drop it from the cycle and this goes red.
 	m := loadedModel(120, 30)
-	m = injectDispositions(m, sampleDispositions())
-	m = switchToDispositions(m)
+	if m.currentView != viewInventory {
+		t.Fatalf("precondition: want viewInventory, got %v", m.currentView)
+	}
+	for i := 0; i < int(viewDispositions); i++ {
+		mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("]")})
+		m = mm.(model)
+	}
 	if m.currentView != viewDispositions {
 		t.Fatalf("after %d ']' presses currentView = %v, want viewDispositions", int(viewDispositions), m.currentView)
 	}
