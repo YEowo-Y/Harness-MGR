@@ -5,9 +5,10 @@ import "fmt"
 // ── UI localization (Tier-1 chrome only) ────────────────────────────────────
 //
 // Translates the main interface chrome — tab bar, status bar, counts bar, splash,
-// "coming soon" placeholders, empty states, and section summary bars — between
-// English and Simplified Chinese. Detail-pane internals (section headers, field
-// labels) and engine data (component names, paths, raw JSON) deliberately stay
+// "coming soon" placeholders, empty states, section summary bars, AND the
+// detail-pane section/field labels (the detail.* keys) — between English and
+// Simplified Chinese. Only engine DATA (component/event/plugin names, file paths,
+// raw JSON values, the engine's English explanation sentence) deliberately stays
 // English. English is the source of truth and every English entry below is kept
 // byte-identical to the former hardcoded string, so the default (English) UI — and
 // the tests that assert on it — render exactly as before.
@@ -222,6 +223,59 @@ var translations = map[string][2]string{
 	"detail.tier":                 {"Tier", "层级"},
 	"detail.plugin":               {"Plugin", "插件"},
 	"help.dispositions":           {"jump to Dispositions", "跳转到处置建议"},
+
+	// Detail-pane section / field labels for the remaining tabs (Inventory,
+	// Conflicts, Orphans, Config, Selftest, Doctor, Permissions, Drift, Audit).
+	// CHROME — translated; engine DATA (names, paths, raw values) stays English.
+	// Each English entry is byte-identical to the former hardcoded literal.
+	"detail.classification":     {"Classification", "分类"},
+	"detail.confidence":         {"Confidence", "置信度"},
+	"detail.resolution":         {"Resolution", "解析"},
+	"detail.likelyWinner":       {"Likely winner", "可能胜者"},
+	"detail.winnerPath":         {"Winner path", "胜者路径"},
+	"detail.possibleWinners":    {"Possible winners", "可能的胜者"},
+	"detail.explanation":        {"Explanation", "说明"},
+	"detail.reason":             {"Reason", "原因"},
+	"detail.category":           {"Category", "类别"},
+	"detail.entryType":          {"Entry type", "条目类型"},
+	"detail.container":          {"Container", "容器"},
+	"detail.location":           {"Location", "位置"},
+	"detail.merge":              {"Merge", "合并"},
+	"detail.mergeConfidence":    {"Merge confidence", "合并置信度"},
+	"detail.strategy":           {"Strategy", "策略"},
+	"detail.layers":             {"Layers", "层"},
+	"detail.layer":              {"Layer", "层"},
+	"detail.result":             {"Result", "结果"},
+	"detail.probeLevel":         {"Probe level", "探测级别"},
+	"detail.findings":           {"Findings", "发现"},
+	"detail.permission":         {"Permission", "权限"},
+	"detail.overbroad":          {"Overbroad", "过宽"},
+	"detail.why":                {"Why", "原因"},
+	"detail.change":             {"Change", "变更"},
+	"detail.fields":             {"Fields", "字段"},
+	"detail.provenance":         {"Provenance", "出处"},
+	"detail.source":             {"Source", "来源"},
+	"detail.about":              {"About", "关于"},
+	"detail.identity":           {"Identity", "标识"},
+	"detail.key":                {"Key", "键"},
+	"detail.enabled":            {"Enabled", "已启用"},
+	"detail.cachePresent":       {"Cache present", "缓存存在"},
+	"detail.repository":         {"Repository", "仓库"},
+	"detail.sourceRepo":         {"Source repo", "源仓库"},
+	"detail.local":              {"Local", "本地"},
+	"detail.onDisk":             {"On disk", "磁盘上"},
+	"detail.installLocation":    {"Install location", "安装位置"},
+	"detail.connection":         {"Connection", "连接"},
+	"detail.transport":          {"Transport", "传输"},
+	"detail.invocation":         {"Invocation", "调用"},
+	"detail.command":            {"Command", "命令"},
+	"detail.args":               {"Args", "参数"},
+	"detail.version":            {"Version", "版本"},
+	"detail.marketplace":        {"Marketplace", "市场"},
+	"detail.description":        {"Description", "描述"},
+	"detail.activeProbeSkipped": {"active probe skipped in passive run", "被动运行中跳过主动探针"},
+	"detail.noFindings":         {"passed — no findings", "通过 — 无发现"},
+	"detail.emptyEntry":         {"empty entry", "空记录"},
 }
 
 // tr returns key's text in the active UI language, falling back to English (then
