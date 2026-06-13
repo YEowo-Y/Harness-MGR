@@ -864,26 +864,26 @@ func componentDetail(c Component, fg lipgloss.Color, width int) string {
 	b.WriteString(detailTitle(c.Name, fg, typeIcon(c.Kind), width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Provenance", fg, width))
-	b.WriteString(detailField("Kind", c.Kind, width))
-	b.WriteString(detailField("Source", sourceSummary(c.Source), width))
+	b.WriteString(detailSection(tr("detail.provenance"), fg, width))
+	b.WriteString(detailField(tr("detail.kind"), c.Kind, width))
+	b.WriteString(detailField(tr("detail.source"), sourceSummary(c.Source), width))
 	if p := strings.TrimSpace(c.Source.Plugin); p != "" {
-		b.WriteString(detailField("Plugin", p, width))
+		b.WriteString(detailField(tr("detail.plugin"), p, width))
 	}
 	if mk := strings.TrimSpace(c.Source.Marketplace); mk != "" {
-		b.WriteString(detailField("Marketplace", mk, width))
+		b.WriteString(detailField(tr("detail.marketplace"), mk, width))
 	}
 	if v := strings.TrimSpace(c.Source.Version); v != "" {
-		b.WriteString(detailField("Version", v, width))
+		b.WriteString(detailField(tr("detail.version"), v, width))
 	}
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Location", fg, width))
-	b.WriteString(detailField("Path", c.Path, width))
+	b.WriteString(detailSection(tr("detail.location"), fg, width))
+	b.WriteString(detailField(tr("detail.path"), c.Path, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("About", fg, width))
-	b.WriteString(detailField("Description", c.Description, width))
+	b.WriteString(detailSection(tr("detail.about"), fg, width))
+	b.WriteString(detailField(tr("detail.description"), c.Description, width))
 	return b.String()
 }
 
@@ -894,15 +894,15 @@ func pluginDetail(p Plugin, fg lipgloss.Color, width int) string {
 	b.WriteString(detailTitle(p.Name, fg, typeIcon("plugin"), width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Identity", fg, width))
-	b.WriteString(detailField("Key", p.Key, width))
-	b.WriteString(detailField("Marketplace", p.Marketplace, width))
-	b.WriteString(detailField("Version", p.Version, width))
+	b.WriteString(detailSection(tr("detail.identity"), fg, width))
+	b.WriteString(detailField(tr("detail.key"), p.Key, width))
+	b.WriteString(detailField(tr("detail.marketplace"), p.Marketplace, width))
+	b.WriteString(detailField(tr("detail.version"), p.Version, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Status", fg, width))
-	b.WriteString(detailField("Enabled", boolText(p.Enabled), width))
-	b.WriteString(detailField("Cache present", boolText(p.CachePresent), width))
+	b.WriteString(detailSection(tr("detail.status"), fg, width))
+	b.WriteString(detailField(tr("detail.enabled"), boolText(p.Enabled), width))
+	b.WriteString(detailField(tr("detail.cachePresent"), boolText(p.CachePresent), width))
 	return b.String()
 }
 
@@ -913,13 +913,13 @@ func marketplaceDetail(mk Marketplace, fg lipgloss.Color, width int) string {
 	b.WriteString(detailTitle(mk.Name, fg, typeIcon("marketplace"), width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Repository", fg, width))
-	b.WriteString(detailField("Source repo", mk.SourceRepo, width))
+	b.WriteString(detailSection(tr("detail.repository"), fg, width))
+	b.WriteString(detailField(tr("detail.sourceRepo"), mk.SourceRepo, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Local", fg, width))
-	b.WriteString(detailField("On disk", boolText(mk.OnDisk), width))
-	b.WriteString(detailField("Install location", mk.InstallLocation, width))
+	b.WriteString(detailSection(tr("detail.local"), fg, width))
+	b.WriteString(detailField(tr("detail.onDisk"), boolText(mk.OnDisk), width))
+	b.WriteString(detailField(tr("detail.installLocation"), mk.InstallLocation, width))
 	return b.String()
 }
 
@@ -930,14 +930,14 @@ func mcpDetail(ms McpServer, fg lipgloss.Color, width int) string {
 	b.WriteString(detailTitle(ms.Name, fg, typeIcon("mcp"), width))
 	b.WriteString("\n\n")
 
-	b.WriteString(detailSection("Connection", fg, width))
-	b.WriteString(detailField("Transport", ms.Transport, width))
-	b.WriteString(detailField("Scope", ms.Scope, width))
+	b.WriteString(detailSection(tr("detail.connection"), fg, width))
+	b.WriteString(detailField(tr("detail.transport"), ms.Transport, width))
+	b.WriteString(detailField(tr("detail.scope"), ms.Scope, width))
 
 	b.WriteString("\n")
-	b.WriteString(detailSection("Invocation", fg, width))
-	b.WriteString(detailField("Command", ms.Command, width))
-	b.WriteString(detailField("Args", strings.Join(ms.Args, " "), width))
+	b.WriteString(detailSection(tr("detail.invocation"), fg, width))
+	b.WriteString(detailField(tr("detail.command"), ms.Command, width))
+	b.WriteString(detailField(tr("detail.args"), strings.Join(ms.Args, " "), width))
 	return b.String()
 }
 
