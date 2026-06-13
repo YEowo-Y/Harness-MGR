@@ -123,7 +123,7 @@ var translations = map[string][2]string{
 	"summary.conflicts":    {"%d conflicts", "%d 个冲突"},
 	"summary.orphans":      {"%d hard · %d soft", "%d 严重 · %d 轻微"},
 	"summary.config":       {"%d keys", "%d 个配置项"},
-	"summary.hooks":        {"%d events", "%d 个事件"},
+	"summary.hooks":        {"%d hooks · %d missing · %d indeterminate", "%d 个钩子 · %d 缺失 · %d 不确定"},
 	"summary.selftestOk":   {"%d checks, all ok", "%d 项检查,全部通过"},
 	"summary.selftestFail": {"%d checks, %d failing", "%d 项检查,%d 项失败"},
 	"summary.doctor":       {"%d checks · %d findings", "%d 项检查 · %d 处发现"},
