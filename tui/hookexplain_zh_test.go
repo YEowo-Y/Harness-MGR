@@ -79,7 +79,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Target:  "/h/post.mjs",
 				Status:  "found",
 			},
-			want: "在 PostToolUse(工具调用完成后),对所有工具调用,运行脚本 \"/h/post.mjs\"(文件,存在)。",
+			want: "在 PostToolUse（工具调用完成后），对所有工具调用，运行脚本“/h/post.mjs”（文件，存在）。",
 		},
 		{
 			name: "PreToolUse Bash-matcher file found",
@@ -90,7 +90,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Target:  "/h/pre.mjs",
 				Status:  "found",
 			},
-			want: "在 PreToolUse(工具调用运行前),对匹配 \"Bash\" 的工具,运行脚本 \"/h/pre.mjs\"(文件,存在)。",
+			want: "在 PreToolUse（工具调用运行前），对匹配“Bash”的工具，运行脚本“/h/pre.mjs”（文件，存在）。",
 		},
 		{
 			name: "file missing — file not found",
@@ -102,7 +102,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Status:  "missing",
 			},
 			// Check key substrings separately below; also verify the full string.
-			want: "在 PreToolUse(工具调用运行前),对所有工具调用,运行脚本 \"/missing.mjs\"(文件,缺失 — 文件未找到)。",
+			want: "在 PreToolUse（工具调用运行前），对所有工具调用，运行脚本“/missing.mjs”（文件，缺失：文件未找到）。",
 		},
 		{
 			name: "Stop external found (no matcher clause)",
@@ -113,7 +113,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Target:  "any-buddy",
 				Status:  "found",
 			},
-			want: "在 Stop(Claude 完成回复时),运行外部命令 \"any-buddy\"(外部命令,存在)。",
+			want: "在 Stop（Claude 完成回复时），运行外部命令“any-buddy”（外部命令，存在）。",
 		},
 		{
 			name: "opaque unprobed",
@@ -124,7 +124,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Target:  "weird | cmd",
 				Status:  "unprobed",
 			},
-			want: "在 PreToolUse(工具调用运行前),对所有工具调用,运行命令 \"weird | cmd\"(无法解析命令形式,未探测 — 本次运行未解析)。",
+			want: "在 PreToolUse（工具调用运行前），对所有工具调用，运行命令“weird | cmd”（无法解析命令形式，未探测：本次运行未解析）。",
 		},
 		{
 			name: "unknown event fallback",
@@ -135,7 +135,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Target:  "some-cmd",
 				Status:  "found",
 			},
-			want: "在 MadeUpEvent(该事件触发时),运行外部命令 \"some-cmd\"(外部命令,存在)。",
+			want: "在 MadeUpEvent（该事件触发时），运行外部命令“some-cmd”（外部命令，存在）。",
 		},
 		{
 			name: "SessionStart no matcher no tool clause",
@@ -146,7 +146,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Target:  "/s/start.mjs",
 				Status:  "found",
 			},
-			want: "在 SessionStart(会话开始或恢复时),运行脚本 \"/s/start.mjs\"(文件,存在)。",
+			want: "在 SessionStart（会话开始或恢复时），运行脚本“/s/start.mjs”（文件，存在）。",
 		},
 		{
 			name: "indeterminate status",
@@ -157,7 +157,7 @@ func TestHookExplainSentenceZhGoldens(t *testing.T) {
 				Target:  "/h/indeterminate.mjs",
 				Status:  "indeterminate",
 			},
-			want: "在 PostToolUse(工具调用完成后),对所有工具调用,运行脚本 \"/h/indeterminate.mjs\"(文件,不确定 — 含未展开的运行时变量)。",
+			want: "在 PostToolUse（工具调用完成后），对所有工具调用，运行脚本“/h/indeterminate.mjs”（文件，不确定：含未展开的运行时变量）。",
 		},
 	}
 
