@@ -271,7 +271,7 @@ function safeRegExp(src) { try { return new RegExp(src); } catch { return null; 
  * @type {CommandHandler}
  */
 export function orphansCommand(ctx) {
-  const a = analyzeOrphans(detectOrphans(ctx.configDir));
+  const a = analyzeOrphans(detectOrphans(ctx.configDir, { descriptor: ctx.descriptor }));
   return { result: { orphans: a.orphans, summary: a.summary }, diagnostics: a.diagnostics.slice() };
 }
 
