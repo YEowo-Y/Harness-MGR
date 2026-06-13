@@ -27,11 +27,11 @@ import (
 // so a language switch re-renders bilingually with no re-fetch — the same
 // pattern the rest of the section tabs use.
 //
-// HOOK-SENTENCE SCOPE: the engine emits an English `explanation` sentence; a
-// full Chinese recomposition of the ~30 event phrases in Go is out of B2 scope
-// (a documented possible follow-on). The list shows problem hooks compactly as
-// event + translated status/kind labels; the detail pane shows the engine's
-// English sentence under a translated label (label translated, sentence English).
+// HOOK-SENTENCE SCOPE: the engine emits an English `explanation` sentence. The
+// list shows hooks compactly as event + translated status/kind labels; the
+// detail pane shows that sentence under a translated label — verbatim in en
+// mode, recomposed in Chinese (hookExplainSentenceZh, ~30 event phrases) in zh
+// mode, with embedded engine data (event/matcher/target) kept English.
 //
 // LAYOUT (severity-tiered): not-loaded components (red) → degraded (orange) →
 // advice error→warn→info → problem hooks (status missing/indeterminate). A row
@@ -387,10 +387,11 @@ func healthAdviceDetail(a AdviceItem, width int) string {
 }
 
 // hookExplainDetail builds the detail body for a hook explanation: a translated
-// Hook section (event + matcher + kind + target + status) and the engine's
-// ENGLISH explanation sentence under a translated label (label translated,
-// sentence English — the documented hook-sentence scope). All values except the
-// labels are engine DATA (English).
+// Hook section (event + matcher + kind + target + status) and an explanation
+// sentence under a translated label. In en mode the sentence is the engine's
+// English `explanation` verbatim; in zh mode it is recomposed in Chinese via
+// hookExplainSentenceZh (prose translated, embedded engine data kept English).
+// All field VALUES except the labels are engine DATA (English).
 // Shared by both the Hooks tab and the Health tab's problem-hook tier.
 func hookExplainDetail(h HookExplanation, width int) string {
 	fg := hookExplainColor(h.Status)
@@ -413,9 +414,17 @@ func hookExplainDetail(h HookExplanation, width int) string {
 	if strings.TrimSpace(h.Explanation) != "" {
 		b.WriteString("\n")
 		b.WriteString(detailSection(tr("detail.hook"), fg, width))
-		// The engine's explanation sentence stays English (engine data); only the
-		// section label above is translated.
-		b.WriteString(detailField("—", h.Explanation, width))
+		// In zh mode, compose a Chinese explanation sentence instead of passing
+		// through the engine's English sentence verbatim. Embedded engine DATA
+		// (event key, matcher value, target path) stays English inside the
+		// Chinese sentence — this is a deliberate scoped exception to the
+		// "engine data stays English" convention because the sentence is prose
+		// meant to be read, not a data value.
+		sentence := h.Explanation
+		if uiLang == langZH {
+			sentence = hookExplainSentenceZh(h)
+		}
+		b.WriteString(detailField("—", sentence, width))
 	}
 	return b.String()
 }
