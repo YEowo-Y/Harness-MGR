@@ -26,7 +26,8 @@
 import { pathToFileURL } from 'node:url';
 import { homedir } from 'node:os';
 import { COMMANDS } from './cli/commands.mjs';
-import { resolveConfigDir } from './cli/resolve-config.mjs';
+import { resolveTargetAndConfig, isKnownTarget } from './cli/resolve-target.mjs';
+import { TARGETS } from './targets/descriptor.mjs';
 import { formatJson, formatNdjson } from './output/json.mjs';
 import { renderTable, renderQuiet } from './cli/render.mjs';
 import { VALUE_FLAGS, BOOLEAN_FLAGS } from './cli/flags.mjs';
@@ -69,8 +70,15 @@ export async function run(argv, { homeFn } = {}) {
       return { code: 2, stdout: unknownCommand(canonical) };
     }
 
-    const cfg = await resolveConfigDir({ configDir: args.configDir });
-    const out = await COMMANDS[canonical]({ configDir: cfg.configDir, mgrStateDir: cfg.mgrStateDir, args });
+    // An explicit but unknown --target is a hard usage error (exit 2) — mirror the
+    // unknown-flag/command path so a typo (`--target codexx`) can NEVER silently
+    // mis-route to the default claude harness.
+    if (args.target !== undefined && !isKnownTarget(args.target)) {
+      return { code: 2, stdout: unknownTargetUsage(args.target) };
+    }
+
+    const cfg = await resolveTargetAndConfig({ target: args.target, configDir: args.configDir, homeFn });
+    const out = await COMMANDS[canonical]({ configDir: cfg.configDir, mgrStateDir: cfg.mgrStateDir, descriptor: cfg.descriptor, args });
     let diagnostics = [...cfg.diagnostics, ...out.diagnostics, ...formatDiagnostics(args.format)];
     let result = out.result;
 
@@ -268,7 +276,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n  --redact-paths   replace the home-directory prefix in output paths with '~'\n                   (opt-in privacy; without this flag output is unchanged)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n  health                                 severity-layered health report (loadability + advice + hooks)\n\nwrite commands (DRY-RUN by default; pass --apply to execute. Set\nCLAUDE_MGR_ENABLE_WRITES=0 to force-lock all writes):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n  skill propose <name> --from <file> [--reason <msg>] [--apply]\n  skill accept <name> [<proposalId>] [--force] [--apply]\n\ncommands:\n${commandList()}`;
+  return `claude-mgr — read-mostly governance CLI\n\nusage: claude-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --target claude|codex   govern a Claude (default) or Codex (~/.codex) harness\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n  --redact-paths   replace the home-directory prefix in output paths with '~'\n                   (opt-in privacy; without this flag output is unchanged)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n  health                                 severity-layered health report (loadability + advice + hooks)\n\nwrite commands (DRY-RUN by default; pass --apply to execute. Set\nCLAUDE_MGR_ENABLE_WRITES=0 to force-lock all writes):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n  skill propose <name> --from <file> [--reason <msg>] [--apply]\n  skill accept <name> [<proposalId>] [--force] [--apply]\n\ncommands:\n${commandList()}`;
 }
 
 /**
@@ -290,9 +298,25 @@ function unknownFlagUsage(flag) {
   return `unknown flag: ${flag}\n\nknown flags:\n${flagList()}`;
 }
 
+/**
+ * The message for an unrecognized --target value: name it and list the valid
+ * target ids so a typo (e.g. `--target codexx`) is caught instead of silently
+ * mis-routing to the default claude harness.
+ * @param {string} target
+ * @returns {string}
+ */
+function unknownTargetUsage(target) {
+  return `unknown target: ${target}\n\nvalid targets:\n${targetList()}`;
+}
+
 /** The known flag names (value + boolean), one indented line each. @returns {string} */
 function flagList() {
   return [...VALUE_FLAGS, ...BOOLEAN_FLAGS].map((f) => `  ${f}`).join('\n');
+}
+
+/** The valid target ids, one indented line each. @returns {string} */
+function targetList() {
+  return Object.keys(TARGETS).map((t) => `  ${t}`).join('\n');
 }
 
 /** The valid command names, one indented line each. @returns {string} */
