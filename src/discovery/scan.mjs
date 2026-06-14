@@ -65,13 +65,17 @@ export const ALL_KINDS = Object.freeze(['components', 'plugins', 'settings', 'mc
 
 /**
  * Run a full (or filtered) discovery scan against a Claude Code config root.
- * @param {{targetClaudeDir: string, appFile?: string, kinds?: string[]}} opts
+ *
+ * `descriptor` currently governs ONLY component discovery (P6.U3); plugins/
+ * settings/mcp stay claude-specific (deferred TOML wave).
+ *
+ * @param {{targetClaudeDir: string, appFile?: string, kinds?: string[], descriptor?: import('../targets/descriptor.mjs').TargetDescriptor}} opts
  * @returns {ScanResult}
  */
 export function scan(opts) {
   const start = Date.now();
   const bag = new DiagnosticBag();
-  const { targetClaudeDir, appFile, kinds } = opts ?? {};
+  const { targetClaudeDir, appFile, kinds, descriptor } = opts ?? {};
 
   if (typeof targetClaudeDir !== 'string' || targetClaudeDir.length === 0) {
     bag.add({ severity: 'error', code: 'discover-bad-root', message: 'targetClaudeDir must be a non-empty string', phase: 'scan' });
@@ -83,7 +87,7 @@ export function scan(opts) {
   // ── Components (skills / agents / commands) ─────────────────────────────────
   let components = [];
   if (enabled.has('components')) {
-    const r = discoverComponents(targetClaudeDir);
+    const r = discoverComponents(targetClaudeDir, undefined, { descriptor });
     components = r.components;
     addAll(bag, r.diagnostics);
   }
