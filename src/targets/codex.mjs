@@ -56,4 +56,6 @@ export const codexDescriptor = Object.freeze({
   configSource: Object.freeze({ kind: 'toml-file', file: 'config.toml' }),
   // Codex MCP servers live in the config.toml `mcp_servers` table (one source).
   mcpSource: Object.freeze({ kind: 'toml-table', file: 'config.toml', pointer: 'mcp_servers' }),
+  // Codex plugins live in the config.toml `plugins` table (one source).
+  pluginSource: Object.freeze({ kind: 'toml-table', file: 'config.toml', pointer: 'plugins' }),
 });
