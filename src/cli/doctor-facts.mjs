@@ -42,6 +42,7 @@ import { analyzeConflicts } from '../analysis/conflicts.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
 import { mergeSettings } from '../analysis/settings-merge.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
+import { gatherEffectiveHooks } from './effective-hooks.mjs';
 import { gatherMcpProbes } from '../discovery/probe-mcp.mjs';
 import { gatherHookProbes } from '../discovery/probe-hooks.mjs';
 import { gatherFsProbes } from '../discovery/probe-fs.mjs';
@@ -71,16 +72,27 @@ import { gatherCliProbe } from '../discovery/probe-cli.mjs';
 /**
  * Gather the DoctorInput facts bundle for a config dir.
  *
- * @param {{ configDir: string, mgrStateDir: string, activeProbes?: boolean, now?: number, cwd?: string }} opts
+ * `descriptor` (P6.U4) makes the HOOK SOURCE target-aware: Claude (or absent
+ * descriptor) merges the settings layers; Codex reads hooks.json. ONLY the hook
+ * source is target-aware here — the rest of the doctor stays Claude-shaped (the
+ * deferred codex doctor wave), so #3/#5 judge codex hooks while the other checks
+ * remain Claude-specific.
+ *
+ * @param {{ configDir: string, mgrStateDir: string, descriptor?: import('../targets/descriptor.mjs').TargetDescriptor, activeProbes?: boolean, now?: number, cwd?: string }} opts
  * @returns {Promise<{ input: DoctorInput, diagnostics: Diagnostic[], facts: HealthFacts }>}
  */
-export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes = false, now, cwd } = {}) {
+export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, activeProbes = false, now, cwd } = {}) {
   try {
     /** @type {Diagnostic[]} */
     const diagnostics = [];
 
     const s = scan({ targetClaudeDir: configDir });
     const effective = mergeSettings(readSettingsLayers(configDir).layers).effective || {};
+    // Target-aware hook source: reuse `effective` for the settings-merge (Claude)
+    // path; read hooks.json for the json-file (Codex) path. A codex hooks.json
+    // read error surfaces as a warn here.
+    const hookSrc = gatherEffectiveHooks({ configDir, descriptor, effective });
+    push(diagnostics, hookSrc.diagnostics);
     const conflicts = analyzeConflicts(s.components).conflicts;
 
     /** @type {DoctorInput} */
@@ -98,10 +110,10 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes =
       now: typeof now === 'number' ? now : Date.now(),
     };
 
-    await addPassiveProbes(input, diagnostics, { configDir, mgrStateDir, effective, mcpServers: s.mcpServers, cwd });
+    await addPassiveProbes(input, diagnostics, { configDir, mgrStateDir, effective, hooksMap: hookSrc.hooks, mcpServers: s.mcpServers, cwd });
     if (activeProbes) await addActiveProbes(input, diagnostics, configDir);
 
-    return { input, diagnostics, facts: buildHealthFacts(s, effective, conflicts, input) };
+    return { input, diagnostics, facts: buildHealthFacts(s, hookSrc.hooks, conflicts, input) };
   } catch (err) {
     // Belt-and-suspenders: the probes never throw, but a defensive envelope keeps
     // the doctor command itself never-throws even if a future probe regresses.
@@ -111,21 +123,21 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, activeProbes =
 
 /**
  * Assemble the HealthFacts bundle from values this gather already computed —
- * EXPOSE, never recompute (no second scan). hookFacts was attached to `input`
- * by addPassiveProbes just above.
+ * EXPOSE, never recompute (no second scan). `hooksMap` is the target-aware hooks
+ * map (gatherEffectiveHooks output, already normalised toward an object); hookFacts
+ * was attached to `input` by addPassiveProbes just above.
  * @param {import('../discovery/scan.mjs').ScanResult} s
- * @param {Record<string, unknown>} effective
+ * @param {unknown} hooksMap
  * @param {object[]} conflicts
  * @param {DoctorInput} input
  * @returns {HealthFacts}
  */
-function buildHealthFacts(s, effective, conflicts, input) {
-  const hooks = effective.hooks;
+function buildHealthFacts(s, hooksMap, conflicts, input) {
   return {
     components: s.components,
     scanDiagnostics: s.diagnostics,
     conflicts,
-    effectiveHooks: hooks !== null && typeof hooks === 'object' && !Array.isArray(hooks) ? /** @type {Record<string, unknown>} */ (hooks) : {},
+    effectiveHooks: hooksMap !== null && typeof hooksMap === 'object' && !Array.isArray(hooksMap) ? /** @type {Record<string, unknown>} */ (hooksMap) : {},
     hookFacts: Array.isArray(input.hookFacts) ? input.hookFacts : [],
   };
 }
@@ -141,18 +153,20 @@ function emptyHealthFacts() {
  * (read-only icacls, async), which is awaited here so #24 always has its fact.
  * @param {DoctorInput} input  mutated in place
  * @param {Diagnostic[]} diagnostics  appended in place
- * @param {{ configDir: string, mgrStateDir: string, effective: Record<string, unknown>, mcpServers: object[], cwd?: string }} ctx
+ * @param {{ configDir: string, mgrStateDir: string, effective: Record<string, unknown>, hooksMap: unknown, mcpServers: object[], cwd?: string }} ctx
  * @returns {Promise<void>}
  */
 async function addPassiveProbes(input, diagnostics, ctx) {
-  const { configDir, mgrStateDir, effective, mcpServers, cwd } = ctx;
+  const { configDir, mgrStateDir, effective, hooksMap, mcpServers, cwd } = ctx;
 
   const mcp = gatherMcpProbes({ configDir, mcpServers });
   input.mcpAuth = mcp.mcpAuth;
   input.mcpResolution = mcp.mcpResolution;
   push(diagnostics, mcp.diagnostics);
 
-  const hooks = gatherHookProbes({ hooks: effective.hooks, cwd });
+  // hooksMap is the target-aware hooks (Codex hooks.json or Claude merged settings);
+  // statusLine stays Claude-specific (effective.statusLine) — deferred codex wave.
+  const hooks = gatherHookProbes({ hooks: hooksMap, cwd });
   input.hookFacts = hooks.hookFacts;
   push(diagnostics, hooks.diagnostics);
 
