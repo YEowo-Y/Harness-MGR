@@ -48,4 +48,6 @@ export const claudeDescriptor = Object.freeze({
   hookSource: Object.freeze({ kind: 'settings-merge' }),
   // Claude effective config = the merged settings layers (same source as hooks).
   configSource: Object.freeze({ kind: 'settings-merge' }),
+  // Claude MCP servers come from JSON: project .mcp.json + user-scope appFile.
+  mcpSource: Object.freeze({ kind: 'json-files' }),
 });
