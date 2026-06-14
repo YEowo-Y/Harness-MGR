@@ -22,6 +22,15 @@ import { codexDescriptor } from './codex.mjs';
  */
 
 /**
+ * @typedef {Object} HookSource
+ * @property {'settings-merge'|'json-file'} kind   where this target's hooks live:
+ *   'settings-merge' = the merged settings layers' `hooks` (Claude); 'json-file' =
+ *   a standalone top-level JSON file's pointer field (Codex `hooks.json` → `.hooks`).
+ * @property {string} [file]      json-file: the file name under the config root (e.g. 'hooks.json')
+ * @property {string} [pointer]   json-file: the top-level key holding the hooks map (e.g. 'hooks')
+ */
+
+/**
  * @typedef {Object} TargetDescriptor
  * @property {'claude'|'codex'} id
  * @property {string} label
@@ -32,6 +41,7 @@ import { codexDescriptor } from './codex.mjs';
  * @property {string[]} knownTopDirs
  * @property {string[]} knownTopFiles
  * @property {RegExp[]} knownTopFilePatterns
+ * @property {HookSource} hookSource               where to read the effective hooks map (P6.U4)
  */
 
 /** The frozen registry of known targets, keyed by descriptor id. */
