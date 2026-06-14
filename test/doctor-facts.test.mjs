@@ -16,8 +16,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 import { gatherDoctorInput } from '../src/cli/doctor-facts.mjs';
+import { codexDescriptor } from '../src/targets/codex.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fix = (rel) => join(here, 'fixtures', rel);
@@ -81,4 +84,35 @@ test('gatherDoctorInput: respects an injected `now`', async () => {
   const fixedNow = 1.8e12;
   const { input } = await gatherDoctorInput({ configDir: MIN, mgrStateDir: STATE, now: fixedNow });
   assert.equal(input.now, fixedNow);
+});
+
+// ── P6.U4: target-aware hook source + branch coverage ─────────────────────────
+
+test('gatherDoctorInput: codex descriptor sources hookFacts from hooks.json', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-df-codex-'));
+  try {
+    const ps1 = join(dir, 'h.ps1');
+    writeFileSync(ps1, '# hook', 'utf8');
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ type: 'command', command: `powershell.exe -ExecutionPolicy Bypass -File "${ps1}"` }] }] },
+    }), 'utf8');
+    const { input, facts } = await gatherDoctorInput({ configDir: dir, mgrStateDir: join(dir, '.mgr-state'), descriptor: codexDescriptor });
+    // the codex hooks.json hook is classified + probed → one found file fact.
+    assert.equal(input.hookFacts.length, 1, 'one codex hook fact');
+    assert.equal(input.hookFacts[0].kind, 'file');
+    assert.equal(input.hookFacts[0].status, 'found');
+    // buildHealthFacts exposes the same codex hooks map (true arm of the object guard).
+    assert.ok(Array.isArray(facts.effectiveHooks.SessionStart), 'effectiveHooks carries codex events');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('gatherDoctorInput: a malformed codex .hooks (array) → effectiveHooks normalises to {} (false arm)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-df-codex-bad-'));
+  try {
+    // .hooks is an ARRAY (malformed) — gatherEffectiveHooks passes it through, and
+    // buildHealthFacts's object-guard false arm must normalise it to {}.
+    writeFileSync(join(dir, 'hooks.json'), JSON.stringify({ hooks: [] }), 'utf8');
+    const { facts } = await gatherDoctorInput({ configDir: dir, mgrStateDir: join(dir, '.mgr-state'), descriptor: codexDescriptor });
+    assert.deepEqual(facts.effectiveHooks, {}, 'non-object hooks map → {}');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
