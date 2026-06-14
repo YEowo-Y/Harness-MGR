@@ -119,7 +119,7 @@ function readScope(file, scope, out, bag) {
  * @param {Record<string, *>} cfg
  * @returns {McpServerRecord}
  */
-function toRecord(name, scope, cfg) {
+export function toRecord(name, scope, cfg) {
   /** @type {McpServerRecord} */
   const rec = { name, scope, transport: transportOf(cfg) };
   if (typeof cfg.command === 'string') rec.command = cfg.command;
@@ -142,6 +142,6 @@ function transportOf(cfg) {
 }
 
 /** @param {string} a @param {string} b @returns {number} */
-function cmp(a, b) {
+export function cmp(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
