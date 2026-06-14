@@ -99,7 +99,7 @@ import { completionCommand } from './completion.mjs';
  * @type {CommandHandler}
  */
 export function inventoryCommand(ctx) {
-  const s = scan({ targetClaudeDir: ctx.configDir });
+  const s = scan({ targetClaudeDir: ctx.configDir, descriptor: ctx.descriptor });
 
   const narrowed = narrowInventory(s, ctx.args && ctx.args.type);
   if (narrowed) return { result: narrowed, diagnostics: s.diagnostics.slice() };
