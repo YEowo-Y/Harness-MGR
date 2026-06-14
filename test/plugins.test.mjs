@@ -111,6 +111,38 @@ test('malformed JSON: error diagnostic, no records, never throws', () => {
   });
 });
 
+test('installed_plugins.json is not a JSON object → installed-plugins-malformed warn, no records', () => {
+  // a top-level JSON array (valid JSON, wrong shape) hits the non-object guard
+  withTempPluginsFile('installed_plugins.json', '[1, 2, 3]', (dir) => {
+    let result;
+    assert.doesNotThrow(() => {
+      result = discoverPlugins(dir);
+    });
+    assert.equal(result.plugins.length, 0);
+    const warn = result.diagnostics.find((d) => d.code === 'installed-plugins-malformed');
+    assert.ok(warn, 'a non-object installed_plugins.json warns');
+    assert.equal(warn.severity, 'warn');
+  });
+});
+
+test('a non-object plugin entry → plugin-entry-malformed warn, sibling entries still parsed', () => {
+  const content = JSON.stringify({
+    version: 2,
+    plugins: {
+      'bad@m': ['not-an-object'], // entry is a string, not an object
+      'good@m': [{ name: 'good', marketplace: 'm', version: '1.0.0', enabled: true }],
+    },
+  });
+  withTempPluginsFile('installed_plugins.json', content, (dir) => {
+    const { plugins, diagnostics } = discoverPlugins(dir);
+    assert.deepEqual(plugins.map((p) => p.name), ['good']);
+    const warn = diagnostics.find((d) => d.code === 'plugin-entry-malformed');
+    assert.ok(warn, 'a non-object entry warns');
+    assert.equal(warn.severity, 'warn');
+    assert.match(warn.message, /'bad@m'/);
+  });
+});
+
 test('enabled is a strict boolean: false and non-true values are not enabled', () => {
   const content = JSON.stringify({
     version: 2,
