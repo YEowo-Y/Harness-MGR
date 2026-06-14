@@ -50,4 +50,6 @@ export const claudeDescriptor = Object.freeze({
   configSource: Object.freeze({ kind: 'settings-merge' }),
   // Claude MCP servers come from JSON: project .mcp.json + user-scope appFile.
   mcpSource: Object.freeze({ kind: 'json-files' }),
+  // Claude plugins come from plugins/installed_plugins.json (schema v2).
+  pluginSource: Object.freeze({ kind: 'json-file' }),
 });
