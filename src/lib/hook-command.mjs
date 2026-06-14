@@ -247,6 +247,46 @@ const INTERPRETERS = new Set([
 const EVAL_FLAGS = new Set(['-e', '--eval', '-c', '--command', '-p', '--print', '-m', '--module']);
 
 /**
+ * Per-interpreter argument grammar (P6.U4). Only interpreters whose script
+ * argument is NOT simply "the first non-flag token" need an entry; everything
+ * else (node/python/bash/…) uses the generic rule and has no grammar.
+ *
+ * PowerShell is the case that matters for the Codex harness: its real hook
+ * command is `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<script>"`.
+ * The generic rule would skip `-ExecutionPolicy` as a flag and then return its
+ * VALUE `Bypass` as the script (a false "file missing"). PowerShell instead names
+ * its script with `-File <path>` and takes several VALUE flags whose argument is
+ * data, not a script. The three sets disambiguate it (all compared lowercased):
+ *   scriptFlags : the NEXT token after this flag IS the script path.
+ *   inlineFlags : inline code / no checkable script → classify as null (joins the
+ *                 global EVAL_FLAGS; PowerShell uses single-dash `-Command` etc.).
+ *   valueFlags  : this flag CONSUMES the next token as a value (skip the pair).
+ * Known limitation: arbitrary PowerShell prefix abbreviations (e.g. `-exec` for
+ * `-ExecutionPolicy`) are NOT modeled — only the documented forms + common short
+ * aliases. The omx-generated Codex hooks use the full `-ExecutionPolicy -File`.
+ */
+const POWERSHELL_GRAMMAR = Object.freeze({
+  scriptFlags: new Set(['-file']),
+  inlineFlags: new Set(['-command', '-encodedcommand', '-ec']),
+  valueFlags: new Set([
+    '-executionpolicy', '-ep', '-windowstyle', '-version', '-configurationname',
+    '-inputformat', '-outputformat', '-psconsolefile', '-settingsfile',
+    '-workingdirectory', '-wd', '-custompipename',
+  ]),
+});
+
+/**
+ * Resolve the argument grammar for an interpreter name (interpreterName output),
+ * or undefined when the interpreter uses the generic first-non-flag-token rule.
+ * `pwsh` is an alias of `powershell`. Proto-safe (no inherited-key lookup).
+ * @param {string} name canonical interpreter name (lowercased, .exe-stripped)
+ * @returns {{scriptFlags: Set<string>, inlineFlags: Set<string>, valueFlags: Set<string>}|undefined}
+ */
+function grammarFor(name) {
+  return (name === 'powershell' || name === 'pwsh') ? POWERSHELL_GRAMMAR : undefined;
+}
+
+/**
  * Decide whether an expanded executable token is "path-like": an absolute path,
  * or a relative/bare path containing a directory separator, or a `./` / `../`
  * relative reference (starts with `.`).
@@ -272,24 +312,40 @@ function interpreterName(exe) {
 }
 
 /**
- * Walk `args` to find the first non-flag token after the interpreter name,
- * applying the eval-flag early-exit rule. Returns the raw token string, or
- * null when none is found or an eval flag is encountered.
+ * Walk `args` to find the script-path token after the interpreter name. Returns
+ * the raw token string, or null when none is found or an inline-code flag is hit.
  *
- * Tokens starting with `-` are skipped (flags, e.g. `-File`, `--no-color`).
- * The FIRST non-flag token is treated as the script path.
+ * The generic rule (no grammar): an eval/inline flag → null; any other `-flag`
+ * is skipped; the FIRST non-flag token is the script. An interpreter `grammar`
+ * (PowerShell) refines this: a scriptFlag's NEXT token IS the script (`-File x`);
+ * an inlineFlag → null; a valueFlag CONSUMES its next token (so `-ExecutionPolicy
+ * Bypass` no longer leaks `Bypass` as the script — the P6.U4 Codex fix). When
+ * `grammar` is undefined every grammar branch short-circuits, so behavior is
+ * byte-identical to the pre-U4 generic rule for node/python/bash/etc.
  *
- * NOTE (known limitation): a value-taking flag like `--require esm` is skipped
- * as a flag, so its VALUE (`esm`) could be misread as the script. Rare in hook
- * commands; add a VALUE_FLAGS set (skip flag + next token) if it ever surfaces.
+ * NOTE (residual limitation): a value-taking flag NOT in any grammar (e.g. node's
+ * `--require esm`) is still skipped as a bare flag, so its value could be misread
+ * as the script. Add it to the relevant interpreter grammar if it ever surfaces.
  *
  * @param {string[]} args remaining tokens after the interpreter (tokens[1..])
+ * @param {{scriptFlags: Set<string>, inlineFlags: Set<string>, valueFlags: Set<string>}|undefined} [grammar]
  * @returns {string|null}
  */
-function findScriptArg(args) {
-  for (const arg of args) {
-    if (EVAL_FLAGS.has(arg.toLowerCase())) return null; // eval/inline-code flag
-    if (arg.startsWith('-')) continue;                  // skip other flags
+function findScriptArg(args, grammar) {
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const low = arg.toLowerCase();
+    // Inline code / eval flag → the next token is code, not a checkable file.
+    if (EVAL_FLAGS.has(low) || (grammar && grammar.inlineFlags.has(low))) return null;
+    // Explicit script-path flag (e.g. PowerShell -File): the NEXT token is the script.
+    if (grammar && grammar.scriptFlags.has(low)) {
+      const next = args[i + 1];
+      return typeof next === 'string' ? next : null; // a dangling -File → no false file
+    }
+    // Value-taking flag (e.g. -ExecutionPolicy Bypass): skip the flag AND its value
+    // so the value is never mistaken for the script.
+    if (grammar && grammar.valueFlags.has(low)) { i += 1; continue; }
+    if (arg.startsWith('-')) continue;                  // other (boolean) flag
     return arg;                                          // first non-flag token
   }
   return null;
@@ -330,7 +386,7 @@ export function classifyHookCommand(command, env) {
   const name = interpreterName(exe);
 
   if (INTERPRETERS.has(name)) {
-    const scriptToken = findScriptArg(tokens.slice(1));
+    const scriptToken = findScriptArg(tokens.slice(1), grammarFor(name));
     if (scriptToken === null) return null; // eval flag or no script arg
     const { value: scriptPath, fullyExpanded: scriptExp } = expandVars(scriptToken, e);
     return { kind: 'file', target: scriptPath, fullyExpanded: scriptExp };
