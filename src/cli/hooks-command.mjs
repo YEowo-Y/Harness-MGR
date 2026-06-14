@@ -4,9 +4,11 @@
  * settings-layers.mjs precedent).
  *
  * Result shape:
- *   hooks         — the merged effective.hooks, redacted. BYTE-COMPATIBLE with
- *                   the pre-U4 `hooks` result key (computed by the exact same
- *                   expression) — the TUI consumes it.
+ *   hooks         — the target's effective hooks map, redacted. The SOURCE is
+ *                   target-aware (P6.U4) via gatherEffectiveHooks: Claude merges
+ *                   the settings layers (BYTE-COMPATIBLE with the pre-U4 `hooks`
+ *                   result key — same map + same diagnostics order), Codex reads
+ *                   hooks.json's `.hooks`. The TUI consumes this key unchanged.
  *   explanations  — NEW: one explained entry per hook entry (event / matcher /
  *                   command / kind / target / status / one English sentence),
  *                   built by analysis/hook-explain.mjs and enriched with
@@ -25,8 +27,7 @@
  * with status 'unprobed' rather than failing the command.
  */
 
-import { readSettingsLayers } from './settings-layers.mjs';
-import { mergeSettings } from '../analysis/settings-merge.mjs';
+import { gatherEffectiveHooks } from './effective-hooks.mjs';
 import { redactSecretsDeep } from '../analysis/redact-secrets-text.mjs';
 import { gatherHookProbes } from '../discovery/probe-hooks.mjs';
 import { explainHooks } from '../analysis/hook-explain.mjs';
@@ -46,9 +47,9 @@ import { explainHooks } from '../analysis/hook-explain.mjs';
  */
 export async function hooksCommand(ctx, deps = {}) {
   const configDir = ctx && ctx.configDir;
-  const layers = readSettingsLayers(configDir);
-  const m = mergeSettings(layers.layers);
-  const rawHooks = (m.effective && m.effective.hooks) || {};
+  // Target-aware hook source (P6.U4): Claude merges settings layers; Codex reads
+  // hooks.json. Byte-identical for Claude (same rawHooks + same diagnostics order).
+  const { hooks: rawHooks, diagnostics: sourceDiags } = gatherEffectiveHooks({ configDir, descriptor: ctx && ctx.descriptor });
   const env = (deps.env && typeof deps.env === 'object') ? deps.env : process.env;
 
   // Probe statuses (best-effort): the probe never throws by contract, but a
@@ -71,6 +72,6 @@ export async function hooksCommand(ctx, deps = {}) {
       hooks: redactSecretsDeep(rawHooks),
       explanations: redactSecretsDeep(ex.entries),
     },
-    diagnostics: [...layers.diagnostics, ...m.diagnostics],
+    diagnostics: sourceDiags,
   };
 }
