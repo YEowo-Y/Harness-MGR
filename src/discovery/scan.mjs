@@ -19,7 +19,7 @@
  */
 
 import { discoverComponents } from './components.mjs';
-import { discoverPlugins } from './plugins.mjs';
+import { discoverPluginsForTarget } from './plugins-target.mjs';
 import { discoverMarketplaces } from './marketplaces.mjs';
 import { discoverSettings, discoverTopLevelDirs } from './settings.mjs';
 import { discoverMcpForTarget } from './mcp-target.mjs';
@@ -66,9 +66,10 @@ export const ALL_KINDS = Object.freeze(['components', 'plugins', 'settings', 'mc
 /**
  * Run a full (or filtered) discovery scan against a Claude Code config root.
  *
- * `descriptor` governs component AND mcp discovery (mcp by mcpSource: Claude reads
- * JSON `.mcp.json`+appFile, Codex reads the config.toml `mcp_servers` table);
- * plugins/settings stay claude-specific (deferred TOML wave).
+ * `descriptor` governs component, mcp, AND plugin discovery now (mcp by mcpSource,
+ * plugins by pluginSource: Claude reads JSON installed_plugins.json, Codex reads the
+ * config.toml `plugins` table); marketplaces/settings stay claude-specific (deferred
+ * TOML wave).
  *
  * @param {{targetClaudeDir: string, appFile?: string, kinds?: string[], descriptor?: import('../targets/descriptor.mjs').TargetDescriptor}} opts
  * @returns {ScanResult}
@@ -97,7 +98,7 @@ export function scan(opts) {
   let plugins = [];
   let marketplaces = [];
   if (enabled.has('plugins')) {
-    const rp = discoverPlugins(targetClaudeDir);
+    const rp = discoverPluginsForTarget({ rootDir: targetClaudeDir, descriptor });
     plugins = rp.plugins;
     addAll(bag, rp.diagnostics);
 
