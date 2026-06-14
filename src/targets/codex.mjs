@@ -54,4 +54,6 @@ export const codexDescriptor = Object.freeze({
   hookSource: Object.freeze({ kind: 'json-file', file: 'hooks.json', pointer: 'hooks' }),
   // Codex effective config = the single config.toml (one source — no layering/merge).
   configSource: Object.freeze({ kind: 'toml-file', file: 'config.toml' }),
+  // Codex MCP servers live in the config.toml `mcp_servers` table (one source).
+  mcpSource: Object.freeze({ kind: 'toml-table', file: 'config.toml', pointer: 'mcp_servers' }),
 });
