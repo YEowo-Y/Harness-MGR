@@ -250,6 +250,57 @@ test('classify: interpreter with no script arg → null', () => {
   assert.equal(classifyHookCommand('node --no-warnings', {}), null);
 });
 
+// ── P6.U4: PowerShell value-flag grammar (the real Codex hook shape) ───────────
+// The Codex harness writes hooks like:
+//   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<script>.ps1"
+// The pre-U4 generic rule returned `Bypass` (the -ExecutionPolicy VALUE) as the
+// script — a false "file missing". The grammar must skip value flags + their
+// values and treat -File's argument as the script. These are the falsifiable
+// oracles: each FAILS on the pre-U4 findScriptArg.
+
+test('classify: HEADLINE Codex shape — -ExecutionPolicy value is skipped, -File arg is the script', () => {
+  const r = classifyHookCommand(
+    'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\\Users\\x\\.codex\\hooks\\shim.ps1"',
+    {},
+  );
+  assert.deepEqual(r, { kind: 'file', target: 'C:\\Users\\x\\.codex\\hooks\\shim.ps1', fullyExpanded: true });
+});
+
+test('classify: powershell -WindowStyle Hidden -File x.ps1 → script is x.ps1 (value flag skipped)', () => {
+  const r = classifyHookCommand('powershell -WindowStyle Hidden -File x.ps1', {});
+  assert.deepEqual(r, { kind: 'file', target: 'x.ps1', fullyExpanded: true });
+});
+
+test('classify: powershell -ExecutionPolicy Bypass with NO -File → null (value never leaks as script)', () => {
+  // No -File and no positional → the policy value must NOT become the script.
+  assert.equal(classifyHookCommand('powershell -NoProfile -ExecutionPolicy Bypass', {}), null);
+});
+
+test('classify: powershell -Command inline (single dash) → null', () => {
+  assert.equal(classifyHookCommand('powershell -Command "Write-Host hi"', {}), null);
+});
+
+test('classify: powershell -EncodedCommand → null (inline base64 code, not a file)', () => {
+  assert.equal(classifyHookCommand('powershell -EncodedCommand QQBiAGMA', {}), null);
+});
+
+test('classify: dangling -File at end of command → null (no false file)', () => {
+  assert.equal(classifyHookCommand('powershell -NoProfile -File', {}), null);
+});
+
+test('classify: pwsh alias gets the same grammar (-ExecutionPolicy skipped)', () => {
+  const r = classifyHookCommand('pwsh -ExecutionPolicy Bypass -File /opt/h.ps1', {});
+  assert.deepEqual(r, { kind: 'file', target: '/opt/h.ps1', fullyExpanded: true });
+});
+
+test('classify: value-flag grammar does NOT leak to node (generic rule unchanged)', () => {
+  // -ExecutionPolicy is meaningless to node; node uses the generic first-non-flag
+  // rule, so this stays exactly as pre-U4 (the flag is skipped, Bypass returned).
+  // This pins that the grammar is interpreter-scoped, not global.
+  const r = classifyHookCommand('node -ExecutionPolicy Bypass script.mjs', {});
+  assert.deepEqual(r, { kind: 'file', target: 'Bypass', fullyExpanded: true });
+});
+
 // ── edge cases / junk inputs ──────────────────────────────────────────────────
 
 test('classify: empty string → null', () => {
