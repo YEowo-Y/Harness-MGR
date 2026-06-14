@@ -51,9 +51,10 @@ function redactValue(value) {
 
 /**
  * Return a deep-redacted copy of an effective-settings object. EVERY value under
- * the top-level `env` map is redacted (env is the documented secret home and the
- * specific var that is a secret cannot be known); additionally, any value at ANY
- * depth whose own KEY is sensitive (per isSensitivePointer) is redacted. Plain
+ * ANY `env` map — top-level OR nested at any depth (e.g. codex `mcp_servers.<x>.env`)
+ * — is redacted (env is the documented secret home and the specific var that is a
+ * secret cannot be known); additionally, any value at ANY depth whose own KEY is
+ * sensitive (per isSensitivePointer) is redacted. Plain
  * objects are rebuilt with proto-poisoning keys skipped; arrays are mapped;
  * primitives are returned as-is. The input is NOT mutated. Never throws.
  *
@@ -206,7 +207,13 @@ function redactDeep(value) {
   const out = {};
   for (const key of Object.keys(value)) {
     if (!isSafeKey(key)) continue;
-    out[key] = isSensitivePointer(key) ? redactValue(value[key]) : redactDeep(value[key]);
+    // An `env` map at ANY depth is wholesale-redacted (every leaf), not just the
+    // top-level one — a nested env table (e.g. codex `mcp_servers.<x>.env`) is the
+    // same secret home, and a benign-named non-token-shaped value under it would
+    // otherwise print verbatim (P6 TOML wave U2 hardening; CC settings has no
+    // nested env so its behavior is unchanged).
+    if (key === ENV_KEY) out[key] = redactEnv(value[key]);
+    else out[key] = isSensitivePointer(key) ? redactValue(value[key]) : redactDeep(value[key]);
   }
   return out;
 }
@@ -223,9 +230,15 @@ function redactDeep(value) {
 export function redactKeyedValue(segments, value) {
   const segs = Array.isArray(segments) ? segments : [];
   const last = segs.length > 0 ? segs[segs.length - 1] : undefined;
+  // A TOP-LEVEL env path keeps its single-sentinel shape (unchanged), as does a
+  // sensitive-named last segment.
   if (segs[0] === ENV_KEY || (typeof last === 'string' && isSensitivePointer(last))) {
     return redactValue(value);
   }
+  // A path that lands AT a nested env table redacts every leaf; a path THROUGH a
+  // nested env (env before the last segment) lands on a secret descendant. This
+  // mirrors the any-depth env hardening in redactDeep for the `--key` surface.
+  if (segs.includes(ENV_KEY)) return last === ENV_KEY ? redactEnv(value) : redactValue(value);
   return redactDeep(value);
 }
 
