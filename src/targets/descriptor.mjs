@@ -39,6 +39,15 @@ import { codexDescriptor } from './codex.mjs';
  */
 
 /**
+ * @typedef {Object} McpSource
+ * @property {'json-files'|'toml-table'} kind   where this target's MCP servers live:
+ *   'json-files' = project `.mcp.json` + user appFile `mcpServers` (Claude); 'toml-table'
+ *   = a `<pointer>` table inside a single TOML file (Codex `config.toml` → `mcp_servers`).
+ * @property {string} [file]      toml-table: the TOML file under the config root (e.g. 'config.toml')
+ * @property {string} [pointer]   toml-table: the top-level table holding the servers (e.g. 'mcp_servers')
+ */
+
+/**
  * @typedef {Object} TargetDescriptor
  * @property {'claude'|'codex'} id
  * @property {string} label
@@ -51,6 +60,7 @@ import { codexDescriptor } from './codex.mjs';
  * @property {RegExp[]} knownTopFilePatterns
  * @property {HookSource} hookSource               where to read the effective hooks map (P6.U4)
  * @property {ConfigSource} configSource           where to read the effective config (P6 TOML wave)
+ * @property {McpSource} mcpSource                 where to read MCP servers (P6 TOML wave)
  */
 
 /** The frozen registry of known targets, keyed by descriptor id. */
