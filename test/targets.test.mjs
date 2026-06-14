@@ -108,6 +108,23 @@ test('codex identity golden', () => {
 });
 
 // ---------------------------------------------------------------------------
+// hookSource golden (P6.U4) — where each target's effective hooks live
+// ---------------------------------------------------------------------------
+
+test('claude hookSource = settings-merge', () => {
+  assert.deepEqual(claudeDescriptor.hookSource, { kind: 'settings-merge' });
+});
+
+test('codex hookSource = hooks.json json-file under the `hooks` pointer', () => {
+  assert.deepEqual(codexDescriptor.hookSource, { kind: 'json-file', file: 'hooks.json', pointer: 'hooks' });
+});
+
+test('both descriptors\' hookSource is frozen', () => {
+  assert.equal(Object.isFrozen(claudeDescriptor.hookSource), true);
+  assert.equal(Object.isFrozen(codexDescriptor.hookSource), true);
+});
+
+// ---------------------------------------------------------------------------
 // codex pattern falsifiability
 // ---------------------------------------------------------------------------
 
