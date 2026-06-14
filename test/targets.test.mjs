@@ -138,6 +138,23 @@ test('both descriptors\' configSource is frozen', () => {
 });
 
 // ---------------------------------------------------------------------------
+// mcpSource golden (P6 TOML wave) — where each target's MCP servers live
+// ---------------------------------------------------------------------------
+
+test('claude mcpSource = json-files', () => {
+  assert.deepEqual(claudeDescriptor.mcpSource, { kind: 'json-files' });
+});
+
+test('codex mcpSource = config.toml mcp_servers toml-table', () => {
+  assert.deepEqual(codexDescriptor.mcpSource, { kind: 'toml-table', file: 'config.toml', pointer: 'mcp_servers' });
+});
+
+test('both descriptors\' mcpSource is frozen', () => {
+  assert.equal(Object.isFrozen(claudeDescriptor.mcpSource), true);
+  assert.equal(Object.isFrozen(codexDescriptor.mcpSource), true);
+});
+
+// ---------------------------------------------------------------------------
 // codex pattern falsifiability
 // ---------------------------------------------------------------------------
 
