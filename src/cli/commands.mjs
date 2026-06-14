@@ -24,13 +24,12 @@ import { detectOrphans } from '../discovery/orphan-detector.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
 import { analyzeDisposition } from '../analysis/disposition.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
-import { mergeSettings, explainEffective } from '../analysis/settings-merge.mjs';
+import { mergeSettings } from '../analysis/settings-merge.mjs';
 import { auditPermissions } from '../analysis/permissions.mjs';
 import { loaderConfidence } from '../analysis/load-order.mjs';
 import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
-import { redactEffective, redactKeysMap, redactMergeEntry, redactKeyedValue } from '../analysis/redact-effective.mjs';
 import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
 import { redactSecretsDeep, redactSecretsInString } from '../analysis/redact-secrets-text.mjs';
 import { categorizeComponents } from '../analysis/categorize.mjs';
@@ -46,6 +45,7 @@ import { removeCommand } from './remove-command.mjs';
 import { updateCommand } from './update-command.mjs';
 import { mcpCommand } from './mcp-command.mjs';
 import { hooksCommand } from './hooks-command.mjs';
+import { configShowEffectiveCommand } from './config-effective-command.mjs';
 import { healthCommand } from './health-command.mjs';
 import { skillProposeCommand, skillAcceptCommand } from './skill-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
@@ -276,60 +276,9 @@ export function orphansCommand(ctx) {
 }
 
 // ── config:show-effective ─────────────────────────────────────────────────────
-
-/**
- * The merged effective settings (user < local). Flags: `args.key` (optional dotted
- * path) narrows to that key — `merge` is the top-level segment's KeyMerge, `value`
- * is the value navigated down the full path (undefined if absent; never throws).
- *
- * SECRET-SAFE: sensitive VALUES are redacted to `{redacted:true, sha256}` BEFORE
- * the result is returned, so EVERY output format (json/ndjson/table/quiet) is
- * uniformly safe — every value under the top-level `env` map plus any value whose
- * KEY is sensitive (token/secret/key/password/credential/auth). Both value-bearing
- * surfaces are covered: the merged `effective` AND the per-key `keys` map (whose
- * KeyMerge `value`/`perLayer[].value` hold raw values — an unknown sensitive key
- * like `apiKeyHelper` lives ONLY there). Key NAMES and the merge metadata stay
- * visible; the originals are left untouched (redaction returns fresh copies).
- * See analysis/redact-effective.mjs.
- * @type {CommandHandler}
- */
-export function configShowEffectiveCommand(ctx) {
-  const layers = readSettingsLayers(ctx.configDir);
-  const m = mergeSettings(layers.layers);
-  const diagnostics = [...layers.diagnostics, ...m.diagnostics];
-  const explain = !!(ctx.args && ctx.args.explain);
-
-  const key = ctx.args && ctx.args.key;
-  if (typeof key === 'string' && key.length > 0) {
-    const segments = key.split('.');
-    const sourceKeys = explain ? explainEffective(layers.layers).keys : m.keys;
-    const result = { key, merge: redactMergeEntry(segments[0], sourceKeys[segments[0]] ?? null), value: redactKeyedValue(segments, navigate(m.effective, segments)) };
-    return { result, diagnostics };
-  }
-
-  if (explain) {
-    const ex = explainEffective(layers.layers);
-    return { result: { explain: true, effective: redactEffective(m.effective), keys: redactKeysMap(ex.keys) }, diagnostics };
-  }
-
-  return { result: { effective: redactEffective(m.effective), keys: redactKeysMap(m.keys) }, diagnostics };
-}
-
-/**
- * Walk an object down a path of segments. Returns undefined the moment the path
- * leaves a real object — total and never throws (used for `--key a.b.c` lookups).
- * @param {unknown} obj
- * @param {string[]} segments
- * @returns {unknown}
- */
-function navigate(obj, segments) {
-  let cur = obj;
-  for (const seg of segments) {
-    if (cur === null || typeof cur !== 'object') return undefined;
-    cur = /** @type {Record<string, unknown>} */ (cur)[seg];
-  }
-  return cur;
-}
+// configShowEffectiveCommand lives in config-effective-command.mjs (P6 TOML wave
+// SLOC split): the Claude settings-merge path (moved verbatim) + the Codex
+// config.toml path (descriptor.configSource-driven).
 
 // ── hooks ─────────────────────────────────────────────────────────────────────
 // hooksCommand lives in hooks-command.mjs (P5.U4 SLOC split — the ops-commands
@@ -439,4 +388,4 @@ export const COMMANDS = Object.freeze({
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand };
