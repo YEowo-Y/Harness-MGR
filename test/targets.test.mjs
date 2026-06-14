@@ -155,6 +155,23 @@ test('both descriptors\' mcpSource is frozen', () => {
 });
 
 // ---------------------------------------------------------------------------
+// pluginSource golden (P6 TOML wave) — where each target's plugins live
+// ---------------------------------------------------------------------------
+
+test('claude pluginSource = json-file', () => {
+  assert.deepEqual(claudeDescriptor.pluginSource, { kind: 'json-file' });
+});
+
+test('codex pluginSource = config.toml plugins toml-table', () => {
+  assert.deepEqual(codexDescriptor.pluginSource, { kind: 'toml-table', file: 'config.toml', pointer: 'plugins' });
+});
+
+test('both descriptors\' pluginSource is frozen', () => {
+  assert.equal(Object.isFrozen(claudeDescriptor.pluginSource), true);
+  assert.equal(Object.isFrozen(codexDescriptor.pluginSource), true);
+});
+
+// ---------------------------------------------------------------------------
 // codex pattern falsifiability
 // ---------------------------------------------------------------------------
 
