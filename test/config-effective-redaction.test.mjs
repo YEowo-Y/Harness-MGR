@@ -134,3 +134,43 @@ test('redactKeyedValue never throws on malformed --key segments and still redact
     'nested sensitive key redacted when the path is empty',
   );
 });
+
+// ── P6 TOML wave U2 hardening: NESTED env tables wholesale-redacted ────────────
+// A nested env table (e.g. codex `mcp_servers.<x>.env`) must wholesale-redact every
+// leaf — a benign-named, non-token-shaped value under it would otherwise leak. These
+// oracles FAIL against the pre-hardening redactDeep (which only wholesale-redacted
+// the TOP-LEVEL env) and PASS after.
+
+const NESTED_PLAIN = 'rawdbpassword-NESTED-no-keyword-no-shape-zzz';
+
+test('redactEffective wholesale-redacts a NESTED env (benign key, no token shape) at any depth', () => {
+  const effective = {
+    mcp_servers: { deployer: { env: { CONNECTION: NESTED_PLAIN, LOG_LEVEL: 'info' } } },
+    other: { plain: 'keepme-OTHER' },
+  };
+  const wire = JSON.stringify(redactEffective(effective));
+  assert.ok(!wire.includes(NESTED_PLAIN), 'a nested-env value must NOT leak (any-depth env wholesale redaction)');
+  assert.ok(!wire.includes('"LOG_LEVEL":"info"'), 'every nested-env leaf is wholesale-redacted, not just secret-named ones');
+  assert.ok(wire.includes('CONNECTION'), 'the env key NAME stays visible');
+  assert.ok(wire.includes('keepme-OTHER'), 'a NON-env nested value still survives (no over-redaction beyond env)');
+  assert.equal(({}).polluted, undefined, 'Object.prototype untouched');
+});
+
+test('redactKeyedValue redacts a path INTO a nested env (--key mcp.x.env.CONNECTION)', () => {
+  const redacted = redactKeyedValue(['mcp_servers', 'deployer', 'env', 'CONNECTION'], NESTED_PLAIN);
+  assert.equal(redacted.redacted, true, 'a leaf inside a nested env is redacted');
+});
+
+test('redactKeyedValue redacts a path landing AT a nested env table (--key mcp.x.env)', () => {
+  const wire = JSON.stringify(redactKeyedValue(['mcp_servers', 'deployer', 'env'], { CONNECTION: NESTED_PLAIN }));
+  assert.ok(!wire.includes(NESTED_PLAIN), 'the whole nested env table redacts every leaf');
+  assert.ok(wire.includes('CONNECTION'), 'env key name stays visible');
+});
+
+test('redactKeyedValue preserves the TOP-LEVEL --key env single-sentinel shape (CC behavior unchanged)', () => {
+  const out = redactKeyedValue(['env'], { ANTHROPIC_API_KEY: ENV_SECRET, PLAIN: ENV_PLAIN });
+  // top-level env stays one sentinel (NOT per-leaf), exactly as pre-hardening.
+  assert.equal(out.redacted, true);
+  assert.equal(typeof out.sha256, 'string');
+  assert.equal(out.ANTHROPIC_API_KEY, undefined, 'not the per-leaf shape — a single sentinel');
+});
