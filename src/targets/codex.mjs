@@ -48,4 +48,8 @@ export const codexDescriptor = Object.freeze({
     // check owns the "8 stale" judgment (mirrors CC CLAUDE.md.backup.* + #13).
     /^\.\.codex-global-state\.json\.tmp-.+$/,
   ]),
+  // Codex hooks live in a standalone top-level hooks.json (TOML-free) under the
+  // `hooks` pointer — the `.hooks` map is shape-compatible with Claude's merged
+  // effective.hooks ({ [event]: [{ matcher?, hooks: [{type:'command', command}] }] }).
+  hookSource: Object.freeze({ kind: 'json-file', file: 'hooks.json', pointer: 'hooks' }),
 });
