@@ -31,6 +31,14 @@ import { codexDescriptor } from './codex.mjs';
  */
 
 /**
+ * @typedef {Object} ConfigSource
+ * @property {'settings-merge'|'toml-file'} kind   where this target's effective config lives:
+ *   'settings-merge' = the merged settings layers (Claude settings.json + .local); 'toml-file'
+ *   = a single TOML file (Codex `config.toml` — one source, no layering/merge).
+ * @property {string} [file]      toml-file: the file name under the config root (e.g. 'config.toml')
+ */
+
+/**
  * @typedef {Object} TargetDescriptor
  * @property {'claude'|'codex'} id
  * @property {string} label
@@ -42,6 +50,7 @@ import { codexDescriptor } from './codex.mjs';
  * @property {string[]} knownTopFiles
  * @property {RegExp[]} knownTopFilePatterns
  * @property {HookSource} hookSource               where to read the effective hooks map (P6.U4)
+ * @property {ConfigSource} configSource           where to read the effective config (P6 TOML wave)
  */
 
 /** The frozen registry of known targets, keyed by descriptor id. */
