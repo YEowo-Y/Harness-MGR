@@ -138,7 +138,7 @@ function collectPlugins(map, rootDir, file, bag) {
  * @param {string} key
  * @returns {{name: string, marketplace: string}}
  */
-function splitKey(key) {
+export function splitKey(key) {
   const at = key.lastIndexOf('@');
   if (at <= 0) return { name: key, marketplace: '' };
   return { name: key.slice(0, at), marketplace: key.slice(at + 1) };
