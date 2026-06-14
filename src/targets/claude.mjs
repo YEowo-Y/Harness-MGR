@@ -44,4 +44,6 @@ export const claudeDescriptor = Object.freeze({
   // SAME REFERENCE (===) — single-sourced, drift-guarded.
   knownTopFiles: KNOWN_TOP_FILES,
   knownTopFilePatterns: KNOWN_TOP_FILE_PATTERNS,
+  // Claude hooks come from the MERGED settings layers (settings.json + .local).
+  hookSource: Object.freeze({ kind: 'settings-merge' }),
 });
