@@ -52,4 +52,6 @@ export const codexDescriptor = Object.freeze({
   // `hooks` pointer — the `.hooks` map is shape-compatible with Claude's merged
   // effective.hooks ({ [event]: [{ matcher?, hooks: [{type:'command', command}] }] }).
   hookSource: Object.freeze({ kind: 'json-file', file: 'hooks.json', pointer: 'hooks' }),
+  // Codex effective config = the single config.toml (one source — no layering/merge).
+  configSource: Object.freeze({ kind: 'toml-file', file: 'config.toml' }),
 });
