@@ -46,4 +46,6 @@ export const claudeDescriptor = Object.freeze({
   knownTopFilePatterns: KNOWN_TOP_FILE_PATTERNS,
   // Claude hooks come from the MERGED settings layers (settings.json + .local).
   hookSource: Object.freeze({ kind: 'settings-merge' }),
+  // Claude effective config = the merged settings layers (same source as hooks).
+  configSource: Object.freeze({ kind: 'settings-merge' }),
 });
