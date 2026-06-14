@@ -124,6 +124,19 @@ test('both descriptors\' hookSource is frozen', () => {
   assert.equal(Object.isFrozen(codexDescriptor.hookSource), true);
 });
 
+test('claude configSource = settings-merge', () => {
+  assert.deepEqual(claudeDescriptor.configSource, { kind: 'settings-merge' });
+});
+
+test('codex configSource = config.toml toml-file', () => {
+  assert.deepEqual(codexDescriptor.configSource, { kind: 'toml-file', file: 'config.toml' });
+});
+
+test('both descriptors\' configSource is frozen', () => {
+  assert.equal(Object.isFrozen(claudeDescriptor.configSource), true);
+  assert.equal(Object.isFrozen(codexDescriptor.configSource), true);
+});
+
 // ---------------------------------------------------------------------------
 // codex pattern falsifiability
 // ---------------------------------------------------------------------------
