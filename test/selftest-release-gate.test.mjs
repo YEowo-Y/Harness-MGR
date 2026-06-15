@@ -414,7 +414,7 @@ describe('runReleaseGate', () => {
   it('step 6: fixture doctor pass:true → gate code 0 (seam wires fixture result)', async () => {
     // The seam returns pass:true (as if the fixture run passed). Gate code must be 0.
     const r = await runReleaseGate(makeOpts({
-      runDoctorPassive: async () => ({ pass: true, detail: 'doctor passive (fixture): 27 checks, 0 error(s)' }),
+      runDoctorPassive: async () => ({ pass: true, detail: 'doctor passive (fixture): 28 checks, 0 error(s)' }),
     }));
     assert.equal(r.code, 0);
     assert.equal(r.pass, true);
