@@ -160,3 +160,38 @@ test('run: inventory without --target auto-detects codex (same counts)', async (
     assert.equal(counts.agents, 1, `auto-detected codex must count agents/*.toml as an agent; got ${JSON.stringify(counts)}`);
   });
 });
+
+// ── topdir descriptor-ization (P6): codex topdirs no longer flagged unknown ───
+
+test('run: inventory --target codex classifies codex topdirs as known (not noise); a novel dir stays unknown', async () => {
+  await withTempDir(async (dir) => {
+    buildCodexDir(dir); // creates skills/, prompts/, agents/ — all codex-known
+    mkdirSync(join(dir, 'sqlite'), { recursive: true });        // codex-known
+    mkdirSync(join(dir, 'rules'), { recursive: true });         // codex-known
+    mkdirSync(join(dir, 'zzz-novel-dir'), { recursive: true }); // NOT in the codex seed
+    const out = await run(['inventory', '--target', 'codex', '--config-dir', dir, '--format', 'json']);
+    assert.equal(out.code, 0, out.stdout.slice(0, 300));
+    const r = JSON.parse(out.stdout).result;
+    // codex dirs are recognized via descriptor.knownTopDirs → NOT in unknownTopDirs.
+    for (const d of ['skills', 'prompts', 'agents', 'sqlite', 'rules']) {
+      assert.equal(r.unknownTopDirs.includes(d), false, `${d} is a codex-known dir, must not be flagged unknown`);
+    }
+    assert.deepEqual(r.unknownTopDirs, ['zzz-novel-dir'], 'only a genuinely-new dir remains unknown');
+    for (const d of ['prompts', 'sqlite']) assert.ok(r.topDirs.includes(d), `${d} present in topDirs`);
+  });
+});
+
+test('run: inventory (claude) topdir display uses bare KNOWN_TOP_DIRS, NOT the orphan-union (byte-identical)', async () => {
+  await withTempDir(async (dir) => {
+    writeFileSync(join(dir, 'settings.json'), '{}'); // claude signature
+    mkdirSync(join(dir, 'skills'), { recursive: true });     // CC-known (bare-19)
+    mkdirSync(join(dir, 'homunculus'), { recursive: true }); // in claudeDescriptor's orphan-UNION but NOT the bare-19
+    const out = await run(['inventory', '--config-dir', dir, '--format', 'json']);
+    assert.equal(out.code, 0, out.stdout.slice(0, 300));
+    const r = JSON.parse(out.stdout).result;
+    assert.equal(r.topDirs.includes('skills'), true);
+    // homunculus is in the orphan union but inventory uses the bare-19 → it MUST stay unknown.
+    // This pins claude byte-identity: RED if claude were ever routed through descriptor.knownTopDirs.
+    assert.equal(r.unknownTopDirs.includes('homunculus'), true, 'claude inventory uses bare-19, not the orphan-union');
+  });
+});
