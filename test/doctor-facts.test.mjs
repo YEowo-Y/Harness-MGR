@@ -21,11 +21,13 @@ import { tmpdir } from 'node:os';
 
 import { gatherDoctorInput } from '../src/cli/doctor-facts.mjs';
 import { codexDescriptor } from '../src/targets/codex.mjs';
+import { claudeDescriptor } from '../src/targets/claude.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fix = (rel) => join(here, 'fixtures', rel);
 const MIN = fix('minimal');
 const STATE = join(MIN, '.mgr-state');
+const SNAP = fix('real-snapshot');
 
 test('gatherDoctorInput: returns { input, diagnostics } without throwing', async () => {
   const out = await gatherDoctorInput({ configDir: MIN, mgrStateDir: STATE });
@@ -115,4 +117,23 @@ test('gatherDoctorInput: a malformed codex .hooks (array) → effectiveHooks nor
     const { facts } = await gatherDoctorInput({ configDir: dir, mgrStateDir: join(dir, '.mgr-state'), descriptor: codexDescriptor });
     assert.deepEqual(facts.effectiveHooks, {}, 'non-object hooks map → {}');
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── P6 doctor wave: CC byte-identity of the target-aware enable model ──────────
+
+test('gatherDoctorInput: Claude descriptor === absent descriptor for plugin facts (CC byte-identical)', async () => {
+  const stateDir = join(SNAP, '.mgr-state');
+  const a = await gatherDoctorInput({ configDir: SNAP, mgrStateDir: stateDir }); // absent descriptor
+  const b = await gatherDoctorInput({ configDir: SNAP, mgrStateDir: stateDir, descriptor: claudeDescriptor });
+  // The settings-map enable model must be taken for BOTH (the record-flag branch is
+  // codex-only), so the gathered plugin facts are identical. RED if the CC path ever
+  // regressed to the synthesized record-flag map.
+  assert.deepEqual(a.input.enabledPlugins, b.input.enabledPlugins);
+  assert.deepEqual(a.input.installedPlugins, b.input.installedPlugins);
+  // Widen the pin past plugins: the descriptor also feeds components→conflicts and mcp,
+  // which must stay byte-identical for a Claude run too.
+  assert.deepEqual(a.input.conflicts, b.input.conflicts);
+  assert.deepEqual(a.input.mcpResolution, b.input.mcpResolution);
+  // Non-vacuous: real-snapshot's settings.json carries an enabledPlugins map.
+  assert.ok(a.input.enabledPlugins && typeof a.input.enabledPlugins === 'object', 'enabledPlugins populated from settings');
 });
