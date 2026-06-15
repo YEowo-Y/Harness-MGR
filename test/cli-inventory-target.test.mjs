@@ -106,6 +106,22 @@ test('run: inventory --target codex counts the sibling ~/.agents/skills (tier us
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('run: inventory --type marketplace --target codex unions the [marketplaces] table + plugins/cache', async () => {
+  await withTempDir(async (dir) => {
+    writeFileSync(join(dir, 'config.toml'),
+      'model = "gpt-5.5"\n\n[marketplaces]\nmax_depth = 2\n\n[marketplaces.openai-bundled]\nsource = "/p/bundled"\n', 'utf8');
+    mkdirSync(join(dir, 'plugins', 'cache', 'openai-bundled'), { recursive: true });
+    mkdirSync(join(dir, 'plugins', 'cache', 'openai-curated'), { recursive: true }); // cached, undeclared
+
+    const out = await run(['inventory', '--type', 'marketplace', '--target', 'codex', '--config-dir', dir, '--format', 'json']);
+    assert.equal(out.code, 0, out.stdout.slice(0, 300));
+    const items = JSON.parse(out.stdout).result.items || [];
+    assert.deepEqual(items.map((m) => m.name), ['openai-bundled', 'openai-curated'], 'declared + cached, sorted, max_depth excluded');
+    assert.equal(items.find((m) => m.name === 'openai-bundled').installLocation, '/p/bundled');
+    assert.equal(items.every((m) => m.onDisk === true), true);
+  });
+});
+
 // ── auto-detect codex (no --target) → same counts ─────────────────────────────
 
 test('run: inventory without --target auto-detects codex (same counts)', async () => {
