@@ -210,3 +210,57 @@ test('codex multi-source: a symlinked leaf (latest) is NOT followed → skill co
     assert.equal(dups.length, 1, 'symlinked latest leaf must not double-count the skill (symlink-never-follow)');
   });
 });
+
+// ── SIBLING-DIR source (~/.agents/skills, P6) ─────────────────────────────────
+// The sibling source resolves as dirname(configDir)/.agents, so the config dir must
+// be a SUBDIR of a controlled parent that also holds .agents (hermetic).
+
+test('codex multi-source: sibling-dir (~/.agents/skills) scanned as a config-dir sibling, tier user', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mgr-sib-'));
+  try {
+    const cfg = join(root, '.codex');
+    mkdir(cfg, join('skills', 'home-skill'));
+    mkfile(cfg, join('skills', 'home-skill', 'SKILL.md'), '---\n---\nbody\n');
+    // sibling: dirname(cfg)/.agents/skills/<name>/SKILL.md
+    mkdir(root, join('.agents', 'skills', 'brandkit'));
+    mkfile(root, join('.agents', 'skills', 'brandkit', 'SKILL.md'), '---\n---\nbody\n');
+
+    const { components, diagnostics } = discoverComponentsForTarget({ rootDir: cfg, descriptor: codexDescriptor });
+    assert.equal(diagnostics.filter((d) => d.severity === 'error').length, 0);
+    const sib = components.find((c) => c.name === 'brandkit');
+    assert.ok(sib, 'sibling ~/.agents skill discovered');
+    assert.equal(sib.kind, 'skill');
+    assert.equal(sib.source.tier, 'user');
+    assert.ok(sib.path.includes('.agents'), 'path is under the .agents sibling, not the config dir');
+    assert.equal(components.find((c) => c.name === 'home-skill').source.tier, 'user');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('codex multi-source: a home skill + a same-name sibling skill co-exist (two records)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mgr-sib-'));
+  try {
+    const cfg = join(root, '.codex');
+    mkdir(cfg, join('skills', 'dup'));
+    mkfile(cfg, join('skills', 'dup', 'SKILL.md'), '---\n---\nbody\n');
+    mkdir(root, join('.agents', 'skills', 'dup'));
+    mkfile(root, join('.agents', 'skills', 'dup', 'SKILL.md'), '---\n---\nbody\n');
+
+    const { components } = discoverComponentsForTarget({ rootDir: cfg, descriptor: codexDescriptor });
+    const dups = components.filter((c) => c.kind === 'skill' && c.name === 'dup');
+    assert.equal(dups.length, 2, 'home + sibling = two co-existing records');
+    assert.equal(dups.filter((c) => c.path.includes('.agents')).length, 1, 'exactly one is the sibling copy');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('codex multi-source: a missing sibling .agents is benign (no error diagnostic)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mgr-sib-'));
+  try {
+    const cfg = join(root, '.codex');
+    mkdir(cfg, join('skills', 'only-home'));
+    mkfile(cfg, join('skills', 'only-home', 'SKILL.md'), '---\n---\nbody\n');
+    // NO .agents sibling created
+    const { components, diagnostics } = discoverComponentsForTarget({ rootDir: cfg, descriptor: codexDescriptor });
+    assert.equal(diagnostics.filter((d) => d.severity === 'error').length, 0, 'missing sibling is silent');
+    assert.equal(components.some((c) => c.name === 'only-home'), true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
