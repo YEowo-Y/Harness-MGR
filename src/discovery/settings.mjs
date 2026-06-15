@@ -119,22 +119,28 @@ function extractStatusLine(raw) {
  */
 
 /**
- * Classify the immediate sub-directories of `rootDir` against KNOWN_TOP_DIRS.
+ * Classify the immediate sub-directories of `rootDir` against a known-top-dirs list
+ * (default KNOWN_TOP_DIRS). A target descriptor injects its own set via `knownDirs`
+ * (codex passes descriptor.knownTopDirs so codex's prompts/sqlite/rules/… are recognized
+ * rather than flagged `unknown`); an absent/non-array/empty `knownDirs` falls back to
+ * KNOWN_TOP_DIRS so Claude — and any bare caller — stay byte-identical.
  * Symlinked directories count as present (the dogfood `.mgr` install is a dir
  * symlink); a broken symlink is skipped, never thrown.
  * @param {string} rootDir
+ * @param {string[]} [knownDirs]  known-top-dirs to classify against (default KNOWN_TOP_DIRS)
  * @returns {TopDirsRecord}
  */
-export function discoverTopLevelDirs(rootDir) {
+export function discoverTopLevelDirs(rootDir, knownDirs) {
   const bag = new DiagnosticBag();
+  const knownNames = Array.isArray(knownDirs) && knownDirs.length > 0 ? knownDirs : KNOWN_TOP_DIRS;
   if (typeof rootDir !== 'string' || rootDir.length === 0) {
     bag.add({ severity: 'error', code: 'discover-bad-root', message: 'rootDir must be a non-empty string', phase: 'top-dirs' });
-    return { known: KNOWN_TOP_DIRS.map((name) => ({ name, present: false })), unknown: [], diagnostics: bag.all() };
+    return { known: knownNames.map((name) => ({ name, present: false })), unknown: [], diagnostics: bag.all() };
   }
 
   const present = listSubDirs(rootDir, bag);
-  const knownSet = new Set(KNOWN_TOP_DIRS);
-  const known = KNOWN_TOP_DIRS.map((name) => ({ name, present: present.has(name) }));
+  const knownSet = new Set(knownNames);
+  const known = knownNames.map((name) => ({ name, present: present.has(name) }));
   const unknown = [...present].filter((n) => !knownSet.has(n)).sort();
   return { known, unknown, diagnostics: bag.all() };
 }
