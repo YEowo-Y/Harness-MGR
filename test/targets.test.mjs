@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import { TARGETS, resolveTarget } from '../src/targets/descriptor.mjs';
 import { claudeDescriptor } from '../src/targets/claude.mjs';
-import { codexDescriptor } from '../src/targets/codex.mjs';
+import { codexDescriptor, CODEX_STATE_TMP_RE } from '../src/targets/codex.mjs';
 
 // The LIVE consts the claude descriptor must single-source.
 import { KNOWN_TOP_DIRS } from '../src/discovery/settings.mjs';
@@ -181,6 +181,14 @@ test('codex leftover-bloat pattern matches a real tmp leftover only', () => {
   assert.equal(leftover.test('config.toml'), false);
   // the LIVE state file is NOT a tmp leftover (single leading dot, no .tmp- suffix)
   assert.equal(leftover.test('.codex-global-state.json'), false);
+});
+
+test('codex leftover pattern is SINGLE-SOURCED: knownTopFilePatterns contains the exact CODEX_STATE_TMP_RE', () => {
+  // The orphan detector recognizes these as KNOWN via knownTopFilePatterns, and doctor
+  // #28 counts the same files via this same regex (probe-codex-config imports it). Pinning
+  // SAME-REFERENCE guarantees the two can never drift into a "known-but-uncounted" /
+  // "counted-but-orphan" split.
+  assert.ok(codexDescriptor.knownTopFilePatterns.includes(CODEX_STATE_TMP_RE), 'descriptor uses the exported const');
 });
 
 test('codex sqlite pattern matches the heavy-runtime family only', () => {
