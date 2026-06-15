@@ -19,7 +19,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, lstatSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { discoverComponents } from '../src/discovery/components.mjs';
@@ -33,6 +33,17 @@ function makeTmpDir() {
 function trySymlink(target, linkPath, type) {
   try { symlinkSync(target, linkPath, type); return true; }
   catch { return false; }
+}
+
+/**
+ * True only if `made` AND linkPath is now ACTUALLY a symlink. Guards a cold-start
+ * Windows Dev-Mode race where symlinkSync returns success but the link isn't yet
+ * observable as a symlink to a follow-up lstat (which would make a root-symlink test
+ * walk it as a real dir and false-fail). A test that gets false here should skip.
+ */
+function symlinkReady(made, linkPath) {
+  if (!made) return false;
+  try { return lstatSync(linkPath).isSymbolicLink(); } catch { return false; }
 }
 
 const FOREIGN_TOKEN = 'ghp_FAKEAUDITSECRET0000000000000000000000';
@@ -98,6 +109,50 @@ test('SAFE behavior preserved: symlinked agents/*.md is still skipped (no foreig
   } finally {
     cleanup();
   }
+});
+
+test('symlinked skills/ ROOT → entire dir skipped (no foreign content), real agents/ still discovered', (t) => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    // A FOREIGN skills tree holding a real skill with a secret-shaped frontmatter.
+    const foreign = join(dir, 'OUTSIDE-skills');
+    mkdirSync(join(foreign, 'pwn'), { recursive: true });
+    writeFileSync(join(foreign, 'pwn', 'SKILL.md'), `---\nname: pwn\nleaked_token: ${FOREIGN_TOKEN}\n---\nbody\n`);
+    // The skills/ ROOT itself is a SYMLINK to the foreign tree (the vector this closes).
+    const made = trySymlink(foreign, join(dir, 'skills'), 'dir');
+    if (!symlinkReady(made, join(dir, 'skills'))) { t.skip('dir symlinks not reliably created in this environment'); return; }
+    // A real, NON-symlinked agents/ root that MUST still be discovered (no over-rejection).
+    mkdirSync(join(dir, 'agents'), { recursive: true });
+    writeFileSync(join(dir, 'agents', 'helper.md'), `---\nname: helper\n---\nok\n`);
+
+    const { components, diagnostics } = discoverComponents(dir);
+
+    for (const c of components) assert.equal(leaks(c.frontmatter), false, `record ${c.kind}/${c.name} leaked foreign content`);
+    assert.equal(components.some((c) => c.kind === 'skill'), false, 'a symlinked skills/ root must yield NO skills');
+    const skipped = diagnostics.filter((d) => d.code === 'component-dir-symlink-skipped');
+    assert.equal(skipped.length, 1, 'exactly one component-dir-symlink-skipped diagnostic for the skills/ root');
+    assert.equal(skipped[0].severity, 'warn');
+    assert.match(skipped[0].path, /skills$/);
+    assert.ok(components.some((c) => c.kind === 'agent' && c.name === 'helper'), 'a real (non-symlinked) agents/ root is NOT over-rejected');
+  } finally { cleanup(); }
+});
+
+test('symlinked agents/ ROOT → skipped too (the guard is at the shared safeReaddir chokepoint, all kinds)', (t) => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const foreign = join(dir, 'OUTSIDE-agents');
+    mkdirSync(foreign, { recursive: true });
+    writeFileSync(join(foreign, 'evil.md'), `---\nname: evil\nleaked_token: ${FOREIGN_TOKEN}\n---\n`);
+    const made = trySymlink(foreign, join(dir, 'agents'), 'dir');
+    if (!symlinkReady(made, join(dir, 'agents'))) { t.skip('dir symlinks not reliably created in this environment'); return; }
+
+    const { components, diagnostics } = discoverComponents(dir);
+    for (const c of components) assert.equal(leaks(c.frontmatter), false);
+    assert.equal(components.some((c) => c.kind === 'agent'), false, 'a symlinked agents/ root must yield NO agents');
+    const skipped = diagnostics.filter((d) => d.code === 'component-dir-symlink-skipped');
+    assert.equal(skipped.length, 1);
+    assert.match(skipped[0].path, /agents$/, 'the warn names the agents/ root');
+  } finally { cleanup(); }
 });
 
 test('SAFE behavior preserved: a top-level skill DIR-symlink is still skipped', (t) => {
