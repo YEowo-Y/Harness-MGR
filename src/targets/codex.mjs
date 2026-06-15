@@ -37,19 +37,37 @@ export const codexDescriptor = Object.freeze({
     Object.freeze({ kind: 'agent', dir: 'agents', layout: 'flat-toml' }),
   ]),
   // Codex loads components from MULTIPLE sources beyond the home dir. This declares the
-  // IN-TREE plugin caches: plugins/cache/<marketplace>/<plugin>/<leaf>/skills/<name>/SKILL.md
-  // (89 SKILL.md across 4 marketplaces, live 2026-06-15). Each is tiered 'plugin' with
-  // marketplace+plugin provenance, so a plugin skill `github:gh-fix-ci` does NOT collide
-  // with a home skill `gh-fix-ci` (namespaced key). ONLY skills are scanned here: plugin
-  // agents are a single filename-identity-useless `openai.yaml` per plugin and commands are
-  // marginal (1 plugin) — both deferred. The documented OUT-OF-TREE `~/.agents/skills` USER
-  // scope (not config-dir-relative) is a separate follow-up. A symlinked `<leaf>` (codex's
-  // `latest -> <version>`) is not followed, so a versioned skill is counted once.
+  // IN-TREE plugin caches: plugins/cache/<marketplace>/<plugin>/<leaf>/{skills,commands}.
+  // Each is tiered 'plugin' with marketplace+plugin provenance, so a plugin skill
+  // `github:gh-fix-ci` does NOT collide with a home skill `gh-fix-ci` (namespaced key).
+  //
+  // SKILLS + COMMANDS are scanned. Commands are flat-md `.md` files in a leaf `commands/`
+  // dir (live 2026-06-15: openai-curated/cloudflare ships build-agent.md + build-mcp.md
+  // with real `description`/`argument-hint`/`allowed-tools` frontmatter) — basename
+  // identity, exactly like the home `prompts/` command kind. Small (1 plugin today) but
+  // CORRECT and consistent with the plugin-skill scan.
+  //
+  // Plugin "agents" are DELIBERATELY NOT scanned. Every one of the 91 (live 2026-06-15)
+  // `agents/` dirs in the cache holds exactly a fixed-name `openai.yaml` INTERFACE-METADATA
+  // sidecar (display_name/short_description/icon/default_prompt) describing the ADJACENT
+  // skill/plugin — NOT an agent component. They appear both at leaf level AND nested inside
+  // each skill dir; the filename carries no identity, the skills they annotate already
+  // appear in inventory, and surfacing them would need a YAML parser (we have none —
+  // TOML+JSONC only, by design) for zero governance value. (Home `~/.codex/agents/*.toml`
+  // ARE real agents and are scanned by componentKinds above; only the plugin-cache yaml
+  // sidecars are excluded.)
+  //
+  // The documented OUT-OF-TREE `~/.agents/skills` USER scope is the sibling-dir source
+  // below. A symlinked `<leaf>` (codex's `latest -> <version>`) is not followed, so a
+  // versioned component is counted once.
   componentSources: Object.freeze([
     Object.freeze({
       kind: 'plugin-cache',
       dir: 'plugins/cache',
-      kinds: Object.freeze([Object.freeze({ kind: 'skill', dir: 'skills', layout: 'skill-md' })]),
+      kinds: Object.freeze([
+        Object.freeze({ kind: 'skill', dir: 'skills', layout: 'skill-md' }),
+        Object.freeze({ kind: 'command', dir: 'commands', layout: 'flat-md' }),
+      ]),
     }),
     // The documented OUT-OF-TREE USER scope `$HOME/.agents/skills` (dozens of skills
     // observed 2026-06-15; counts drift — a dated seed, like the rest of this file) — a
