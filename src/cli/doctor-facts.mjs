@@ -41,6 +41,7 @@ import { scan } from '../discovery/scan.mjs';
 import { detectOrphans } from '../discovery/orphan-detector.mjs';
 import { gatherCodexConfig } from '../discovery/probe-codex-config.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
+import { targetModelsShadowing } from '../analysis/codex-coexistence.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
 import { mergeSettings } from '../analysis/settings-merge.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
@@ -82,7 +83,10 @@ import { gatherCliProbe } from '../discovery/probe-cli.mjs';
  * honest deferral, not a false finding — these produce nothing for codex): #6/#22
  * settings/plugin-schema validity, #23 permissions-overbroad, #18 statusline — codex's
  * equivalents live in config.toml / are the per-project trust_level model (#27). #11
- * is structurally empty for codex (one dir per kind → no same-(kind,key) collision).
+ * duplicate-component-shadowing is kept empty for codex on purpose: codex models no
+ * Claude-style shadowing (same-name components coexist per Codex docs), so the Claude
+ * shadowing model is NOT run on a codex target — the multi-source co-existence view is
+ * surfaced by `conflicts --target codex` instead (targetModelsShadowing single-sources this).
  *
  * @param {{ configDir: string, mgrStateDir: string, descriptor?: import('../targets/descriptor.mjs').TargetDescriptor, activeProbes?: boolean, now?: number, cwd?: string }} opts
  * @returns {Promise<{ input: DoctorInput, diagnostics: Diagnostic[], facts: HealthFacts }>}
@@ -99,7 +103,13 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
     // read error surfaces as a warn here.
     const hookSrc = gatherEffectiveHooks({ configDir, descriptor, effective });
     push(diagnostics, hookSrc.diagnostics);
-    const conflicts = analyzeConflicts(s.components).conflicts;
+    // #11 duplicate-component-shadowing. Codex models no Claude-style shadowing
+    // (same-name components coexist per Codex docs); the multi-source scan now puts
+    // plugin skills in s.components, so running the Claude shadowing model on a codex
+    // target would mis-report plugin-vs-plugin co-existence as a #11 winner. Keep #11
+    // honestly empty for codex; Claude is byte-identical. targetModelsShadowing is the
+    // single source for the "codex doesn't shadow" decision (shared with conflictsCommand).
+    const conflicts = targetModelsShadowing(descriptor) ? analyzeConflicts(s.components).conflicts : [];
 
     /** @type {DoctorInput} */
     const input = {
