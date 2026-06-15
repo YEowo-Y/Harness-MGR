@@ -84,6 +84,28 @@ test('run: inventory --target codex counts plugin-cache skills + exposes provena
   });
 });
 
+test('run: inventory --target codex counts the sibling ~/.agents/skills (tier user)', async () => {
+  // sibling resolves as dirname(configDir)/.agents → build <root>/.codex as the config dir.
+  const root = mkdtempSync(join(tmpdir(), 'mgr-sib-cli-'));
+  try {
+    const cfg = join(root, '.codex');
+    mkdirSync(cfg, { recursive: true }); // buildCodexDir writes config.toml into cfg, so cfg must exist
+    buildCodexDir(cfg); // 1 home skill
+    const ag = join(root, '.agents', 'skills', 'brandkit');
+    mkdirSync(ag, { recursive: true });
+    writeFileSync(join(ag, 'SKILL.md'), '---\n---\nbody\n');
+
+    const out = await run(['inventory', '--target', 'codex', '--config-dir', cfg, '--detail', '--format', 'json']);
+    assert.equal(out.code, 0, out.stdout.slice(0, 300));
+    const parsed = JSON.parse(out.stdout);
+    assert.equal(parsed.result.counts.skills, 2, `home + sibling skill; got ${JSON.stringify(parsed.result.counts)}`);
+    const sib = (parsed.result.components || []).find((c) => c.name === 'brandkit');
+    assert.ok(sib, 'sibling skill present in --detail');
+    assert.equal(sib.source.tier, 'user');
+    assert.ok(sib.path.includes('.agents'));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 // ── auto-detect codex (no --target) → same counts ─────────────────────────────
 
 test('run: inventory without --target auto-detects codex (same counts)', async () => {
