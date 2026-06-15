@@ -8,7 +8,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -169,4 +169,47 @@ test('top-dirs on a non-string root → discover-bad-root, all known absent', ()
   assert.equal(result.known.length, 19);
   assert.equal(result.known.every((d) => d.present === false), true);
   assert.equal(result.diagnostics[0].code, 'discover-bad-root');
+});
+
+// ── discoverTopLevelDirs: descriptor-injected knownDirs (P6 codex topdir descriptor-ization) ──
+
+/** Run `fn(dir)` against a throwaway dir holding the given sub-directory names. */
+function withTempDirs(names, fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-topdirs-'));
+  try {
+    for (const n of names) mkdirSync(join(dir, n), { recursive: true });
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('discoverTopLevelDirs default (no knownDirs) classifies against KNOWN_TOP_DIRS (back-compat)', () => {
+  withTempDirs(['skills', 'agents', 'prompts', 'sqlite'], (dir) => {
+    const { known, unknown } = discoverTopLevelDirs(dir);
+    assert.equal(known.length, KNOWN_TOP_DIRS.length, 'default uses the bare KNOWN_TOP_DIRS');
+    assert.equal(known.find((d) => d.name === 'skills').present, true, 'a CC-known dir is present');
+    // prompts + sqlite are codex dirs the CC list does not know → flagged unknown (the noise).
+    assert.deepEqual(unknown, ['prompts', 'sqlite'], 'codex dirs are unknown under the CC list');
+  });
+});
+
+test('discoverTopLevelDirs with an injected knownDirs reclassifies (codex dirs no longer unknown)', () => {
+  withTempDirs(['skills', 'agents', 'prompts', 'sqlite', 'totally-novel'], (dir) => {
+    const codexKnown = ['agents', 'skills', 'prompts', 'sqlite'];
+    const { known, unknown } = discoverTopLevelDirs(dir, codexKnown);
+    assert.equal(known.length, codexKnown.length, 'classifies against the injected list, not KNOWN_TOP_DIRS');
+    assert.equal(known.find((d) => d.name === 'prompts').present, true, 'prompts is now a known/present dir');
+    assert.deepEqual(unknown, ['totally-novel'], 'only a genuinely-unrecognized dir stays unknown');
+  });
+});
+
+test('discoverTopLevelDirs invalid/empty knownDirs falls back to KNOWN_TOP_DIRS (never-throws contract)', () => {
+  withTempDirs(['skills', 'prompts'], (dir) => {
+    for (const bad of [[], null, undefined, 'notarray', 42]) {
+      const { known, unknown } = discoverTopLevelDirs(dir, /** @type {any} */ (bad));
+      assert.equal(known.length, KNOWN_TOP_DIRS.length, `fallback to KNOWN_TOP_DIRS for ${JSON.stringify(bad)}`);
+      assert.deepEqual(unknown, ['prompts'], 'prompts still unknown under the fallback CC list');
+    }
+  });
 });
