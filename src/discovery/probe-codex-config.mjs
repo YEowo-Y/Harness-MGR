@@ -22,14 +22,23 @@
  * Zero npm dependencies. Node stdlib only. Never throws.
  */
 
+import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { readTomlFile } from './read-toml.mjs';
+import { CODEX_STATE_TMP_RE } from '../targets/codex.mjs';
+
+/**
+ * @typedef {Object} LeftoverStateTmp
+ * @property {number} count    how many `..codex-global-state.json.tmp-*` files are in configDir
+ * @property {string[]} sample up to 3 of the matching names (sorted), for the #28 message/UX
+ */
 
 /**
  * @typedef {Object} CodexConfigFacts
  * @property {string|null} tomlError       the readTomlFile error (parse/read), or null when valid/missing
  * @property {string[]} trustedProjects    every `[projects."P"]` key whose table has trust_level === 'trusted'
  * @property {string} homeDir              passed through (the OS home dir) for #27's overbroad judgment
+ * @property {LeftoverStateTmp} leftoverStateTmp  count of leftover ..codex-global-state.json.tmp-* files; judged by #28
  */
 
 /** Prototype-polluting keys to skip when iterating a parsed table, defensively. */
@@ -52,12 +61,15 @@ export function gatherCodexConfig(opts) {
   /** @type {import('../lib/diagnostic.mjs').Diagnostic[]} */
   const diagnostics = [];
   const home = typeof homeDir === 'string' ? homeDir : '';
+  // Leftover-state scan is independent of config.toml validity (a corrupt config
+  // doesn't change what cruft is on disk), so compute it once for every return path.
+  const leftoverStateTmp = scanLeftoverStateTmp(configDir);
 
   let file;
   try {
     file = join(typeof configDir === 'string' ? configDir : '', 'config.toml');
   } catch {
-    return { codexConfig: { tomlError: null, trustedProjects: [], homeDir: home }, diagnostics };
+    return { codexConfig: { tomlError: null, trustedProjects: [], homeDir: home, leftoverStateTmp }, diagnostics };
   }
 
   const res = readTomlFile(file);
@@ -67,7 +79,34 @@ export function gatherCodexConfig(opts) {
   const tomlError = res.missing ? null : (typeof res.error === 'string' ? res.error : null);
   const trustedProjects = tomlError ? [] : collectTrustedProjects(res.value);
 
-  return { codexConfig: { tomlError, trustedProjects, homeDir: home }, diagnostics };
+  return { codexConfig: { tomlError, trustedProjects, homeDir: home, leftoverStateTmp }, diagnostics };
+}
+
+/**
+ * Count the leftover `..codex-global-state.json.tmp-*` files in configDir (the codex
+ * analog of CC's CLAUDE.md.backup.* bloat). READ-ONLY readdir — matches by NAME only
+ * (no stat, no symlink follow). A bad/unreadable configDir → {count:0,sample:[]}. The
+ * regex is single-sourced from the codex descriptor so the orphan detector recognizes
+ * exactly the files #28 counts (never a "known but uncounted" / "counted but orphan" split).
+ * Never throws.
+ * @param {*} configDir
+ * @returns {LeftoverStateTmp}
+ */
+function scanLeftoverStateTmp(configDir) {
+  if (typeof configDir !== 'string' || configDir.length === 0) return { count: 0, sample: [] };
+  let names;
+  try {
+    names = readdirSync(configDir);
+  } catch {
+    return { count: 0, sample: [] };
+  }
+  /** @type {string[]} */
+  const matched = [];
+  for (const n of names) {
+    if (typeof n === 'string' && CODEX_STATE_TMP_RE.test(n)) matched.push(n);
+  }
+  matched.sort();
+  return { count: matched.length, sample: matched.slice(0, 3) };
 }
 
 /**
