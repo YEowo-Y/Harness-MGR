@@ -13,6 +13,16 @@
 
 /** @typedef {import('./descriptor.mjs').TargetDescriptor} TargetDescriptor */
 
+/**
+ * Codex leftover-state temp-file family: an interrupted atomic write of
+ * `.codex-global-state.json` leaves a `..codex-global-state.json.tmp-<ts>-<uuid>`
+ * behind. SINGLE-SOURCED — the orphan detector reads it via knownTopFilePatterns
+ * (so these are KNOWN, not hard orphans) AND doctor #28 codex-state-tmp-bloat counts
+ * the same files (discovery/probe-codex-config imports this const), so the
+ * orphan-recognition and the bloat-count can never drift.
+ */
+export const CODEX_STATE_TMP_RE = /^\.\.codex-global-state\.json\.tmp-.+$/;
+
 /** @type {TargetDescriptor} */
 export const codexDescriptor = Object.freeze({
   id: 'codex',
@@ -44,9 +54,9 @@ export const codexDescriptor = Object.freeze({
   knownTopFilePatterns: Object.freeze([
     // sqlite heavy-runtime family — goals_1.sqlite / logs_2.sqlite-wal
     /^[a-z0-9_]+\.sqlite(-shm|-wal)?$/i,
-    // leftover-bloat: recognized as KNOWN (not a hard orphan); a future doctor
-    // check owns the "8 stale" judgment (mirrors CC CLAUDE.md.backup.* + #13).
-    /^\.\.codex-global-state\.json\.tmp-.+$/,
+    // leftover-bloat: recognized as KNOWN (not a hard orphan); doctor #28
+    // codex-state-tmp-bloat owns the "too many" judgment (mirrors CC CLAUDE.md.backup.* + #13).
+    CODEX_STATE_TMP_RE,
   ]),
   // Codex hooks live in a standalone top-level hooks.json (TOML-free) under the
   // `hooks` pointer — the `.hooks` map is shape-compatible with Claude's merged
