@@ -96,7 +96,11 @@ test('codex componentKinds golden (3 kinds, prompts=command, agents=flat-toml)',
 
 test('codex componentSources golden (plugin-cache + sibling-dir, P6 multi-source)', () => {
   assert.deepEqual(codexDescriptor.componentSources, [
-    { kind: 'plugin-cache', dir: 'plugins/cache', kinds: [{ kind: 'skill', dir: 'skills', layout: 'skill-md' }] },
+    { kind: 'plugin-cache', dir: 'plugins/cache', kinds: [
+      { kind: 'skill', dir: 'skills', layout: 'skill-md' },
+      // plugin-cache COMMANDS scanned; plugin "agents" (fixed-name openai.yaml interface sidecars) are deliberately NOT a kind here.
+      { kind: 'command', dir: 'commands', layout: 'flat-md' },
+    ] },
     { kind: 'sibling-dir', dir: '.agents', kinds: [{ kind: 'skill', dir: 'skills', layout: 'skill-md' }] },
   ]);
   // Claude declares NO extra sources → home-only walk (byte-identical, drift-guarded elsewhere).
