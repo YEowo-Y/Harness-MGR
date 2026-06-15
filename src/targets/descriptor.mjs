@@ -22,6 +22,21 @@ import { codexDescriptor } from './codex.mjs';
  */
 
 /**
+ * An EXTRA component root beyond the per-target home `componentKinds` walk (P6
+ * multi-source). Absent on Claude (home-only walk, byte-identical); present on Codex,
+ * which loads components from more than the single home dir.
+ *
+ * @typedef {Object} ComponentSource
+ * @property {'plugin-cache'} kind   the source shape: 'plugin-cache' walks
+ *   `<dir>/<marketplace>/<plugin>/<leaf>/` as plugin-provided component sets — each
+ *   discovered component is tiered 'plugin' with marketplace+plugin provenance, and a
+ *   symlinked `<leaf>` (e.g. codex's `latest -> <version>`) is NOT followed (so the
+ *   real versioned leaf is counted once).
+ * @property {string} dir            the source root relative to the config dir (e.g. 'plugins/cache')
+ * @property {ComponentKindSpec[]} kinds   which component kinds to walk inside each plugin leaf
+ */
+
+/**
  * @typedef {Object} HookSource
  * @property {'settings-merge'|'json-file'} kind   where this target's hooks live:
  *   'settings-merge' = the merged settings layers' `hooks` (Claude); 'json-file' =
@@ -63,6 +78,9 @@ import { codexDescriptor } from './codex.mjs';
  * @property {string} defaultHomeSubdir            e.g. '.claude' / '.codex'
  * @property {string} signatureFile                the file whose presence identifies this target (auto-detect, U2)
  * @property {ComponentKindSpec[]} componentKinds
+ * @property {ComponentSource[]} [componentSources]  extra component roots beyond the home
+ *   componentKinds walk (P6 multi-source). Absent → home-only (Claude, byte-identical);
+ *   present → the home walk PLUS each declared source (Codex plugin caches).
  * @property {string[]} governedConfigFiles
  * @property {string[]} knownTopDirs
  * @property {string[]} knownTopFiles
