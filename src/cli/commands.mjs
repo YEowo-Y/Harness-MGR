@@ -21,12 +21,9 @@
 
 import { scan } from '../discovery/scan.mjs';
 import { detectOrphans } from '../discovery/orphan-detector.mjs';
-import { analyzeConflicts } from '../analysis/conflicts.mjs';
-import { analyzeDisposition } from '../analysis/disposition.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
 import { mergeSettings } from '../analysis/settings-merge.mjs';
 import { auditPermissions } from '../analysis/permissions.mjs';
-import { loaderConfidence } from '../analysis/load-order.mjs';
 import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
@@ -50,6 +47,7 @@ import { healthCommand } from './health-command.mjs';
 import { skillProposeCommand, skillAcceptCommand } from './skill-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
 import { completionCommand } from './completion.mjs';
+import { conflictsCommand } from './conflicts-command.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -231,67 +229,9 @@ function countKind(components, kind) {
 }
 
 // ── conflicts ─────────────────────────────────────────────────────────────────
-
-/**
- * The codex honesty caveat (P6 conflicts unit). When the target is codex, this
- * REPLACES the Claude-Code-version diagnostic `loader-rules-unverified-version`
- * (whose "verified for 2.1.x" wording is meaningless on a codex target). Codex's
- * own docs say same-name skills coexist rather than shadow, and claude-mgr does
- * not yet scan codex's plugin / multi-source components — so conflict results are
- * best-effort. Authority: docs/phase-6-codex-loadorder-design.md.
- * @type {Readonly<Diagnostic>}
- */
-const CODEX_CONFLICTS_CAVEAT = Object.freeze({
-  severity: 'info',
-  code: 'conflicts-unverified-for-codex',
-  phase: 'conflicts',
-  message: 'Codex component resolution is not verified: same-name skills may coexist rather than shadow (per Codex docs), and plugin / multi-source components are not yet scanned -- conflict results are best-effort.',
-});
-
-/**
- * The load-order confidence diagnostics for a conflicts run. On a codex target,
- * the honest codex caveat; otherwise the existing Claude version-guard info
- * (byte-identical to `loaderConfidence(undefined).diagnostics`).
- * @param {import('../targets/descriptor.mjs').TargetDescriptor} [descriptor]
- * @returns {Diagnostic[]}
- */
-function conflictLoadOrderDiagnostics(descriptor) {
-  if (descriptor && descriptor.id === 'codex') return [CODEX_CONFLICTS_CAVEAT];
-  return loaderConfidence(undefined).diagnostics;
-}
-
-/**
- * Shadowing conflicts among loaded skills/agents/commands. Flags: `args.name`
- * (optional RegExp source string) filters clusters by `key`; an invalid regex is
- * skipped with an info diagnostic (never throws). The load-order confidence info
- * is appended via conflictLoadOrderDiagnostics(ctx.descriptor): on a codex target
- * the honest codex caveat, otherwise the Claude version-guard info (confidence is
- * always 'likely' — there is no CC-version detection yet).
- * @type {CommandHandler}
- */
-export function conflictsCommand(ctx) {
-  const s = scan({ targetClaudeDir: ctx.configDir, descriptor: ctx.descriptor });
-  const c = analyzeConflicts(s.components);
-  /** @type {Diagnostic[]} */
-  const extra = [];
-
-  let conflicts = c.conflicts;
-  const name = ctx.args && ctx.args.name;
-  if (typeof name === 'string' && name.length > 0) {
-    const re = safeRegExp(name);
-    if (re) conflicts = conflicts.filter((cl) => re.test(cl.key));
-    else extra.push({ severity: 'info', code: 'conflicts-bad-filter', message: `ignoring invalid --name filter: ${name}`, phase: 'cli' });
-  }
-
-  // P5.U10 ADDITIVE overlay: rule-backed disposition advice over the (filtered)
-  // clusters. `conflicts` stays byte-identical; dispositions derive from it so
-  // they stay in sync with the --name filter. Gate-safe (pure analysis).
-  const diagnostics = [...s.diagnostics, ...c.diagnostics, ...conflictLoadOrderDiagnostics(ctx.descriptor), ...extra];
-  return { result: { conflicts, dispositions: analyzeDisposition({ conflicts }).dispositions }, diagnostics };
-}
-
-/** Compile a RegExp from a source string without throwing; null on a bad pattern. @param {string} src @returns {RegExp|null} */
-function safeRegExp(src) { try { return new RegExp(src); } catch { return null; } }
+// conflictsCommand lives in conflicts-command.mjs (SLOC split + codex co-existence
+// P6): the Claude shadowing model (byte-identical) + the codex co-existence branch
+// (same-name components coexist, no winner). Imported above.
 
 // ── orphans ─────────────────────────────────────────────────────────────────────
 
@@ -417,4 +357,4 @@ export const COMMANDS = Object.freeze({
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand, conflictsCommand };
