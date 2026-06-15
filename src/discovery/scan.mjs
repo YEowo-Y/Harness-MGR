@@ -66,10 +66,13 @@ export const ALL_KINDS = Object.freeze(['components', 'plugins', 'settings', 'mc
 /**
  * Run a full (or filtered) discovery scan against a Claude Code config root.
  *
- * `descriptor` governs component, mcp, plugin, AND marketplace discovery now (mcp by
- * mcpSource, plugins by pluginSource, marketplaces by marketplaceSource: Claude reads
- * JSON files, Codex reads the config.toml tables [+ the plugins/cache dirs for
- * marketplaces]); settings stay claude-specific (deferred TOML wave).
+ * `descriptor` governs component, mcp, plugin, marketplace, AND top-level-dir discovery now
+ * (mcp by mcpSource, plugins by pluginSource, marketplaces by marketplaceSource: Claude reads
+ * JSON files, Codex reads the config.toml tables [+ the plugins/cache dirs for marketplaces];
+ * topdirs by knownTopDirs so codex dirs aren't all flagged `unknown` — see topDirsKnownFor).
+ * The settings.json statusLine extraction (discoverSettings) stays claude-specific: codex has
+ * no settings.json (its settings are config.toml), so it correctly reads as absent/present:false
+ * — pointing the JSONC reader at config.toml would only FAIL-parse into noise.
  *
  * @param {{targetClaudeDir: string, appFile?: string, kinds?: string[], descriptor?: import('../targets/descriptor.mjs').TargetDescriptor}} opts
  * @returns {ScanResult}
@@ -116,7 +119,7 @@ export function scan(opts) {
   if (enabled.has('settings')) {
     settings = discoverSettings(targetClaudeDir);
     addAll(bag, settings.diagnostics);
-    topDirs = discoverTopLevelDirs(targetClaudeDir);
+    topDirs = discoverTopLevelDirs(targetClaudeDir, topDirsKnownFor(descriptor));
     addAll(bag, topDirs.diagnostics);
   }
 
@@ -141,6 +144,26 @@ export function scan(opts) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * The known-top-dirs list that drives the inventory topdir DISPLAY for a target, or
+ * `undefined` to let discoverTopLevelDirs use its KNOWN_TOP_DIRS default.
+ *
+ * Claude returns undefined (→ the bare KNOWN_TOP_DIRS): claudeDescriptor.knownTopDirs is the
+ * WIDER orphan-union (claude-created dirs + third-party ecosystem dirs like .omc/homunculus)
+ * that orphan-detection consumes — routing inventory through it would move ecosystem dirs out
+ * of `unknownTopDirs` and CHANGE claude inventory output (which must stay byte-identical). Any
+ * OTHER target's knownTopDirs IS its inventory set, so codex routes through it and its
+ * prompts/sqlite/rules/… stop being flagged `unknown`.
+ * @param {import('../targets/descriptor.mjs').TargetDescriptor} [descriptor]
+ * @returns {string[]|undefined}
+ */
+function topDirsKnownFor(descriptor) {
+  if (descriptor && descriptor.id !== 'claude' && Array.isArray(descriptor.knownTopDirs) && descriptor.knownTopDirs.length > 0) {
+    return descriptor.knownTopDirs;
+  }
+  return undefined;
+}
 
 /**
  * Normalize the kinds parameter. An absent, empty, or fully-invalid list
