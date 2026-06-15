@@ -334,12 +334,14 @@ function safeReaddir(dir, bag) {
 
 /**
  * Stable ordering: kind, then name, then path. Uses code-unit comparison so the
- * order is identical across platforms (locale-independent).
+ * order is identical across platforms (locale-independent). Exported so the
+ * multi-source wrapper (components-target.mjs) re-sorts a merged home+plugin list
+ * with the SAME comparator — one ordering source, no drift.
  * @param {ComponentRecord} a
  * @param {ComponentRecord} b
  * @returns {number}
  */
-function byKindNamePath(a, b) {
+export function byKindNamePath(a, b) {
   if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;
   if (a.name !== b.name) return a.name < b.name ? -1 : 1;
   if (a.path === b.path) return 0;
