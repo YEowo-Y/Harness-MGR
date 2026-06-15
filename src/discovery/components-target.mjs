@@ -37,7 +37,7 @@
  */
 
 import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { discoverComponents, byKindNamePath } from './components.mjs';
 
@@ -71,8 +71,11 @@ export function discoverComponentsForTarget(opts) {
   // 2. Extra component sources. Absent (Claude) → nothing added, byte-identical.
   const sources = Array.isArray(descriptor?.componentSources) ? descriptor.componentSources : [];
   for (const src of sources) {
-    if (src && src.kind === 'plugin-cache') {
+    if (!src) continue;
+    if (src.kind === 'plugin-cache') {
       for (const rec of walkPluginCache(rootDir, src, bag)) components.push(rec);
+    } else if (src.kind === 'sibling-dir') {
+      for (const rec of walkSiblingDir(rootDir, src, bag)) components.push(rec);
     }
   }
 
@@ -113,6 +116,33 @@ function walkPluginCache(rootDir, src, bag) {
       }
     }
   }
+  return out;
+}
+
+/**
+ * Walk a sibling-dir source: `<dirname(rootDir)>/<src.dir>/` (a documented scope
+ * OUTSIDE the config dir — codex's USER-scope `~/.agents`), discovering the declared
+ * `src.kinds` there tiered 'user'. Resolving as a SIBLING of the config dir keeps the
+ * default `~/.codex` → `~/.agents` (codex's USER scope) AND stays hermetic +
+ * self-consistent under a `--config-dir` override. Reuses discoverComponents (so the
+ * symlink-safe SKILL.md guard + never-throws come for free). M2-safe (dirname/join
+ * only — no paths.mjs, no homedir()). Never throws.
+ * @param {string} rootDir
+ * @param {{dir?: unknown, kinds?: unknown}} src
+ * @param {DiagnosticBag} bag
+ * @returns {ComponentRecord[]}
+ */
+function walkSiblingDir(rootDir, src, bag) {
+  /** @type {ComponentRecord[]} */
+  const out = [];
+  if (typeof src.dir !== 'string' || src.dir.length === 0) return out;
+  if (!Array.isArray(src.kinds) || src.kinds.length === 0) return out;
+  const base = join(dirname(rootDir), src.dir);
+  // tier 'user': a user-scope location (not a plugin). Distinguished from the home
+  // dir's skills by path. discoverComponents never throws (missing base → empty).
+  const r = discoverComponents(base, { tier: 'user' }, { descriptor: { componentKinds: src.kinds } });
+  for (const c of r.components) out.push(c);
+  for (const d of r.diagnostics) bag.add(d);
   return out;
 }
 
