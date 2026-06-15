@@ -94,6 +94,23 @@ test('codex componentKinds golden (3 kinds, prompts=command, agents=flat-toml)',
   ]);
 });
 
+test('codex componentSources golden (plugin-cache skills, P6 multi-source)', () => {
+  assert.deepEqual(codexDescriptor.componentSources, [
+    { kind: 'plugin-cache', dir: 'plugins/cache', kinds: [{ kind: 'skill', dir: 'skills', layout: 'skill-md' }] },
+  ]);
+  // Claude declares NO extra sources → home-only walk (byte-identical, drift-guarded elsewhere).
+  assert.equal(claudeDescriptor.componentSources, undefined);
+});
+
+test('codex componentSources is deep-frozen', () => {
+  assert.equal(Object.isFrozen(codexDescriptor.componentSources), true);
+  for (const src of codexDescriptor.componentSources) {
+    assert.equal(Object.isFrozen(src), true);
+    assert.equal(Object.isFrozen(src.kinds), true);
+    for (const k of src.kinds) assert.equal(Object.isFrozen(k), true);
+  }
+});
+
 test('codex governedConfigFiles golden (3 files)', () => {
   assert.deepEqual(codexDescriptor.governedConfigFiles, [
     'config.toml', 'AGENTS.md', 'hooks.json',
