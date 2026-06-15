@@ -123,9 +123,10 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
       now: typeof now === 'number' ? now : Date.now(),
     };
 
-    // Codex-only facts: config.toml validity (#26) + project trust (#27). Only
-    // gathered for a codex target; a Claude/absent descriptor leaves
-    // input.codexConfig undefined, so #26/#27 contribute nothing to a Claude run.
+    // Codex-only facts: config.toml validity (#26) + project trust (#27) +
+    // leftover-state-tmp bloat (#28). Only gathered for a codex target; a
+    // Claude/absent descriptor leaves input.codexConfig undefined, so #26/#27/#28
+    // contribute nothing to a Claude run.
     if (descriptor && descriptor.id === 'codex') {
       const cc = gatherCodexConfig({ configDir, homeDir: homedir() });
       input.codexConfig = cc.codexConfig;
