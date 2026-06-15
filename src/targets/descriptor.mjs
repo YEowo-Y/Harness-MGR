@@ -71,6 +71,12 @@ import { codexDescriptor } from './codex.mjs';
  * @property {ConfigSource} configSource           where to read the effective config (P6 TOML wave)
  * @property {McpSource} mcpSource                 where to read MCP servers (P6 TOML wave)
  * @property {PluginSource} pluginSource           where to read plugins (P6 TOML wave)
+ * @property {'settings-map'|'record-flag'} pluginEnableModel  how the doctor decides a
+ *   plugin is enabled (P6 doctor wave): 'settings-map' = the merged settings
+ *   enabledPlugins map is authoritative and the install record's own `enabled` flag is
+ *   IGNORED (Claude — that flag is unreliable, false even for active plugins);
+ *   'record-flag' = each plugin record's own `enabled` flag is authoritative and there
+ *   is no settings enabledPlugins map (Codex — config.toml `[plugins."k"] enabled`).
  */
 
 /** The frozen registry of known targets, keyed by descriptor id. */
