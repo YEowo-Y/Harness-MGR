@@ -27,13 +27,21 @@ import { codexDescriptor } from './codex.mjs';
  * which loads components from more than the single home dir.
  *
  * @typedef {Object} ComponentSource
- * @property {'plugin-cache'} kind   the source shape: 'plugin-cache' walks
- *   `<dir>/<marketplace>/<plugin>/<leaf>/` as plugin-provided component sets — each
- *   discovered component is tiered 'plugin' with marketplace+plugin provenance, and a
- *   symlinked `<leaf>` (e.g. codex's `latest -> <version>`) is NOT followed (so the
- *   real versioned leaf is counted once).
- * @property {string} dir            the source root relative to the config dir (e.g. 'plugins/cache')
- * @property {ComponentKindSpec[]} kinds   which component kinds to walk inside each plugin leaf
+ * @property {'plugin-cache'|'sibling-dir'} kind   the source shape:
+ *   - 'plugin-cache' walks `<config-dir>/<dir>/<marketplace>/<plugin>/<leaf>/` as
+ *     plugin-provided component sets — each component is tiered 'plugin' with
+ *     marketplace+plugin provenance, and a symlinked `<leaf>` (codex's
+ *     `latest -> <version>`) is NOT followed (so the real versioned leaf is counted once).
+ *   - 'sibling-dir' walks `<dirname(config-dir)>/<dir>/` — a documented scope OUTSIDE
+ *     the config dir, resolved as a SIBLING of it (so the default `~/.codex` → `~/.agents`
+ *     = codex's USER scope, and a `--config-dir X` → `dirname(X)/<dir>` self-consistently;
+ *     explicit `--config-dir ~/.codex` then behaves identically to auto `--target codex`).
+ *     Components are tiered 'user' (a user-scope location, distinguished from the home
+ *     dir by their path).
+ * @property {string} dir            for plugin-cache: the cache root RELATIVE to the config
+ *   dir (e.g. 'plugins/cache'); for sibling-dir: the sibling dir name RELATIVE to the
+ *   config dir's PARENT (e.g. '.agents')
+ * @property {ComponentKindSpec[]} kinds   which component kinds to walk inside the source root
  */
 
 /**
