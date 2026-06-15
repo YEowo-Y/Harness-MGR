@@ -95,6 +95,13 @@ export const codexDescriptor = Object.freeze({
   mcpSource: Object.freeze({ kind: 'toml-table', file: 'config.toml', pointer: 'mcp_servers' }),
   // Codex plugins live in the config.toml `plugins` table (one source).
   pluginSource: Object.freeze({ kind: 'toml-table', file: 'config.toml', pointer: 'plugins' }),
+  // Codex marketplaces = the UNION of the config.toml `marketplaces` table (declared, with
+  // a machine-specific `source` path → installLocation) AND the plugins/cache/<name>/ dirs
+  // (the on-disk truth; the table is incomplete — observed live: table=2 local vs cache=4,
+  // the remote openai-curated/-remote ship plugins but aren't in the table). `onDisk` =
+  // the cache dir exists. The table mixes a scalar setting (`max_depth`) with the sub-table
+  // entries — non-object values are skipped silently (a setting, not a malformed entry).
+  marketplaceSource: Object.freeze({ kind: 'toml-table-cache', file: 'config.toml', pointer: 'marketplaces', cacheDir: 'plugins/cache' }),
   // Enable signal = each plugin record's own `enabled` flag (config.toml
   // `[plugins."k"] enabled`); there is no settings enabledPlugins map for Codex.
   pluginEnableModel: 'record-flag',
