@@ -139,7 +139,46 @@ test('config show-effective --target codex: a missing config.toml is benign', as
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+// ── TABLE summary (P6 — codex effective table summary view) ───────────────────
+
+test('config show-effective --target codex (table): a per-key SUMMARY, not a full dump', async () => {
+  const dir = makeCodexDir();
+  try {
+    const out = await run(['config', 'show-effective', '--target', 'codex', '--config-dir', dir]); // default table format
+    assert.equal(out.code, 0, out.stdout);
+    assert.match(out.stdout, /config summary — \d+ top-level key\(s\); use --key <name> or --format json/);
+    assert.match(out.stdout, /mcp_servers\s+\{table: 2 keys\}/, 'collections summarized by count (pencil + deployer)');
+    assert.match(out.stdout, /model\s+gpt-5\.5/, 'scalars show their value');
+    assert.match(out.stdout, /api_key\s+<redacted>/, 'a redacted leaf shows <redacted>');
+    // SUMMARY, not a dump: nested mcp_servers fields are NOT expanded as top-level rows.
+    assert.equal(/^\s*args\b/m.test(out.stdout), false, 'nested args[] is not surfaced as its own row');
+    assert.ok(out.stdout.split('\n').length < 20, 'the table is a compact summary, not the 49KB dump');
+    // and the table must not leak either secret.
+    assert.ok(!out.stdout.includes(SK) && !out.stdout.includes(GHP), 'no secret plaintext in the summary table');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('config show-effective --target codex --key (table): drills into the FULL value, no summary', async () => {
+  const dir = makeCodexDir();
+  try {
+    const out = await run(['config', 'show-effective', '--target', 'codex', '--config-dir', dir, '--key', 'model']);
+    assert.equal(out.code, 0);
+    assert.match(out.stdout, /gpt-5\.5/);
+    assert.doesNotMatch(out.stdout, /config summary/, '--key is a drill-down, not the summary');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 // ── claude default unchanged ─────────────────────────────────────────────────
+
+test('config show-effective (claude default, table): still the keys table, NOT summarized', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-config-cc-tbl-'));
+  try {
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ model: 'opus' }), 'utf8');
+    const out = await run(['config', 'show-effective', '--config-dir', dir]); // default table
+    assert.match(out.stdout, /mergeConfidence/, 'claude renders the per-key merge table');
+    assert.doesNotMatch(out.stdout, /config summary/, 'the codex summary must NOT fire for claude');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('config show-effective (claude default) still carries the merge keys map', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mgr-config-cc-'));
