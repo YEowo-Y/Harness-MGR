@@ -58,4 +58,7 @@ export const codexDescriptor = Object.freeze({
   mcpSource: Object.freeze({ kind: 'toml-table', file: 'config.toml', pointer: 'mcp_servers' }),
   // Codex plugins live in the config.toml `plugins` table (one source).
   pluginSource: Object.freeze({ kind: 'toml-table', file: 'config.toml', pointer: 'plugins' }),
+  // Enable signal = each plugin record's own `enabled` flag (config.toml
+  // `[plugins."k"] enabled`); there is no settings enabledPlugins map for Codex.
+  pluginEnableModel: 'record-flag',
 });
