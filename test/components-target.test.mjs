@@ -130,6 +130,24 @@ function mkPluginSkill(dir, mp, plugin, leaf, skill, body = '---\n---\nbody\n') 
   mkfile(dir, join(rel, 'SKILL.md'), body);
 }
 
+/** Plant a plugin-cache command: plugins/cache/<mp>/<plugin>/<leaf>/commands/<name>.md */
+function mkPluginCommand(dir, mp, plugin, leaf, cmd, body = '---\ndescription: a command\n---\nbody\n') {
+  const rel = join('plugins', 'cache', mp, plugin, leaf, 'commands');
+  mkdir(dir, rel);
+  mkfile(dir, join(rel, `${cmd}.md`), body);
+}
+
+/**
+ * Plant a plugin "agent" interface-metadata sidecar:
+ * plugins/cache/<mp>/<plugin>/<leaf>/agents/openai.yaml — the real codex shape (a fixed
+ * filename whose content is display_name/short_description, NOT an agent component).
+ */
+function mkPluginAgentSidecar(dir, mp, plugin, leaf) {
+  const rel = join('plugins', 'cache', mp, plugin, leaf, 'agents');
+  mkdir(dir, rel);
+  mkfile(dir, join(rel, 'openai.yaml'), 'interface:\n  display_name: "Whatever"\n  short_description: "metadata, not an agent"\n');
+}
+
 test('discoverComponentsForTarget back-compat: claude === home-only discoverComponents (deepEqual)', () => {
   withTempDir((dir) => {
     mkdir(dir, join('skills', 'hello'));
@@ -208,6 +226,54 @@ test('codex multi-source: a symlinked leaf (latest) is NOT followed → skill co
     const { components } = discoverComponentsForTarget({ rootDir: dir, descriptor: codexDescriptor });
     const dups = components.filter((c) => c.name === 'dup');
     assert.equal(dups.length, 1, 'symlinked latest leaf must not double-count the skill (symlink-never-follow)');
+  });
+});
+
+// ── PLUGIN-CACHE COMMANDS + the agent-sidecar decline (P6) ────────────────────
+
+test('codex multi-source: plugin-cache commands discovered with plugin provenance (flat-md basename)', () => {
+  withTempDir((dir) => {
+    // the real codex shape: openai-curated/cloudflare ships build-agent.md + build-mcp.md.
+    mkPluginCommand(dir, 'openai-curated', 'cloudflare', 'v1', 'build-agent', '---\ndescription: Build an agent\nallowed-tools: [Read, Bash]\n---\nbody\n');
+    mkPluginCommand(dir, 'openai-curated', 'cloudflare', 'v1', 'build-mcp');
+
+    const { components, diagnostics } = discoverComponentsForTarget({ rootDir: dir, descriptor: codexDescriptor });
+    assert.equal(diagnostics.filter((d) => d.severity === 'error').length, 0);
+
+    const cmds = components.filter((c) => c.kind === 'command');
+    assert.deepEqual(cmds.map((c) => c.name).sort(), ['build-agent', 'build-mcp'], 'both plugin commands, basename identity');
+    const ba = cmds.find((c) => c.name === 'build-agent');
+    assert.equal(ba.source.tier, 'plugin');
+    assert.equal(ba.source.plugin, 'cloudflare');
+    assert.equal(ba.source.marketplace, 'openai-curated');
+    assert.match(ba.path, /build-agent\.md$/);
+  });
+});
+
+test('codex multi-source: a plugin-cache agents/openai.yaml is NOT a component (interface sidecar, not an agent)', () => {
+  withTempDir((dir) => {
+    // a leaf carrying ONLY the openai.yaml interface sidecar (no skills/commands).
+    mkPluginAgentSidecar(dir, 'openai-curated', 'build-ios-apps', 'v1');
+    const { components, diagnostics } = discoverComponentsForTarget({ rootDir: dir, descriptor: codexDescriptor });
+    assert.equal(diagnostics.filter((d) => d.severity === 'error').length, 0);
+    // openai.yaml never becomes a component: no agent kind is scanned in plugin caches,
+    // and even if one were, the fixed `openai` filename is not a meaningful identity.
+    assert.equal(components.length, 0, `a sidecar-only leaf yields no component; got ${JSON.stringify(components.map((c) => `${c.kind}/${c.name}`))}`);
+    assert.equal(components.some((c) => c.name === 'openai'), false);
+  });
+});
+
+test('codex multi-source: a leaf with skill + command + agent-sidecar yields the skill + command only', () => {
+  withTempDir((dir) => {
+    mkPluginSkill(dir, 'openai-curated', 'cloudflare', 'v1', 'workers');
+    mkPluginCommand(dir, 'openai-curated', 'cloudflare', 'v1', 'build-mcp');
+    mkPluginAgentSidecar(dir, 'openai-curated', 'cloudflare', 'v1');
+    const { components } = discoverComponentsForTarget({ rootDir: dir, descriptor: codexDescriptor });
+    assert.deepEqual(
+      components.map((c) => `${c.kind}/${c.name}`).sort(),
+      ['command/build-mcp', 'skill/workers'],
+      'the openai.yaml sidecar is ignored; the skill and command are surfaced',
+    );
   });
 });
 
