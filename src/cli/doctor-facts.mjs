@@ -34,10 +34,12 @@
  * Never throws. Zero npm dependencies. Node stdlib only.
  */
 
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scan } from '../discovery/scan.mjs';
 import { detectOrphans } from '../discovery/orphan-detector.mjs';
+import { gatherCodexConfig } from '../discovery/probe-codex-config.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
 import { mergeSettings } from '../analysis/settings-merge.mjs';
@@ -105,10 +107,24 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
       installedPlugins: s.plugins,
       marketplaces: s.marketplaces,
       conflicts,
-      orphans: analyzeOrphans(detectOrphans(configDir)).orphans,
+      // Thread the descriptor so codex dirs are NOT flagged as orphans (CC
+      // byte-identical: no-descriptor === claudeDescriptor, drift-guarded). The
+      // scan() call above deliberately stays descriptor-free — threading it there
+      // would let codex plugins reach #8 plugin-installed-not-enabled, which keys
+      // off the (empty-for-codex) settings enabledPlugins map → false findings.
+      orphans: analyzeOrphans(detectOrphans(configDir, { descriptor })).orphans,
       permissions: effective.permissions,
       now: typeof now === 'number' ? now : Date.now(),
     };
+
+    // Codex-only facts: config.toml validity (#26) + project trust (#27). Only
+    // gathered for a codex target; a Claude/absent descriptor leaves
+    // input.codexConfig undefined, so #26/#27 contribute nothing to a Claude run.
+    if (descriptor && descriptor.id === 'codex') {
+      const cc = gatherCodexConfig({ configDir, homeDir: homedir() });
+      input.codexConfig = cc.codexConfig;
+      push(diagnostics, cc.diagnostics);
+    }
 
     await addPassiveProbes(input, diagnostics, { configDir, mgrStateDir, effective, hooksMap: hookSrc.hooks, mcpServers: s.mcpServers, cwd });
     if (activeProbes) await addActiveProbes(input, diagnostics, configDir);
