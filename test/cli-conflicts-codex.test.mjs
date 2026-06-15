@@ -109,3 +109,58 @@ test('conflicts --target claude: identical diagnostic codes to the no-target def
     assert.ok(!hasCode(explicit.diagnostics, 'conflicts-unverified-for-codex'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ── (iv) codex multi-source: cross-source same-name → honest CO-EXISTENCE (no winner) ──
+
+/** Plant a plugin-cache skill at plugins/cache/<mp>/<plugin>/<leaf>/skills/<name>/SKILL.md */
+function mkPluginSkill(dir, mp, plugin, leaf, skill) {
+  const p = join(dir, 'plugins', 'cache', mp, plugin, leaf, 'skills', skill);
+  mkdirSync(p, { recursive: true });
+  writeFileSync(join(p, 'SKILL.md'), '---\n---\nbody\n', 'utf8');
+}
+
+test('conflicts --target codex with plugin caches: conflicts stay [], cross-source dups become co-existence', async () => {
+  const dir = makeCodexDir(); // already has a home skill alpha-skill + a config.toml
+  try {
+    // A home skill that ALSO ships from two plugin marketplaces (the real codex pattern).
+    mkdirSync(join(dir, 'skills', 'gh-fix-ci'), { recursive: true });
+    writeFileSync(join(dir, 'skills', 'gh-fix-ci', 'SKILL.md'), '---\n---\nbody\n', 'utf8');
+    mkPluginSkill(dir, 'mkt-a', 'github', 'v1', 'gh-fix-ci');
+    mkPluginSkill(dir, 'mkt-b', 'github', 'v1', 'gh-fix-ci');
+
+    const { code, stdout } = await run(['conflicts', '--target', 'codex', '--config-dir', dir, '--format', 'json']);
+    assert.equal(code, 0, stdout);
+    const env = JSON.parse(stdout);
+
+    // No Claude-style shadowing winner is ever asserted for codex.
+    assert.deepEqual(env.result.conflicts, [], 'codex asserts no shadowing winner');
+    assert.deepEqual(env.result.dispositions, [], 'no dispositions on codex');
+
+    // The cross-source same-name dup surfaces as honest co-existence (no winner).
+    const co = env.result.coexistence;
+    assert.ok(Array.isArray(co), 'coexistence array present for codex');
+    const cl = co.find((c) => c.name === 'gh-fix-ci');
+    assert.ok(cl, 'gh-fix-ci co-existence cluster present');
+    assert.equal(cl.kind, 'skill');
+    assert.equal(cl.count, 3, 'home + 2 plugin marketplaces all load');
+    assert.equal(cl.sources.filter((s) => s.tier === 'plugin').length, 2);
+    assert.equal(cl.sources.filter((s) => s.tier === 'user').length, 1);
+
+    // Honest caveat present; the meaningless CC-version diagnostic is gone.
+    assert.ok(hasCode(env.diagnostics, 'conflicts-unverified-for-codex'), 'codex caveat present');
+    assert.ok(!hasCode(env.diagnostics, 'loader-rules-unverified-version'), 'CC-version diagnostic absent');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('conflicts --target codex: claude shadowing is NOT asserted even when a plugin name ships twice', async () => {
+  const dir = makeCodexDir();
+  try {
+    // Same plugin name from two marketplaces → under the Claude model this would be a
+    // `github:gh-fix-ci` shadowing cluster claiming "first wins". For codex it must NOT.
+    mkPluginSkill(dir, 'mkt-a', 'github', 'v1', 'yeet');
+    mkPluginSkill(dir, 'mkt-b', 'github', 'v1', 'yeet');
+    const env = JSON.parse((await run(['conflicts', '--target', 'codex', '--config-dir', dir, '--format', 'json'])).stdout);
+    assert.deepEqual(env.result.conflicts, [], 'no plugin-vs-plugin shadowing winner for codex');
+    assert.ok(env.result.coexistence.some((c) => c.name === 'yeet' && c.count === 2));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
