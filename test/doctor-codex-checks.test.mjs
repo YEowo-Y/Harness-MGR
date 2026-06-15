@@ -77,12 +77,40 @@ test('#27: mixed list → only the overbroad paths warn, deduped', () => {
   assert.equal(found.length, 2);
 });
 
+// ── #28 codex-state-tmp-bloat ──────────────────────────────────────────────────
+
+test('#28: count > 3 → one info naming the count', () => {
+  const r = runDoctor({ codexConfig: { tomlError: null, trustedProjects: [], homeDir: HOME, leftoverStateTmp: { count: 8, sample: ['..codex-global-state.json.tmp-a'] } } });
+  const found = byCode(r.diagnostics, 'codex-state-tmp-bloat');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].severity, 'info');
+  assert.match(found[0].message, /8 leftover/);
+  assert.equal(found[0].phase, 'doctor');
+  assert.equal(typeof found[0].fix, 'string');
+});
+
+test('#28: count <= 3 → silent (a few is normal churn)', () => {
+  for (const count of [0, 1, 3]) {
+    const r = runDoctor({ codexConfig: { tomlError: null, trustedProjects: [], homeDir: HOME, leftoverStateTmp: { count, sample: [] } } });
+    assert.equal(byCode(r.diagnostics, 'codex-state-tmp-bloat').length, 0, `count=${count} should be silent`);
+  }
+});
+
+test('#28: missing/malformed leftoverStateTmp → no finding, no throw', () => {
+  for (const lt of [undefined, null, 'nope', {}, { count: 'x' }]) {
+    let r;
+    assert.doesNotThrow(() => { r = runDoctor({ codexConfig: { tomlError: null, trustedProjects: [], homeDir: HOME, leftoverStateTmp: lt } }); });
+    assert.equal(byCode(r.diagnostics, 'codex-state-tmp-bloat').length, 0);
+  }
+});
+
 // ── codex-guarded (Claude-safe) ────────────────────────────────────────────────
 
-test('absent input.codexConfig → ZERO #26/#27 findings (proves the checks are codex-guarded)', () => {
+test('absent input.codexConfig → ZERO #26/#27/#28 findings (proves the checks are codex-guarded)', () => {
   const r = runDoctor({}); // a Claude run never gathers codexConfig
   assert.equal(byCode(r.diagnostics, 'config-toml-valid').length, 0);
   assert.equal(byCode(r.diagnostics, 'trust-overbroad').length, 0);
+  assert.equal(byCode(r.diagnostics, 'codex-state-tmp-bloat').length, 0);
 });
 
 test('non-object codexConfig → no findings, no throw', () => {
@@ -92,10 +120,12 @@ test('non-object codexConfig → no findings, no throw', () => {
   assert.equal(byCode(r.diagnostics, 'trust-overbroad').length, 0);
 });
 
-test('#26/#27 are registered passive checks (present in the registry, run by default)', () => {
-  const r = runDoctor({ codexConfig: { tomlError: null, trustedProjects: [], homeDir: HOME } });
+test('#26/#27/#28 are registered passive checks (present in the registry, run by default)', () => {
+  const r = runDoctor({ codexConfig: { tomlError: null, trustedProjects: [], homeDir: HOME, leftoverStateTmp: { count: 0, sample: [] } } });
   const c26 = r.checks.find((c) => c.id === 26);
   const c27 = r.checks.find((c) => c.id === 27);
+  const c28 = r.checks.find((c) => c.id === 28);
   assert.ok(c26 && c26.probeLevel === 'passive' && c26.ran, '#26 registered, passive, ran');
   assert.ok(c27 && c27.probeLevel === 'passive' && c27.ran, '#27 registered, passive, ran');
+  assert.ok(c28 && c28.probeLevel === 'passive' && c28.ran, '#28 registered, passive, ran');
 });
