@@ -74,11 +74,15 @@ import { gatherCliProbe } from '../discovery/probe-cli.mjs';
 /**
  * Gather the DoctorInput facts bundle for a config dir.
  *
- * `descriptor` (P6.U4) makes the HOOK SOURCE target-aware: Claude (or absent
- * descriptor) merges the settings layers; Codex reads hooks.json. ONLY the hook
- * source is target-aware here — the rest of the doctor stays Claude-shaped (the
- * deferred codex doctor wave), so #3/#5 judge codex hooks while the other checks
- * remain Claude-specific.
+ * `descriptor` makes the gathered facts target-aware. The scan() threads the
+ * descriptor, so COMPONENTS, PLUGINS (by pluginSource), and MCP (by mcpSource) are
+ * codex-aware, and the HOOK SOURCE is target-aware (Claude merges settings layers;
+ * Codex reads hooks.json). The plugin checks #7/#8/#9/#10 judge a target-aware
+ * enabledPlugins map (enabledPluginsForTarget). What stays Claude-CONFIG-shaped (an
+ * honest deferral, not a false finding — these produce nothing for codex): #6/#22
+ * settings/plugin-schema validity, #23 permissions-overbroad, #18 statusline — codex's
+ * equivalents live in config.toml / are the per-project trust_level model (#27). #11
+ * is structurally empty for codex (one dir per kind → no same-(kind,key) collision).
  *
  * @param {{ configDir: string, mgrStateDir: string, descriptor?: import('../targets/descriptor.mjs').TargetDescriptor, activeProbes?: boolean, now?: number, cwd?: string }} opts
  * @returns {Promise<{ input: DoctorInput, diagnostics: Diagnostic[], facts: HealthFacts }>}
@@ -88,7 +92,7 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
     /** @type {Diagnostic[]} */
     const diagnostics = [];
 
-    const s = scan({ targetClaudeDir: configDir });
+    const s = scan({ targetClaudeDir: configDir, descriptor });
     const effective = mergeSettings(readSettingsLayers(configDir).layers).effective || {};
     // Target-aware hook source: reuse `effective` for the settings-merge (Claude)
     // path; read hooks.json for the json-file (Codex) path. A codex hooks.json
@@ -103,15 +107,17 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
       // NOT re-surfaced in our `diagnostics` return — see the header).
       settingsDiagnostics: s.diagnostics,
       pluginDiagnostics: s.diagnostics,
-      enabledPlugins: effective.enabledPlugins,
+      // Target-aware enable signal (descriptor.pluginEnableModel). Claude/default reads
+      // the merged settings enabledPlugins map (byte-identical); Codex synthesizes one
+      // from the scanned record `enabled` flags. The scan() above threads the descriptor
+      // so codex plugins/mcp are visible to the doctor — the #8 false-positive U6 warned
+      // about is prevented HERE by the correct enable model, not by hiding the facts.
+      enabledPlugins: enabledPluginsForTarget(descriptor, effective, s.plugins),
       installedPlugins: s.plugins,
       marketplaces: s.marketplaces,
       conflicts,
-      // Thread the descriptor so codex dirs are NOT flagged as orphans (CC
-      // byte-identical: no-descriptor === claudeDescriptor, drift-guarded). The
-      // scan() call above deliberately stays descriptor-free — threading it there
-      // would let codex plugins reach #8 plugin-installed-not-enabled, which keys
-      // off the (empty-for-codex) settings enabledPlugins map → false findings.
+      // Descriptor threaded so codex dirs are NOT flagged as orphans (CC byte-identical:
+      // no-descriptor === claudeDescriptor, drift-guarded).
       orphans: analyzeOrphans(detectOrphans(configDir, { descriptor })).orphans,
       permissions: effective.permissions,
       now: typeof now === 'number' ? now : Date.now(),
@@ -265,6 +271,48 @@ function statusLineCommand(effective) {
 function rulesDocPath() {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
   return join(root, 'docs', 'effective-config-rules.md');
+}
+
+/**
+ * The enabledPlugins map the pure plugin checks (#7/#8/#10) judge, made target-aware
+ * so codex plugins are evaluated with the CORRECT enable signal once scan() threads
+ * the descriptor.
+ *
+ *   - 'record-flag' (Codex): there is no settings enabledPlugins map, so synthesize one
+ *     from the scanned config.toml records — `{ [key]: record.enabled === true }`. A codex
+ *     entry is BOTH the install record and the enable flag, so #7 plugin-enabled-not-installed
+ *     is structurally 0 (every key is also an installed key) and #8 fires only for the
+ *     records whose own flag is false. Null-proto map + proto-key-guarded.
+ *   - 'settings-map' / absent / Claude: the merged settings enabledPlugins map — today's
+ *     behavior, byte-identical (the install record's own `enabled` flag is unreliable).
+ *
+ * Never throws (defensive against a non-array plugins list / malformed records).
+ * @param {import('../targets/descriptor.mjs').TargetDescriptor|undefined} descriptor
+ * @param {Record<string, unknown>} effective
+ * @param {import('../discovery/plugins.mjs').PluginRecord[]} plugins
+ * @returns {Record<string, unknown>|undefined}
+ */
+function enabledPluginsForTarget(descriptor, effective, plugins) {
+  if (descriptor && descriptor.pluginEnableModel === 'record-flag') {
+    const map = Object.create(null);
+    const list = Array.isArray(plugins) ? plugins : [];
+    for (const p of list) {
+      if (p && typeof p.key === 'string' && p.key.length > 0 && isSafeKey(p.key)) {
+        map[p.key] = p.enabled === true;
+      }
+    }
+    return map;
+  }
+  return effective.enabledPlugins;
+}
+
+/**
+ * Reject prototype-polluting keys when building a map from user/config-authored keys.
+ * @param {string} key
+ * @returns {boolean}
+ */
+function isSafeKey(key) {
+  return key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
 }
 
 /**
