@@ -52,6 +52,8 @@ export const claudeDescriptor = Object.freeze({
   mcpSource: Object.freeze({ kind: 'json-files' }),
   // Claude plugins come from plugins/installed_plugins.json (schema v2).
   pluginSource: Object.freeze({ kind: 'json-file' }),
+  // Claude marketplaces come from plugins/known_marketplaces.json.
+  marketplaceSource: Object.freeze({ kind: 'json-file' }),
   // Enable signal = the merged settings enabledPlugins map; the install record's own
   // `enabled` flag is unreliable (false even for active plugins), so it is ignored.
   pluginEnableModel: 'settings-map',
