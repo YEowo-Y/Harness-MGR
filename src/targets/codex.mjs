@@ -36,6 +36,22 @@ export const codexDescriptor = Object.freeze({
     // filename identity only; content parse deferred to the TOML wave
     Object.freeze({ kind: 'agent', dir: 'agents', layout: 'flat-toml' }),
   ]),
+  // Codex loads components from MULTIPLE sources beyond the home dir. This declares the
+  // IN-TREE plugin caches: plugins/cache/<marketplace>/<plugin>/<leaf>/skills/<name>/SKILL.md
+  // (89 SKILL.md across 4 marketplaces, live 2026-06-15). Each is tiered 'plugin' with
+  // marketplace+plugin provenance, so a plugin skill `github:gh-fix-ci` does NOT collide
+  // with a home skill `gh-fix-ci` (namespaced key). ONLY skills are scanned here: plugin
+  // agents are a single filename-identity-useless `openai.yaml` per plugin and commands are
+  // marginal (1 plugin) — both deferred. The documented OUT-OF-TREE `~/.agents/skills` USER
+  // scope (not config-dir-relative) is a separate follow-up. A symlinked `<leaf>` (codex's
+  // `latest -> <version>`) is not followed, so a versioned skill is counted once.
+  componentSources: Object.freeze([
+    Object.freeze({
+      kind: 'plugin-cache',
+      dir: 'plugins/cache',
+      kinds: Object.freeze([Object.freeze({ kind: 'skill', dir: 'skills', layout: 'skill-md' })]),
+    }),
+  ]),
   governedConfigFiles: Object.freeze(['config.toml', 'AGENTS.md', 'hooks.json']),
   knownTopDirs: Object.freeze([
     '.codex', '.omx', '.sandbox', '.sandbox-bin', '.sandbox-secrets', '.tmp',
