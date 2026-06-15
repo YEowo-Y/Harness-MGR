@@ -84,6 +84,28 @@ test('run: inventory --target codex counts plugin-cache skills + exposes provena
   });
 });
 
+test('run: inventory --target codex counts plugin-cache commands (flat-md) with provenance', async () => {
+  await withTempDir(async (dir) => {
+    buildCodexDir(dir); // 1 home command (prompts/greet.md)
+    // a plugin-cache command: plugins/cache/<mp>/<plugin>/<leaf>/commands/<name>.md
+    const cc = join(dir, 'plugins', 'cache', 'openai-curated', 'cloudflare', 'v1', 'commands');
+    mkdirSync(cc, { recursive: true });
+    writeFileSync(join(cc, 'build-agent.md'), '---\ndescription: Build an agent\n---\nbody\n');
+
+    const out = await run(['inventory', '--target', 'codex', '--config-dir', dir, '--detail', '--format', 'json']);
+    assert.equal(out.code, 0, out.stdout.slice(0, 300));
+    const parsed = JSON.parse(out.stdout);
+    // home command (greet) + plugin command (build-agent) both counted.
+    assert.equal(parsed.result.counts.commands, 2, `home + plugin command; got ${JSON.stringify(parsed.result.counts)}`);
+    const plug = (parsed.result.components || []).find((c) => c.name === 'build-agent');
+    assert.ok(plug, 'plugin-cache command present in --detail');
+    assert.equal(plug.kind, 'command');
+    assert.equal(plug.source.tier, 'plugin');
+    assert.equal(plug.source.plugin, 'cloudflare');
+    assert.equal(plug.source.marketplace, 'openai-curated');
+  });
+});
+
 test('run: inventory --target codex counts the sibling ~/.agents/skills (tier user)', async () => {
   // sibling resolves as dirname(configDir)/.agents → build <root>/.codex as the config dir.
   const root = mkdtempSync(join(tmpdir(), 'mgr-sib-cli-'));
