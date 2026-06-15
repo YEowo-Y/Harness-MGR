@@ -80,6 +80,19 @@ import { codexDescriptor } from './codex.mjs';
  */
 
 /**
+ * @typedef {Object} MarketplaceSource
+ * @property {'json-file'|'toml-table-cache'} kind   where this target's marketplaces live:
+ *   'json-file' = plugins/known_marketplaces.json (Claude); 'toml-table-cache' = the UNION
+ *   of a config.toml `<pointer>` table (declared marketplaces + metadata) AND the
+ *   `<cacheDir>/<name>/` on-disk cache dirs (Codex — the table is incomplete vs the cached
+ *   marketplaces, so both are merged; a cached-but-undeclared marketplace still surfaces).
+ * @property {string} [file]      toml-table-cache: the TOML file under the config root (e.g. 'config.toml')
+ * @property {string} [pointer]   toml-table-cache: the top-level table of declared marketplaces (e.g. 'marketplaces')
+ * @property {string} [cacheDir]  toml-table-cache: the plugin-cache root whose dir names are
+ *   marketplaces + the `onDisk` truth (e.g. 'plugins/cache')
+ */
+
+/**
  * @typedef {Object} TargetDescriptor
  * @property {'claude'|'codex'} id
  * @property {string} label
@@ -97,6 +110,7 @@ import { codexDescriptor } from './codex.mjs';
  * @property {ConfigSource} configSource           where to read the effective config (P6 TOML wave)
  * @property {McpSource} mcpSource                 where to read MCP servers (P6 TOML wave)
  * @property {PluginSource} pluginSource           where to read plugins (P6 TOML wave)
+ * @property {MarketplaceSource} marketplaceSource where to read marketplaces (P6 codex marketplaces)
  * @property {'settings-map'|'record-flag'} pluginEnableModel  how the doctor decides a
  *   plugin is enabled (P6 doctor wave): 'settings-map' = the merged settings
  *   enabledPlugins map is authoritative and the install record's own `enabled` flag is
