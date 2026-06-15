@@ -119,3 +119,36 @@ test('conflictsTable never throws on junk + omits the section when there are no 
   assert.equal(typeof conflictsTable({ conflicts: [], dispositions: 'nope' }), 'string');
   assert.doesNotMatch(conflictsTable({ conflicts: [], dispositions: [] }), /dispositions:/);
 });
+
+// ── codex co-existence render (P6) ────────────────────────────────────────────
+
+test('conflictsTable renders the codex co-existence block: plugin + user members, no winner', () => {
+  const out = conflictsTable({
+    conflicts: [],
+    dispositions: [],
+    coexistence: [{
+      kind: 'skill', name: 'gh-fix-ci', count: 3,
+      sources: [
+        { tier: 'plugin', plugin: 'github', marketplace: 'openai-curated', path: '/c/oc/SKILL.md' },
+        { tier: 'plugin', plugin: 'github', marketplace: 'openai-curated-remote', path: '/c/ocr/SKILL.md' },
+        { tier: 'user', path: '/home/skills/gh-fix-ci/SKILL.md' },
+      ],
+    }],
+  });
+  assert.match(out, /co-existence \(codex/);
+  assert.match(out, /skill:gh-fix-ci \(3 sources\)/);
+  // plugin members show plugin@marketplace; the user (home) member shows its tier.
+  assert.match(out, /plugin github@openai-curated: \/c\/oc\/SKILL\.md/);
+  assert.match(out, /user: \/home\/skills\/gh-fix-ci\/SKILL\.md/);
+});
+
+test('conflictsTable co-existence: defensive on malformed members + absent provenance (never throws)', () => {
+  const out = conflictsTable({ coexistence: [{ kind: 'skill', name: 'x', count: 2, sources: [{ tier: 'plugin' }, null] }] });
+  assert.equal(typeof out, 'string');
+  // a plugin member with absent plugin/marketplace falls back to '?'
+  assert.match(out, /plugin \?@\?:/);
+});
+
+test('conflictsTable omits the co-existence block when there is none (claude path unchanged)', () => {
+  assert.doesNotMatch(conflictsTable({ conflicts: [], dispositions: [] }), /co-existence/);
+});
