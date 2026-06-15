@@ -94,9 +94,10 @@ test('codex componentKinds golden (3 kinds, prompts=command, agents=flat-toml)',
   ]);
 });
 
-test('codex componentSources golden (plugin-cache skills, P6 multi-source)', () => {
+test('codex componentSources golden (plugin-cache + sibling-dir, P6 multi-source)', () => {
   assert.deepEqual(codexDescriptor.componentSources, [
     { kind: 'plugin-cache', dir: 'plugins/cache', kinds: [{ kind: 'skill', dir: 'skills', layout: 'skill-md' }] },
+    { kind: 'sibling-dir', dir: '.agents', kinds: [{ kind: 'skill', dir: 'skills', layout: 'skill-md' }] },
   ]);
   // Claude declares NO extra sources → home-only walk (byte-identical, drift-guarded elsewhere).
   assert.equal(claudeDescriptor.componentSources, undefined);
