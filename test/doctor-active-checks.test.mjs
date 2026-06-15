@@ -254,17 +254,17 @@ test('active mode → check #15 summary has ran===true when cli is present', () 
 // F. Registry assertion — #4, #15, and #19 appended LAST
 // ---------------------------------------------------------------------------
 
-test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,26,27,4,15,19]', () => {
+test('registry: full id order is [1,2,3,5,18,6,7,8,9,10,11,12,22,23,13,14,16,20,21,25,17,24,26,27,28,4,15,19]', () => {
   const r = runDoctor({}, { activeProbes: true });
   assert.deepEqual(
     r.checks.map((c) => c.id),
-    [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 26, 27, 4, 15, 19],
+    [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 26, 27, 28, 4, 15, 19],
   );
 });
 
-test('registry: CHECKS length is now 27 (24 passive + 3 active)', () => {
+test('registry: CHECKS length is now 28 (25 passive + 3 active)', () => {
   const r = runDoctor({}, { activeProbes: true });
-  assert.equal(r.checks.length, 27);
+  assert.equal(r.checks.length, 28);
 });
 
 // ---------------------------------------------------------------------------
