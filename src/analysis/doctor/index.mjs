@@ -45,6 +45,7 @@
  *   #24 insecure-permissions          .mgr-state/ has a broad Windows ACL (read-only icacls — passive) → warn
  *   #26 config-toml-valid             codex config.toml failed to parse/read → error (codex target only)
  *   #27 trust-overbroad               codex [projects."P"] trusts the home dir / a drive root → warn (codex target only)
+ *   #28 codex-state-tmp-bloat         too many leftover ..codex-global-state.json.tmp-* files → info (codex target only)
  *
  * --- Facts gathered by the discovery probe, judged here ---
  * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
@@ -120,7 +121,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {import('../../discovery/probe-hook-syntax.mjs').HookSyntaxFact[]} [hookSyntax]  node --check facts (probe-hook-syntax, active tier); judged by #4
  * @property {import('../../discovery/probe-cli.mjs').CliFact} [cli]  claude CLI resolution/liveness fact (probe-cli, active tier); judged by #15
  * @property {import('../../discovery/probe-loader.mjs').LoaderProbeFact} [loader]  loader-probe fact (probe-loader, active tier); judged by #19
- * @property {{tomlError: string|null, trustedProjects: string[], homeDir: string}} [codexConfig]  codex config.toml facts (probe-codex-config); judged by #26/#27. Only gathered for a codex target.
+ * @property {{tomlError: string|null, trustedProjects: string[], homeDir: string, leftoverStateTmp: {count: number, sample: string[]}}} [codexConfig]  codex facts (probe-codex-config); judged by #26/#27/#28. Only gathered for a codex target.
  */
 
 /**
