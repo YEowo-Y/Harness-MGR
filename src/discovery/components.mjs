@@ -318,11 +318,37 @@ function isSymlinkPath(p) {
 /**
  * readdir that never throws. A missing directory (ENOENT) means "no components
  * of this kind" and is silent; any other error becomes a diagnostic.
+ *
+ * SECURITY — refuse a symlinked component-dir ROOT before reading it. This is the
+ * shared chokepoint for EVERY layout collector (collectSkillMd's `skills/`,
+ * collectFlatMd's `agents/`/`commands/`/`prompts/`, collectFlatToml's `agents/`), so
+ * guarding here closes the ROOT vector for all kinds AND every walk (home,
+ * plugin-cache leaves, and the codex `~/.agents/skills` sibling). Without it, a
+ * symlinked root (e.g. `skills/` -> a foreign tree) would have its TARGET enumerated
+ * by readdirSync and the foreign SKILL.md/.md frontmatter read into a ComponentRecord
+ * that flows to `inventory --format json`. The inner SKILL.md-leaf guard
+ * (isSymlinkPath) + the skill-DIR-symlink gate (!ent.isDirectory()) only cover entries
+ * BELOW the root, not the root itself. Same never-follow-a-symlinked-root guard as
+ * src/ops/snapshot-walk.mjs + src/discovery/probe-state.mjs; lstat reports the link
+ * itself (a real dir / absent path is NOT flagged, so normal roots aren't over-rejected).
+ * Warned (not silent, unlike the internal snapshot/drift walks) because discovery is
+ * user-facing — a user whose component dir is a symlink should see why it was skipped.
  * @param {string} dir
  * @param {DiagnosticBag} bag
  * @returns {import('node:fs').Dirent[]}
  */
 function safeReaddir(dir, bag) {
+  if (isSymlinkPath(dir)) {
+    bag.add({
+      severity: 'warn',
+      code: 'component-dir-symlink-skipped',
+      message: `skipped symlinked component directory (refusing to follow a link out of the config dir): ${dir}`,
+      path: dir,
+      phase: 'components',
+      fix: 'replace the symlinked component directory with a real directory inside the config dir',
+    });
+    return [];
+  }
   try {
     return readdirSync(dir, { withFileTypes: true });
   } catch (err) {
