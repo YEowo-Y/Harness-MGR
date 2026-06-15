@@ -14,10 +14,11 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { discoverComponents } from '../src/discovery/components.mjs';
+import { discoverComponentsForTarget } from '../src/discovery/components-target.mjs';
 import { claudeDescriptor } from '../src/targets/claude.mjs';
 import { codexDescriptor } from '../src/targets/codex.mjs';
 
@@ -111,5 +112,101 @@ test('codex descriptor: skills(skill-md) + commands(prompts/flat-md) + agents(fl
     assert.match(foo.path, /SKILL\.md$/);
     const greet = components.find((c) => c.name === 'greet');
     assert.equal(greet.kind, 'command');
+  });
+});
+
+// ── MULTI-SOURCE (P6 codex plugin caches) ─────────────────────────────────────
+
+/** Attempt a dir symlink; return false if the OS/env forbids it (skip the test then). */
+function trySymlink(target, linkPath, type) {
+  try { symlinkSync(target, linkPath, type); return true; }
+  catch { return false; }
+}
+
+/** Plant a plugin-cache skill: plugins/cache/<mp>/<plugin>/<leaf>/skills/<name>/SKILL.md */
+function mkPluginSkill(dir, mp, plugin, leaf, skill, body = '---\n---\nbody\n') {
+  const rel = join('plugins', 'cache', mp, plugin, leaf, 'skills', skill);
+  mkdir(dir, rel);
+  mkfile(dir, join(rel, 'SKILL.md'), body);
+}
+
+test('discoverComponentsForTarget back-compat: claude === home-only discoverComponents (deepEqual)', () => {
+  withTempDir((dir) => {
+    mkdir(dir, join('skills', 'hello'));
+    mkfile(dir, join('skills', 'hello', 'SKILL.md'), '---\nmodel: haiku\n---\nbody\n');
+    mkdir(dir, 'agents');
+    mkfile(dir, join('agents', 'helper.md'), '---\nname: helper-display\n---\nbody\n');
+    mkdir(dir, 'commands');
+    mkfile(dir, join('commands', 'greet.md'), '---\n---\nbody\n');
+    // Claude declares NO componentSources, so the for-target wrapper is byte-identical
+    // to the home-only walk (both the descriptor path and the no-descriptor default).
+    const viaTarget = discoverComponentsForTarget({ rootDir: dir, descriptor: claudeDescriptor });
+    assert.deepEqual(viaTarget, discoverComponents(dir, undefined, { descriptor: claudeDescriptor }));
+    assert.deepEqual(viaTarget, discoverComponents(dir));
+  });
+});
+
+test('discoverComponentsForTarget bad root → discover-bad-root, never throws', () => {
+  const r = discoverComponentsForTarget({ rootDir: '' });
+  assert.deepEqual(r.components, []);
+  assert.equal(r.diagnostics.some((d) => d.code === 'discover-bad-root'), true);
+});
+
+test('codex multi-source: plugin-cache skills discovered with plugin provenance (home stays user)', () => {
+  withTempDir((dir) => {
+    mkdir(dir, join('skills', 'home-skill'));
+    mkfile(dir, join('skills', 'home-skill', 'SKILL.md'), '---\n---\nbody\n');
+    mkPluginSkill(dir, 'mkt', 'gh', 'v1', 'gh-fix-ci');
+
+    const { components, diagnostics } = discoverComponentsForTarget({ rootDir: dir, descriptor: codexDescriptor });
+    assert.equal(diagnostics.filter((d) => d.severity === 'error').length, 0);
+
+    const home = components.find((c) => c.name === 'home-skill');
+    assert.equal(home.source.tier, 'user');
+
+    const plug = components.find((c) => c.name === 'gh-fix-ci');
+    assert.ok(plug, 'plugin-cache skill discovered');
+    assert.equal(plug.kind, 'skill');
+    assert.equal(plug.source.tier, 'plugin');
+    assert.equal(plug.source.plugin, 'gh');
+    assert.equal(plug.source.marketplace, 'mkt');
+    assert.match(plug.path, /SKILL\.md$/);
+  });
+});
+
+test('codex multi-source: same skill name from two marketplaces yields two records (co-existence input)', () => {
+  withTempDir((dir) => {
+    mkPluginSkill(dir, 'mkt-a', 'gh', 'v1', 'gh-fix-ci');
+    mkPluginSkill(dir, 'mkt-b', 'gh', 'v1', 'gh-fix-ci');
+    const { components } = discoverComponentsForTarget({ rootDir: dir, descriptor: codexDescriptor });
+    const recs = components.filter((c) => c.kind === 'skill' && c.name === 'gh-fix-ci');
+    assert.equal(recs.length, 2, 'one record per marketplace');
+    assert.deepEqual(recs.map((r) => r.source.marketplace).sort(), ['mkt-a', 'mkt-b']);
+  });
+});
+
+test('claude descriptor ignores plugins/cache (no componentSources) — home-only', () => {
+  withTempDir((dir) => {
+    mkdir(dir, join('skills', 'home'));
+    mkfile(dir, join('skills', 'home', 'SKILL.md'), '---\n---\nbody\n');
+    mkPluginSkill(dir, 'mkt', 'gh', 'v1', 'should-not-appear');
+    const { components } = discoverComponentsForTarget({ rootDir: dir, descriptor: claudeDescriptor });
+    assert.equal(components.some((c) => c.name === 'should-not-appear'), false, 'claude must not walk plugins/cache');
+    assert.equal(components.length, 1);
+  });
+});
+
+test('codex multi-source: a symlinked leaf (latest) is NOT followed → skill counted once', (t) => {
+  withTempDir((dir) => {
+    // a real versioned leaf carrying skill 'dup'
+    mkPluginSkill(dir, 'mkt', 'chrome', 'v1', 'dup');
+    // a 'latest' symlink leaf pointing at the real versioned leaf (codex's actual layout)
+    const realLeaf = join(dir, 'plugins', 'cache', 'mkt', 'chrome', 'v1');
+    const made = trySymlink(realLeaf, join(dir, 'plugins', 'cache', 'mkt', 'chrome', 'latest'), 'dir');
+    if (!made) { t.skip('dir symlinks not permitted in this environment'); return; }
+
+    const { components } = discoverComponentsForTarget({ rootDir: dir, descriptor: codexDescriptor });
+    const dups = components.filter((c) => c.name === 'dup');
+    assert.equal(dups.length, 1, 'symlinked latest leaf must not double-count the skill (symlink-never-follow)');
   });
 });
