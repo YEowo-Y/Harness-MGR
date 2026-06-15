@@ -18,7 +18,7 @@
  * Zero npm dependencies. Node stdlib only.
  */
 
-import { discoverComponents } from './components.mjs';
+import { discoverComponentsForTarget } from './components-target.mjs';
 import { discoverPluginsForTarget } from './plugins-target.mjs';
 import { discoverMarketplaces } from './marketplaces.mjs';
 import { discoverSettings, discoverTopLevelDirs } from './settings.mjs';
@@ -87,9 +87,12 @@ export function scan(opts) {
   const enabled = normaliseKinds(kinds);
 
   // ── Components (skills / agents / commands) ─────────────────────────────────
+  // discoverComponentsForTarget = the per-target HOME walk PLUS any extra
+  // componentSources the descriptor declares (codex plugin caches). Claude declares
+  // none → byte-identical to the old discoverComponents call (drift-guarded).
   let components = [];
   if (enabled.has('components')) {
-    const r = discoverComponents(targetClaudeDir, undefined, { descriptor });
+    const r = discoverComponentsForTarget({ rootDir: targetClaudeDir, descriptor });
     components = r.components;
     addAll(bag, r.diagnostics);
   }
