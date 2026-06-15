@@ -51,6 +51,17 @@ export const codexDescriptor = Object.freeze({
       dir: 'plugins/cache',
       kinds: Object.freeze([Object.freeze({ kind: 'skill', dir: 'skills', layout: 'skill-md' })]),
     }),
+    // The documented OUT-OF-TREE USER scope `$HOME/.agents/skills` (dozens of skills
+    // observed 2026-06-15; counts drift — a dated seed, like the rest of this file) — a
+    // SIBLING of `~/.codex`, resolved as `dirname(config-dir)/.agents`
+    // (default `~/.codex` → `~/.agents`; tiered 'user', distinguished from home by path).
+    // Per Codex docs same-name skills coexist, so a `.agents` skill that shares a name
+    // with a home/plugin skill surfaces as co-existence, never a shadow.
+    Object.freeze({
+      kind: 'sibling-dir',
+      dir: '.agents',
+      kinds: Object.freeze([Object.freeze({ kind: 'skill', dir: 'skills', layout: 'skill-md' })]),
+    }),
   ]),
   governedConfigFiles: Object.freeze(['config.toml', 'AGENTS.md', 'hooks.json']),
   knownTopDirs: Object.freeze([
