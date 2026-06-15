@@ -60,6 +60,30 @@ test('run: inventory --target codex counts skills/commands/agents', async () => 
   });
 });
 
+// ── multi-source: plugin-cache skills count + provenance (P6) ─────────────────
+
+test('run: inventory --target codex counts plugin-cache skills + exposes provenance in --detail', async () => {
+  await withTempDir(async (dir) => {
+    buildCodexDir(dir); // 1 home skill (skills/foo)
+    // a plugin-cache skill: plugins/cache/<mp>/<plugin>/<leaf>/skills/<name>/SKILL.md
+    const cs = join(dir, 'plugins', 'cache', 'openai-curated', 'github', 'v1', 'skills', 'gh-fix-ci');
+    mkdirSync(cs, { recursive: true });
+    writeFileSync(join(cs, 'SKILL.md'), '---\n---\nbody\n');
+
+    const out = await run(['inventory', '--target', 'codex', '--config-dir', dir, '--detail', '--format', 'json']);
+    assert.equal(out.code, 0, out.stdout.slice(0, 300));
+    const parsed = JSON.parse(out.stdout);
+    // home skill + plugin-cache skill both counted.
+    assert.equal(parsed.result.counts.skills, 2, `home + plugin skill; got ${JSON.stringify(parsed.result.counts)}`);
+    // the plugin skill carries plugin/marketplace provenance.
+    const plug = (parsed.result.components || []).find((c) => c.name === 'gh-fix-ci');
+    assert.ok(plug, 'plugin-cache skill present in --detail');
+    assert.equal(plug.source.tier, 'plugin');
+    assert.equal(plug.source.plugin, 'github');
+    assert.equal(plug.source.marketplace, 'openai-curated');
+  });
+});
+
 // ── auto-detect codex (no --target) → same counts ─────────────────────────────
 
 test('run: inventory without --target auto-detects codex (same counts)', async () => {
