@@ -190,6 +190,25 @@ test('both descriptors\' pluginSource is frozen', () => {
 });
 
 // ---------------------------------------------------------------------------
+// marketplaceSource golden (P6 codex marketplaces) — where each target's marketplaces live
+// ---------------------------------------------------------------------------
+
+test('claude marketplaceSource = json-file', () => {
+  assert.deepEqual(claudeDescriptor.marketplaceSource, { kind: 'json-file' });
+});
+
+test('codex marketplaceSource = config.toml marketplaces table + plugins/cache (toml-table-cache)', () => {
+  assert.deepEqual(codexDescriptor.marketplaceSource, {
+    kind: 'toml-table-cache', file: 'config.toml', pointer: 'marketplaces', cacheDir: 'plugins/cache',
+  });
+});
+
+test('both descriptors\' marketplaceSource is frozen', () => {
+  assert.equal(Object.isFrozen(claudeDescriptor.marketplaceSource), true);
+  assert.equal(Object.isFrozen(codexDescriptor.marketplaceSource), true);
+});
+
+// ---------------------------------------------------------------------------
 // codex pattern falsifiability
 // ---------------------------------------------------------------------------
 
