@@ -75,6 +75,50 @@ test('never throws on a hostile/absent configDir', () => {
   const { codexConfig } = gatherCodexConfig({ configDir: undefined, homeDir: undefined });
   assert.deepEqual(codexConfig.trustedProjects, []);
   assert.equal(codexConfig.homeDir, '');
+  assert.deepEqual(codexConfig.leftoverStateTmp, { count: 0, sample: [] }, 'leftover scan degrades safely');
+});
+
+// ── #28 leftover-state-tmp scan ────────────────────────────────────────────────
+
+test('(iv) leftover ..codex-global-state.json.tmp-* files are counted (sorted sample, capped at 3)', () => {
+  const dir = makeDir();
+  try {
+    const names = [
+      '..codex-global-state.json.tmp-5', '..codex-global-state.json.tmp-1',
+      '..codex-global-state.json.tmp-3', '..codex-global-state.json.tmp-2',
+      '..codex-global-state.json.tmp-4',
+    ];
+    for (const n of names) writeFileSync(join(dir, n), '', 'utf8');
+    // decoys that must NOT match: the live state file + a .bak (one leading dot, no .tmp-).
+    writeFileSync(join(dir, '.codex-global-state.json'), '{}', 'utf8');
+    writeFileSync(join(dir, '.codex-global-state.json.bak'), '{}', 'utf8');
+
+    const { codexConfig } = gatherCodexConfig({ configDir: dir, homeDir: 'C:\\Users\\me' });
+    assert.equal(codexConfig.leftoverStateTmp.count, 5, 'exactly the 5 tmp files (decoys excluded)');
+    assert.deepEqual(codexConfig.leftoverStateTmp.sample, [
+      '..codex-global-state.json.tmp-1', '..codex-global-state.json.tmp-2', '..codex-global-state.json.tmp-3',
+    ], 'sorted, first 3');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('(v) no leftover tmp files → count 0, sample []', () => {
+  const dir = makeDir();
+  try {
+    writeFileSync(join(dir, '.codex-global-state.json'), '{}', 'utf8');
+    const { codexConfig } = gatherCodexConfig({ configDir: dir, homeDir: 'C:\\Users\\me' });
+    assert.deepEqual(codexConfig.leftoverStateTmp, { count: 0, sample: [] });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('(vi) leftover scan is independent of config.toml validity (malformed config still counts tmp)', () => {
+  const dir = makeDir();
+  try {
+    writeFileSync(join(dir, 'config.toml'), '[projects."broken"\n', 'utf8'); // parse error
+    writeFileSync(join(dir, '..codex-global-state.json.tmp-x'), '', 'utf8');
+    const { codexConfig } = gatherCodexConfig({ configDir: dir, homeDir: 'C:\\Users\\me' });
+    assert.equal(typeof codexConfig.tomlError, 'string', 'config.toml is invalid');
+    assert.equal(codexConfig.leftoverStateTmp.count, 1, 'tmp count is still gathered despite the parse error');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('a [projects] key named __proto__ is ignored (proto-safe), trusted ones still collected', () => {
