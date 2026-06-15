@@ -233,15 +233,44 @@ function countKind(components, kind) {
 // ── conflicts ─────────────────────────────────────────────────────────────────
 
 /**
+ * The codex honesty caveat (P6 conflicts unit). When the target is codex, this
+ * REPLACES the Claude-Code-version diagnostic `loader-rules-unverified-version`
+ * (whose "verified for 2.1.x" wording is meaningless on a codex target). Codex's
+ * own docs say same-name skills coexist rather than shadow, and claude-mgr does
+ * not yet scan codex's plugin / multi-source components — so conflict results are
+ * best-effort. Authority: docs/phase-6-codex-loadorder-design.md.
+ * @type {Readonly<Diagnostic>}
+ */
+const CODEX_CONFLICTS_CAVEAT = Object.freeze({
+  severity: 'info',
+  code: 'conflicts-unverified-for-codex',
+  phase: 'conflicts',
+  message: 'Codex component resolution is not verified: same-name skills may coexist rather than shadow (per Codex docs), and plugin / multi-source components are not yet scanned -- conflict results are best-effort.',
+});
+
+/**
+ * The load-order confidence diagnostics for a conflicts run. On a codex target,
+ * the honest codex caveat; otherwise the existing Claude version-guard info
+ * (byte-identical to `loaderConfidence(undefined).diagnostics`).
+ * @param {import('../targets/descriptor.mjs').TargetDescriptor} [descriptor]
+ * @returns {Diagnostic[]}
+ */
+function conflictLoadOrderDiagnostics(descriptor) {
+  if (descriptor && descriptor.id === 'codex') return [CODEX_CONFLICTS_CAVEAT];
+  return loaderConfidence(undefined).diagnostics;
+}
+
+/**
  * Shadowing conflicts among loaded skills/agents/commands. Flags: `args.name`
  * (optional RegExp source string) filters clusters by `key`; an invalid regex is
- * skipped with an info diagnostic (never throws). The Phase-1 version-guard info
- * is appended via loaderConfidence(undefined) — there is no CC-version detection
- * yet, so confidence is always 'likely'.
+ * skipped with an info diagnostic (never throws). The load-order confidence info
+ * is appended via conflictLoadOrderDiagnostics(ctx.descriptor): on a codex target
+ * the honest codex caveat, otherwise the Claude version-guard info (confidence is
+ * always 'likely' — there is no CC-version detection yet).
  * @type {CommandHandler}
  */
 export function conflictsCommand(ctx) {
-  const s = scan({ targetClaudeDir: ctx.configDir });
+  const s = scan({ targetClaudeDir: ctx.configDir, descriptor: ctx.descriptor });
   const c = analyzeConflicts(s.components);
   /** @type {Diagnostic[]} */
   const extra = [];
@@ -257,7 +286,7 @@ export function conflictsCommand(ctx) {
   // P5.U10 ADDITIVE overlay: rule-backed disposition advice over the (filtered)
   // clusters. `conflicts` stays byte-identical; dispositions derive from it so
   // they stay in sync with the --name filter. Gate-safe (pure analysis).
-  const diagnostics = [...s.diagnostics, ...c.diagnostics, ...loaderConfidence(undefined).diagnostics, ...extra];
+  const diagnostics = [...s.diagnostics, ...c.diagnostics, ...conflictLoadOrderDiagnostics(ctx.descriptor), ...extra];
   return { result: { conflicts, dispositions: analyzeDisposition({ conflicts }).dispositions }, diagnostics };
 }
 
