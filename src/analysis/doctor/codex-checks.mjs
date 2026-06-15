@@ -1,12 +1,15 @@
 /**
- * Doctor codex-fact checks — #26 config-toml-valid, #27 trust-overbroad.
+ * Doctor codex-fact checks — #26 config-toml-valid, #27 trust-overbroad,
+ * #28 codex-state-tmp-bloat.
  *
- * The PURE judgment layer for the codex config.toml facts gathered by
+ * The PURE judgment layer for the codex facts gathered by
  * discovery/probe-codex-config.mjs (CodexConfigFacts on input.codexConfig):
  *   #26 escalates a config.toml parse/read failure (tomlError) into an ERROR.
  *   #27 judges each trusted [projects."P"] path for overbroad trust (the home dir
  *       itself, an ancestor of it, or a bare drive root → everything under it is
  *       transitively trusted).
+ *   #28 flags an accumulation of leftover ..codex-global-state.json.tmp-* files
+ *       (interrupted state writes) → INFO (the codex analog of #13 backup-bloat).
  *
  * These checks are CODEX-GUARDED: input.codexConfig is only gathered for a codex
  * target, so on a Claude (or absent) run they read undefined and return [] — they
@@ -113,14 +116,42 @@ function isOverbroadTrust(p, home) {
   return false;
 }
 
+/** A handful of leftover state-tmp files is normal churn; an accumulation is cruft. */
+const STATE_TMP_BLOAT_THRESHOLD = 3;
+
 /**
- * The two pure codex-fact checks, frozen in registry order. Spread into index.mjs
- * CHECKS after the passive checks and BEFORE ...ACTIVE_CHECKS, so passive checks
- * stay grouped and the active checks remain last → registry order ends
- * [...,17,24,26,27,4,15,19].
+ * #28 codex-state-tmp-bloat — too many leftover `..codex-global-state.json.tmp-*`
+ * files (interrupted atomic writes of .codex-global-state.json) accumulating in
+ * ~/.codex → INFO. The codex analog of #13 claude-md-backup-bloat: the descriptor
+ * recognizes these as KNOWN (not orphans), this check owns the "too many" judgment.
+ * count > 3 fires (a few is normal churn). Codex-guarded (input.codexConfig absent on
+ * a Claude run → []).
+ * @param {DoctorInput} input
+ * @returns {Diagnostic[]}
+ */
+function checkCodexStateTmpBloat(input) {
+  const cc = input.codexConfig;
+  if (!cc || typeof cc !== 'object') return [];
+  const lt = cc.leftoverStateTmp;
+  const count = lt && typeof lt === 'object' && typeof lt.count === 'number' ? lt.count : 0;
+  if (count <= STATE_TMP_BLOAT_THRESHOLD) return [];
+  return [{
+    severity: 'info',
+    code: 'codex-state-tmp-bloat',
+    message: `Codex has ${count} leftover ..codex-global-state.json.tmp-* files (interrupted state writes)`,
+    phase: 'doctor',
+    fix: 'delete the stale ..codex-global-state.json.tmp-* files in ~/.codex (the live state is .codex-global-state.json)',
+  }];
+}
+
+/**
+ * The pure codex-fact checks, frozen in registry order. Spread into index.mjs CHECKS
+ * after the passive checks and BEFORE ...ACTIVE_CHECKS, so passive checks stay grouped
+ * and the active checks remain last → registry order ends [...,17,24,26,27,28,4,15,19].
  * @type {ReadonlyArray<import('./index.mjs').DoctorCheck>}
  */
 export const CODEX_CHECKS = Object.freeze([
   Object.freeze({ id: 26, code: 'config-toml-valid', probeLevel: 'passive', run: checkConfigTomlValid }),
   Object.freeze({ id: 27, code: 'trust-overbroad', probeLevel: 'passive', run: checkTrustOverbroad }),
+  Object.freeze({ id: 28, code: 'codex-state-tmp-bloat', probeLevel: 'passive', run: checkCodexStateTmpBloat }),
 ]);
