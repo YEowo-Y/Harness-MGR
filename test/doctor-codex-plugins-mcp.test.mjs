@@ -96,3 +96,17 @@ test('codex: #11 duplicate-component-shadowing is structurally empty (one dir pe
     assert.equal(byCode(r.diagnostics, 'duplicate-component-shadowing').length, 0);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('codex: leftover ..codex-global-state.json.tmp-* files flow through gather → #28 fires', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mgr-codex-tmpbloat-'));
+  try {
+    for (let i = 0; i < 5; i += 1) writeFileSync(join(dir, `..codex-global-state.json.tmp-${i}`), '', 'utf8');
+    const { input } = await gatherDoctorInput({ configDir: dir, mgrStateDir: join(dir, '.mgr-state'), descriptor: codexDescriptor });
+    // The whole chain: doctor-facts gates gatherCodexConfig on codex → leftoverStateTmp → #28.
+    assert.equal(input.codexConfig.leftoverStateTmp.count, 5, 'gather threaded the leftover count into input.codexConfig');
+    const r = runDoctor(input);
+    const bloat = byCode(r.diagnostics, 'codex-state-tmp-bloat');
+    assert.equal(bloat.length, 1);
+    assert.match(bloat[0].message, /5 leftover/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
