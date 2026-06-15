@@ -43,6 +43,8 @@
  *   #25 config-rules-stale            effective-config-rules.md older than 90 days → info
  *   #17 windows-file-locks            settings.json appears exclusively locked by another process → warn
  *   #24 insecure-permissions          .mgr-state/ has a broad Windows ACL (read-only icacls — passive) → warn
+ *   #26 config-toml-valid             codex config.toml failed to parse/read → error (codex target only)
+ *   #27 trust-overbroad               codex [projects."P"] trusts the home dir / a drive root → warn (codex target only)
  *
  * --- Facts gathered by the discovery probe, judged here ---
  * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
@@ -68,6 +70,7 @@ import { PROBE_CHECKS } from './probe-checks.mjs';
 import { CONFIG_CHECKS } from './config-checks.mjs';
 import { FS_CHECKS } from './fs-checks.mjs';
 import { ACCESS_CHECKS } from './access-checks.mjs';
+import { CODEX_CHECKS } from './codex-checks.mjs';
 import { ACTIVE_CHECKS } from './active-checks.mjs';
 import { strOr, numOr } from './util.mjs';
 
@@ -117,6 +120,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {import('../../discovery/probe-hook-syntax.mjs').HookSyntaxFact[]} [hookSyntax]  node --check facts (probe-hook-syntax, active tier); judged by #4
  * @property {import('../../discovery/probe-cli.mjs').CliFact} [cli]  claude CLI resolution/liveness fact (probe-cli, active tier); judged by #15
  * @property {import('../../discovery/probe-loader.mjs').LoaderProbeFact} [loader]  loader-probe fact (probe-loader, active tier); judged by #19
+ * @property {{tomlError: string|null, trustedProjects: string[], homeDir: string}} [codexConfig]  codex config.toml facts (probe-codex-config); judged by #26/#27. Only gathered for a codex target.
  */
 
 /**
@@ -361,6 +365,7 @@ export const CHECKS = Object.freeze([
   ...CONFIG_CHECKS,
   ...FS_CHECKS,
   ...ACCESS_CHECKS,
+  ...CODEX_CHECKS,
   ...ACTIVE_CHECKS,
 ]);
 
