@@ -20,6 +20,7 @@
 
 import { formatTable } from '../output/table.mjs';
 import { conflictsTable } from './conflicts-render.mjs';
+import { effectiveSummary } from './config-effective-render.mjs';
 import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
 import { hooksTable } from './hooks-render.mjs';
 import { healthTable } from './health-render.mjs';
@@ -121,6 +122,9 @@ function orphansTable(r) {
  * @param {Record<string, unknown>} r
  */
 function effectiveTable(r) {
+  // Codex single-source effective ({effective} with NO merge `keys`): a digestible
+  // per-top-level-key SUMMARY, not a 49 KB dump (--format json / --key give full values).
+  if (isObject(r.effective) && !isObject(r.keys)) return effectiveSummary(r.effective);
   if (!isObject(r.keys)) return kvTable(r);
 
   if (r.explain === true) {
