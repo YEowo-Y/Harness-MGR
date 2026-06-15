@@ -52,9 +52,9 @@ test('doctor-fixture-clean: 0 error-severity diagnostics over the synthetic tree
   );
 });
 
-test('doctor-fixture-clean: all 27 checks registered', async () => {
+test('doctor-fixture-clean: all 28 checks registered', async () => {
   const { report } = await gatherFixture(() => {}, () => {});
-  assert.equal(report.checks.length, 27, `Expected 27 checks, got ${report.checks.length}`);
+  assert.equal(report.checks.length, 28, `Expected 28 checks, got ${report.checks.length}`);
 });
 
 test('doctor-fixture-clean: CLAUDE_PROJECT_DIR unset → 0 errors (cwd-thread is env-independent)', async () => {
