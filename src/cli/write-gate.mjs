@@ -86,3 +86,32 @@ export function resolveWriteIntent({ apply, env } = {}) {
     },
   };
 }
+
+/**
+ * Pick the governed-write gate (`assertWritable`) for the active target (P6 write wave).
+ *
+ * A target whose descriptor carries a `writeSurface` (Codex) needs a gate BOUND to its
+ * own config dir + state dir + surface — the bare `paths.assertWritable` is bound to
+ * `~/.claude` (it resolves `targetClaudeDir()` internally) and would reject a
+ * `~/.codex/...` write as `write-outside-target`. The default target (Claude, no
+ * `writeSurface`) keeps the bare `paths.assertWritable` so existing behavior + test seams
+ * are byte-identical.
+ *
+ * Pure router: it receives the already-imported `paths` module (so it imports nothing
+ * itself) and returns the gate function. Reused by every codex write command
+ * (snapshot/rollback/remove). Never throws — a missing descriptor/dir falls back to the
+ * default gate.
+ *
+ * @param {{assertWritable: Function, makeAssertWritable: Function}} paths  the imported paths.mjs
+ * @param {{descriptor?: {writeSurface?: object}, configDir?: string, mgrStateDir?: string}} ctx
+ * @returns {(target: string, context?: string) => string}
+ */
+export function resolveAssertWritable(paths, ctx) {
+  const c = ctx && typeof ctx === 'object' ? ctx : {};
+  const surface = c.descriptor && typeof c.descriptor === 'object' ? c.descriptor.writeSurface : undefined;
+  if (surface && typeof paths.makeAssertWritable === 'function'
+    && typeof c.configDir === 'string' && typeof c.mgrStateDir === 'string') {
+    return paths.makeAssertWritable({ configDir: c.configDir, mgrStateDir: c.mgrStateDir, surface });
+  }
+  return paths.assertWritable;
+}
