@@ -30,7 +30,7 @@
  */
 
 import { rollbackSnapshot } from '../ops/rollback.mjs';
-import { resolveWriteIntent } from './write-gate.mjs';
+import { resolveWriteIntent, resolveAssertWritable } from './write-gate.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('./commands.mjs').CommandContext} CommandContext */
@@ -115,7 +115,10 @@ export async function rollbackCommand(ctx, deps = {}) {
   if (intent.enableWrites) {
     try {
       const paths = await (deps.loadPaths ?? (() => import('../paths.mjs')))();
-      assertWritable = paths.assertWritable;
+      // Pick the target-bound gate: a codex ctx (descriptor.writeSurface) → a gate bound
+      // to ~/.codex + the codex rollback surface; Claude → the bare assertWritable (byte-
+      // identical). The restore gates every write-back with context 'rollback'.
+      assertWritable = resolveAssertWritable(paths, ctx);
     } catch (err) {
       return {
         result: { status: 'write-unavailable' },
