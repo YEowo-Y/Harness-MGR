@@ -161,4 +161,24 @@ export const codexDescriptor = Object.freeze({
     skillsDir: 'skills',
     features: Object.freeze({ probe: false, propose: false, accept: false }),
   }),
+  // The Codex snapshot-capture scope (P6 write wave, unit 2). Consumed by the snapshot
+  // walker via the CLI; the walker LOGIC is shared with Claude, only this DATA differs.
+  // walkDirs ∪ topFiles == the gate's writeSurface.rollbackPaths (skills/prompts/agents +
+  // config.toml/AGENTS.md/hooks.json) — rollback can only restore what snapshot captured,
+  // so the capture scope and the rollback-writable surface MUST match. Secrets/privacy/
+  // runtime (auth.json/.credentials.json/sessions/archived_sessions/sqlite/cache/log/
+  // plugins) are NOT walkDirs/topFiles → never captured by the allowlist walk; they are
+  // ALSO listed in excludeTop as belt-and-suspenders + explicit accounting. pluginFiles is
+  // empty (codex plugins live inside config.toml, captured as that file).
+  // See docs/phase-6-codex-snapshot-design.md.
+  snapshotScope: Object.freeze({
+    walkDirs: Object.freeze(['skills', 'prompts', 'agents']),
+    topFiles: Object.freeze(['config.toml', 'AGENTS.md', 'hooks.json']),
+    pluginFiles: Object.freeze([]),
+    excludeTop: Object.freeze([
+      '.mgr', 'sessions', 'archived_sessions', 'sqlite', 'cache', 'log', 'plugins',
+      'auth.json', '.credentials.json',
+    ]),
+    excludePrefixes: Object.freeze([]),
+  }),
 });
