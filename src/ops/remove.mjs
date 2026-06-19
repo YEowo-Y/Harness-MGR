@@ -82,6 +82,38 @@ export const KIND_SPEC = Object.freeze({
   skill:   Object.freeze({ dir: 'skills',   isDir: true,  opKind: 'delete-dir' }),
 });
 
+/**
+ * Derive the remove kind-spec table from a target's `componentKinds` (descriptor
+ * DATA), so remove is target-agnostic without importing targets/ (M2). By layout:
+ *   skill-md  → a skill DIRECTORY            { isDir:true,  opKind:'delete-dir' }
+ *   flat-md   → a single .md FILE            { isDir:false, ext:'.md',   opKind:'delete' }
+ *   flat-toml → a single .toml FILE          { isDir:false, ext:'.toml', opKind:'delete' }
+ * Any OTHER (unknown/future) layout falls into the flat-md '.md' default — add it
+ * explicitly here when introduced. This can never widen a delete: the gate's per-dir
+ * leafRe (writeSurface.removeLeaves) independently refuses a wrong-dir/wrong-ext target.
+ * For Claude this reproduces KIND_SPEC (+ a '.md' ext); for Codex it yields
+ * agent→agents/*.toml, command→prompts/*.md, skill→skills/. Proto-safe (null-proto
+ * map; entries keyed by the user-facing kind). Pure / never-throws.
+ * @param {ReadonlyArray<{kind:string, dir:string, layout:string}>} componentKinds
+ * @returns {Record<string, {dir:string, isDir:boolean, ext?:string, opKind:string}>}
+ */
+export function deriveKindSpec(componentKinds) {
+  const table = Object.create(null);
+  const kinds = Array.isArray(componentKinds) ? componentKinds : [];
+  for (const ck of kinds) {
+    if (!ck || typeof ck.kind !== 'string' || typeof ck.dir !== 'string') continue;
+    table[ck.kind] = ck.layout === 'skill-md'
+      ? Object.freeze({ dir: ck.dir, isDir: true, opKind: 'delete-dir' })
+      : Object.freeze({ dir: ck.dir, isDir: false, ext: ck.layout === 'flat-toml' ? '.toml' : '.md', opKind: 'delete' });
+  }
+  return table;
+}
+
+/** Strip a trailing extension (case-insensitive) if present; else return as-is. */
+function stripExt(name, ext) {
+  return name.toLowerCase().endsWith(ext.toLowerCase()) ? name.slice(0, -ext.length) : name;
+}
+
 /** A valid component leaf base: no separators, no traversal, no ADS, no spaces. */
 const NAME_RE = /^[A-Za-z0-9._-]+$/;
 
@@ -120,9 +152,10 @@ function buildResult(fields, bag) {
  * Never throws (the lstat is try/caught).
  * @param {unknown} spec
  * @param {string} targetClaudeDir
- * @returns {{kind:string, base:string, target:string, spec:{dir:string,isDir:boolean,opKind:string}}|{refusal:{code:string,message:string}}}
+ * @param {Record<string, {dir:string, isDir:boolean, ext?:string, opKind:string}>} kindTable
+ * @returns {{kind:string, base:string, target:string, spec:{dir:string,isDir:boolean,ext?:string,opKind:string}}|{refusal:{code:string,message:string}}}
  */
-function validateSpec(spec, targetClaudeDir) {
+function validateSpec(spec, targetClaudeDir, kindTable) {
   const refuse = (code, message) => ({ refusal: { code, message } });
 
   // Parse <kind>:<name> on the FIRST colon. Reject a missing colon / empty parts.
@@ -140,31 +173,33 @@ function validateSpec(spec, targetClaudeDir) {
   }
 
   // Kind must be one of the known kinds. Plugins/marketplaces are out of scope.
-  if (!Object.prototype.hasOwnProperty.call(KIND_SPEC, kind)) {
+  if (!Object.prototype.hasOwnProperty.call(kindTable, kind)) {
     return refuse('remove-kind-unsupported',
       `remove supports agent/command/skill; "${kind}" is not removable here ` +
       '(plugins/marketplaces are out of scope — deferred to Phase 4b)');
   }
-  const kindSpec = KIND_SPEC[kind];
+  const kindSpec = kindTable[kind];
 
   // Name validation — behaviour differs by kind:
-  //   FILE kinds (agent/command): strip a trailing .md, then validate NAME_RE.
-  //   DIR  kinds (skill): NO .md strip; the name IS the directory base as-is.
+  //   FILE kinds (agent/command): strip the per-target trailing ext (Claude .md;
+  //     Codex agents .toml / prompts .md), then validate NAME_RE.
+  //   DIR  kinds (skill): NO ext strip; the name IS the directory base as-is.
   // In both cases: non-empty, no path separator, not '.'/'..', NAME_RE only.
   // This rejects namespaced ns/name, traversal ../x, ADS foo:bar, spaces, unicode.
-  const base = kindSpec.isDir ? rawName : rawName.replace(/\.md$/i, '');
+  const ext = kindSpec.ext ?? '.md';
+  const base = kindSpec.isDir ? rawName : stripExt(rawName, ext);
   if (base.length === 0 || base === '.' || base === '..'
       || base.includes('/') || base.includes('\\') || !NAME_RE.test(base)) {
     return refuse('remove-name-invalid',
       `invalid component name "${rawName}"; must be a plain leaf matching ${NAME_RE} (no path, traversal, or special chars)`);
   }
 
-  // Resolve the absolute target:
-  //   FILE: agents/<base>.md  or  commands/<base>.md
-  //   DIR:  skills/<base>  (the directory itself, no extension)
+  // Resolve the absolute target (the FILE extension is per-target: Claude .md,
+  // Codex agents .toml / prompts .md):
+  //   FILE: <dir>/<base><ext>   DIR: <dir>/<base>  (the directory itself, no extension)
   const target = kindSpec.isDir
     ? join(targetClaudeDir, kindSpec.dir, base)
-    : join(targetClaudeDir, kindSpec.dir, base + '.md');
+    : join(targetClaudeDir, kindSpec.dir, base + ext);
 
   // Existence / symlink / type refusals (read-only lstat probe).
   let st;
@@ -220,6 +255,10 @@ function buildDeletePlan(kind, base, target, opKind, enableWrites) {
  * @param {string} opts.mgrStateDir                     absolute .mgr-state dir
  * @param {(path:string, ctx:string)=>string} [opts.assertWritable]  governed-write
  *           gate; REQUIRED only for the --apply path, forwarded to applyPlan.
+ * @param {ReadonlyArray<{kind:string,dir:string,layout:string}>} [opts.componentKinds]
+ *           descriptor componentKinds → the remove kind table (Codex). Absent → Claude KIND_SPEC.
+ * @param {import('./snapshot-walk.mjs').SnapshotScope} [opts.scope]  per-target snapshot
+ *           scope forwarded to applyPlan's auto-snapshot (Codex). Absent → Claude scope.
  * @param {boolean} [opts.enableWrites]                 true = actually delete; false/
  *           absent = dry-run preview (writes NOTHING).
  * @param {string}  [opts.reason]                       snapshot reason (defaults to the command label).
@@ -232,8 +271,11 @@ export async function removeComponent(opts) {
   const bag = new DiagnosticBag();
   try {
     const o = opts && typeof opts === 'object' ? opts : {};
-    const { spec, targetClaudeDir, mgrStateDir, assertWritable, reason, pid, now } = o;
+    const { spec, targetClaudeDir, mgrStateDir, assertWritable, reason, pid, now, componentKinds, scope } = o;
     const enableWrites = o.enableWrites === true;
+    // The remove kind table is descriptor-driven: Codex passes componentKinds
+    // (agent→agents/.toml, command→prompts/.md, skill→skills/); absent → Claude KIND_SPEC.
+    const kindTable = componentKinds ? deriveKindSpec(componentKinds) : KIND_SPEC;
     const seams = o.seams && typeof o.seams === 'object' ? o.seams : {};
     const applyFn = typeof seams.applyFn === 'function' ? seams.applyFn : applyPlan;
 
@@ -244,7 +286,7 @@ export async function removeComponent(opts) {
 
     // 1. Validate the spec + target (§1 refusal matrix). On ANY refusal, return
     //    WITHOUT calling applyFn — no lock, no snapshot, no write.
-    const v = validateSpec(spec, targetClaudeDir);
+    const v = validateSpec(spec, targetClaudeDir, kindTable);
     if ('refusal' in v) {
       return refuse(bag, v.refusal.code, v.refusal.message, {});
     }
@@ -268,7 +310,7 @@ export async function removeComponent(opts) {
         'assertWritable (the governed-write gate) must be injected to --apply a remove', { kind, name: base, target, plan });
     }
     const ar = await applyFn({
-      plan, targetClaudeDir, mgrStateDir, assertWritable,
+      plan, targetClaudeDir, mgrStateDir, assertWritable, scope,
       reason: reason ?? plan.command, pid, enableWrites: true, now,
     });
     for (const d of ar?.diagnostics ?? []) bag.add(d);
