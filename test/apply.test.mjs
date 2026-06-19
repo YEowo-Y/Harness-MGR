@@ -228,6 +228,7 @@ function happySeams(over = {}) {
     atomicWriteFn: over.atomicWriteFn ?? makeAtomicWrite(),
     atomicDeleteFn: over.atomicDeleteFn ?? makeAtomicDelete(),
     atomicDirDeleteFn: over.atomicDirDeleteFn ?? makeAtomicDirDelete(),
+    atomicConfigEditFn: over.atomicConfigEditFn ?? makeAtomicConfigEdit(),
     manifestReadFileFn: over.manifestReadFileFn ?? makeManifestReadFile(),
   };
 }
@@ -1123,4 +1124,58 @@ test('applyPlan paranoid + delete-dir: readFileFn is never called (DD4)', async 
   // CRITICAL: paranoid never re-reads a deleted directory (nothing to re-parse).
   assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a delete-dir op under paranoid');
   assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'), 'no paranoid failure for delete-dir');
+});
+
+// ── config-edit op (P6 in-place config.toml mutation) ───────────────────────────
+
+/** A config-edit op targeting config.toml (selector + desired, NO content). */
+function configEditOp(over = {}) {
+  return { kind: 'config-edit', target: `${TARGET}\\config.toml`, summary: 'disable plugin a@b', selector: { kind: 'plugin', name: 'a@b' }, desired: false, ...over };
+}
+
+/** A recording atomicConfigEdit seam (default: a successful flip that wrote). */
+function makeAtomicConfigEdit(result = { ok: true, wrote: true }) {
+  const calls = [];
+  const fn = (opts) => { calls.push(opts); return { diagnostics: [], leftovers: { newPath: null, oldPath: null }, ...result }; };
+  fn.calls = calls;
+  return fn;
+}
+
+/** A manifest that DOES list config.toml (so the Part-2 membership check passes). */
+function manifestWithConfigToml() {
+  return () => JSON.stringify({ manifestVersion: 1, snapshotId: FIXED_ID, targetClaudeDir: TARGET,
+    files: [{ path: 'config.toml', preSha256: 'x', currentSha256: 'x' }] });
+}
+
+test('config-edit op: dispatches to atomicConfigEditFn (selector+desired) and reaches committed', async () => {
+  const atomicConfigEditFn = makeAtomicConfigEdit();
+  const seams = happySeams({ atomicConfigEditFn, manifestReadFileFn: manifestWithConfigToml() });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configEditOp()]), enableWrites: true }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  assert.equal(atomicConfigEditFn.calls.length, 1);
+  assert.equal(atomicConfigEditFn.calls[0].target, `${TARGET}\\config.toml`);
+  assert.deepEqual(atomicConfigEditFn.calls[0].selector, { kind: 'plugin', name: 'a@b' });
+  assert.equal(atomicConfigEditFn.calls[0].desired, false);
+  // config-edit is NOT a *.json write → the paranoid re-parse seam is never invoked for it.
+});
+
+test('BLOCKER-1 guard: a config-edit op NOT in the snapshot manifest → refused (apply-target-not-snapshotted), no edit', async () => {
+  const atomicConfigEditFn = makeAtomicConfigEdit();
+  // default makeManifestReadFile lists settings.json/agents/... but NOT config.toml.
+  const seams = happySeams({ atomicConfigEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configEditOp()]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-target-not-snapshotted'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicConfigEditFn.calls.length, 0, 'no edit attempted when the target is not snapshotted (irreversible)');
+});
+
+test('config-edit op: an invalid op (missing desired) is refused BEFORE any edit', async () => {
+  const atomicConfigEditFn = makeAtomicConfigEdit();
+  const seams = happySeams({ atomicConfigEditFn, manifestReadFileFn: manifestWithConfigToml() });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configEditOp({ desired: undefined })]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicConfigEditFn.calls.length, 0);
 });
