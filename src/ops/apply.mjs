@@ -381,6 +381,8 @@ function persistAt(a, journal) {
  * @param {(path:string, ctx:string)=>string} opts.assertWritable  REQUIRED governed-write gate
  * @param {string}  [opts.reason='']                snapshot reason
  * @param {boolean} [opts.includeAuth=false]        opt in to capturing the auth-cache file
+ * @param {import('./snapshot-walk.mjs').SnapshotScope} [opts.scope]  per-target snapshot
+ *           scope forwarded to the auto-snapshot's createSnapshot (Codex). Absent → Claude scope.
  * @param {number}  [opts.pid]                      lock pid (defaults to process.pid); SAME pid used to release
  * @param {boolean} [opts.enableWrites=false]       continue past 'snapshotted' and
  *                                                  perform the governed write(s)
@@ -396,7 +398,7 @@ function persistAt(a, journal) {
 export async function applyPlan(opts) {
   const bag = new DiagnosticBag();
   const o = opts && typeof opts === 'object' ? opts : {};
-  const { plan, targetClaudeDir, mgrStateDir, assertWritable, reason = '', includeAuth = false } = o;
+  const { plan, targetClaudeDir, mgrStateDir, assertWritable, reason = '', includeAuth = false, scope } = o;
   const enableWrites = o.enableWrites === true;
   const paranoid = o.paranoid === true;
   const now = typeof o.now === 'function' ? o.now : () => new Date();
@@ -434,7 +436,7 @@ export async function applyPlan(opts) {
     try {
       const snap = await createSnapshotFn({
         targetClaudeDir, mgrStateDir, reason, includeAuth, assertWritable, now, dryRun: false,
-        skipSecretFilter: true,
+        skipSecretFilter: true, scope,
       });
       for (const d of snap.diagnostics ?? []) bag.add(d);
       if (!snap.ok) {
