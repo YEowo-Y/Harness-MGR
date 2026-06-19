@@ -288,3 +288,29 @@ test('config-edit does NOT widen apply: config.toml stays NON-apply-writable on 
     denies(gate, join(dir, 'config.toml'), 'apply', 'write-not-allowed');
   });
 });
+
+// ─── config-edit on the REAL codex descriptor (descriptor unit) ──────────────────
+
+test('codex descriptor: config-edit is enabled for config.toml only; apply stays empty', () => {
+  assert.equal(codexDescriptor.writeSurface.features.configEdit, true);
+  assert.deepEqual([...codexDescriptor.writeSurface.configEditFiles], ['config.toml']);
+  assert.deepEqual([...codexDescriptor.writeSurface.applyWritableFiles], []);
+});
+
+test('codex gate ALLOWS config-edit of config.toml; DENIES other governed files + secrets', () => {
+  withCodexGate(({ dir, gate }) => {
+    assert.ok(gate(join(dir, 'config.toml'), 'config-edit'));
+    denies(gate, join(dir, 'AGENTS.md'), 'config-edit', 'write-config-edit-only');   // not in configEditFiles
+    denies(gate, join(dir, 'hooks.json'), 'config-edit', 'write-config-edit-only');
+    denies(gate, join(dir, 'auth.json'), 'config-edit', 'write-forbidden');           // secret → forbidden-first
+    denies(gate, join(dir, '.credentials.json'), 'config-edit', 'write-forbidden');
+  });
+});
+
+test('reversibility invariant: every configEditFiles entry is snapshot-captured AND rollback-restorable', () => {
+  const { writeSurface, snapshotScope } = codexDescriptor;
+  for (const f of writeSurface.configEditFiles) {
+    assert.ok(snapshotScope.topFiles.includes(f), `${f} must be a snapshot topFile (pre-edit capture)`);
+    assert.ok(writeSurface.rollbackPaths.includes(f), `${f} must be a rollbackPath (restorable)`);
+  }
+});
