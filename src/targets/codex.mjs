@@ -130,8 +130,11 @@ export const codexDescriptor = Object.freeze({
   //     privacy (sessions/archived_sessions/history.jsonl), and rebuildable plugin
   //     caches/catalog — ALWAYS denied (write-forbidden), defense in depth even
   //     against a rollback that tried to restore them.
-  //   - applyWritableFiles: EMPTY. config.toml stays read-only this wave — no
-  //     in-place TOML mutation (no comment/format-preserving serializer exists).
+  //   - applyWritableFiles: EMPTY. config.toml is NOT whole-file overwritable via apply;
+  //     in-place mutation goes through the dedicated 'config-edit' context (configEditFiles).
+  //   - configEditFiles: config.toml — the ONLY file writable in 'config-edit' (a surgical
+  //     single-token enabled-flip via src/lib/toml-edit.mjs, comment/format/secret-preserving).
+  //     features.configEdit:true enables it; the splice is the sole config.toml write path.
   //   - rollbackPaths: the governed config FILES (config.toml/AGENTS.md/hooks.json)
   //     + component dirs (skills/prompts/agents) — restorable WHOLE-file by rollback
   //     from a verified snapshot (NOT editable; same stance Claude takes for CLAUDE.md).
@@ -159,7 +162,12 @@ export const codexDescriptor = Object.freeze({
       Object.freeze({ dir: 'agents', leafRe: /^[A-Za-z0-9._-]+\.toml$/i }),
     ]),
     skillsDir: 'skills',
-    features: Object.freeze({ probe: false, propose: false, accept: false }),
+    // config.toml is writable ONLY via the dedicated 'config-edit' context (a surgical
+    // single-token enabled-flip through src/lib/toml-edit.mjs) — NOT apply (still empty
+    // above), so the generic overwrite path can never touch it. The splice is the SOLE
+    // config.toml write path; least authority = one file, one context.
+    configEditFiles: Object.freeze(['config.toml']),
+    features: Object.freeze({ probe: false, propose: false, accept: false, configEdit: true }),
   }),
   // The Codex snapshot-capture scope (P6 write wave, unit 2). Consumed by the snapshot
   // walker via the CLI; the walker LOGIC is shared with Claude, only this DATA differs.
