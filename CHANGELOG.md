@@ -1,7 +1,8 @@
 # Changelog
 
 All notable changes to **claude-mgr** — a read-mostly governance CLI for a Claude Code
-(`~/.claude`) harness. The format follows [Keep a Changelog](https://keepachangelog.com/).
+(`~/.claude`) harness, and (Phase 6) the OpenAI Codex (`~/.codex`) harness via `--target codex`.
+The format follows [Keep a Changelog](https://keepachangelog.com/).
 This tool is pre-1.0 and ships in phases; releases are tracked by the project's stability
 **tags** (`phase-1-stable`, `phase-2-stable`, …) rather than SemVer numbers.
 
@@ -26,6 +27,32 @@ Every command that mutates governed config is **dry-run by default**. To actuall
 > required** — `--apply` alone now writes. The env var is now an explicit **opt-out lock**: set
 > `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (e.g. in CI); setting it to `1`
 > still works (back-compat). See the off-ramp note below for the evidence and migration.
+
+### Added — Phase 6 (Codex governance line — `--target codex`)
+
+claude-mgr now governs a second harness — OpenAI **Codex** (`~/.codex`) — through a `--target codex`
+adapter (auto-detected from a `config.toml` signature). It is **one tool, one test suite, one safety
+net** over both harnesses, not a fork: every Codex feature rides the same gate / snapshot / dry-run
+machinery as Claude, and Claude behavior stays **byte-identical** (the Codex support is descriptor-driven
+data tables over shared logic, drift-guarded so the default target is provably unchanged).
+
+- **Read surface (`--target codex`)** — `inventory` (skills + `prompts/` commands + `agents/*.toml` +
+  plugin-cache + the `~/.agents/skills` user scope + marketplaces), `conflicts` (honest co-existence —
+  Codex docs say same-name skills don't shadow), `orphans`, `hooks` (the `hooks.json` walker), `doctor`
+  (Codex checks: `config-toml-valid`, `trust-overbroad`, state-tmp-bloat, plus plugin/MCP visibility), and
+  `config show-effective` (a redacted per-key summary of `config.toml`, parsed by a hand-written
+  zero-dependency TOML reader). All read-only and secret-safe.
+- **`remove <kind>:<name> --target codex`** — delete one Codex component: a `prompts/*.md` command, an
+  `agents/*.toml` agent, or a `skills/<dir>` skill. Dry-run by default; `--apply` auto-snapshots first so
+  `rollback` can undo it.
+- **`snapshot --target codex`** — capture the Codex governed surface (`config.toml`, `AGENTS.md`,
+  `hooks.json` + `skills/`/`prompts/`/`agents/`). Secrets and privacy (`auth.json`, `.credentials.json`,
+  `sessions/`, `sqlite/`, …) are **never captured** — the walk is allowlist-driven, so it cannot reach them.
+- **`rollback <id> --target codex`** — restore a Codex snapshot, refusing on drift without `--force`.
+- **The write gate** permits only the Codex rollback/remove surface and **forbids writing any secret in
+  every context** — even a `rollback` cannot write `auth.json` back. `config.toml` stays **read-only**: it
+  is restorable whole by `rollback`, but never edited in place. (Disabling a Codex MCP server / plugin — they
+  live inside `config.toml` — is intentionally out of scope; it would need a format-preserving TOML writer.)
 
 ### Added — Phase 5 (health / advice / hooks explanations / skill self-iteration / conflict dispositions / MCP server)
 
