@@ -235,3 +235,56 @@ test('makeAssertWritable fail-closed on a missing configDir/mgrStateDir', () => 
   assert.throws(() => makeAssertWritable({ configDir: '/x' }),
     (e) => e instanceof WriteForbiddenError && e.code === 'write-gate-misconfigured');
 });
+
+// ─── config-edit context (P6 config.toml in-place mutation · gate unit) ──────────
+
+/** A synthetic surface that ENABLES config-edit. The codex descriptor gains this in
+ *  the descriptor unit; this proves the gate BRANCH independently of that wiring. */
+const CONFIG_EDIT_SURFACE = Object.freeze({
+  ...CLAUDE_WRITE_SURFACE,
+  configEditFiles: Object.freeze(['config.toml']),
+  features: Object.freeze({ ...CLAUDE_WRITE_SURFACE.features, configEdit: true }),
+});
+
+/** Build a gate over a fresh temp dir with a given surface. */
+function withGate(surface, fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'cmgr-ce-'));
+  const gate = makeAssertWritable({ configDir: dir, mgrStateDir: join(dir, MGR_STATE_DIRNAME), surface });
+  try { fn({ dir, gate }); } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+test('drift guard: CLAUDE_WRITE_SURFACE disables config-edit (configEdit:false, empty configEditFiles)', () => {
+  assert.equal(CLAUDE_WRITE_SURFACE.features.configEdit, false);
+  assert.deepEqual([...CLAUDE_WRITE_SURFACE.configEditFiles], []);
+});
+
+test('Claude surface DENIES the config-edit context (feature off → falls through to deny)', () => {
+  withGate(CLAUDE_WRITE_SURFACE, ({ dir, gate }) => {
+    // The feature-gated branch is skipped entirely for Claude; config.toml is not a Claude
+    // writable surface at all → write-not-allowed (NOT write-config-edit-only).
+    denies(gate, join(dir, 'config.toml'), 'config-edit', 'write-not-allowed');
+  });
+});
+
+test('config-edit ALLOWS exactly configEditFiles directly under the config dir', () => {
+  withGate(CONFIG_EDIT_SURFACE, ({ dir, gate }) => {
+    assert.ok(gate(join(dir, 'config.toml'), 'config-edit'));
+  });
+});
+
+test('config-edit DENIES wrong basename / nested / outside; a forbidden subpath wins first', () => {
+  withGate(CONFIG_EDIT_SURFACE, ({ dir, gate }) => {
+    denies(gate, join(dir, 'settings.json'), 'config-edit', 'write-config-edit-only');      // wrong basename
+    denies(gate, join(dir, 'sub', 'config.toml'), 'config-edit', 'write-config-edit-only'); // nested, not a direct child
+    denies(gate, join(dir, '..', 'config.toml'), 'config-edit', 'write-outside-target');    // escapes the config dir
+    denies(gate, join(dir, 'projects', 'config.toml'), 'config-edit', 'write-forbidden');   // forbidden-first ordering
+  });
+});
+
+test('config-edit does NOT widen apply: config.toml stays NON-apply-writable on a config-edit surface', () => {
+  withGate(CONFIG_EDIT_SURFACE, ({ dir, gate }) => {
+    // config.toml is NOT in applyWritableFiles → a plain apply/overwrite is refused; only the
+    // dedicated config-edit context may write it (least authority — the splice is the sole path).
+    denies(gate, join(dir, 'config.toml'), 'apply', 'write-not-allowed');
+  });
+});
