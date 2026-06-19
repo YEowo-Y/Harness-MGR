@@ -17,7 +17,7 @@
 import { readAuditLog } from '../ops/audit.mjs';
 import { analyzeDrift } from '../analysis/drift.mjs';
 import { createSnapshot } from '../ops/snapshot.mjs';
-import { resolveWriteIntent } from './write-gate.mjs';
+import { resolveWriteIntent, resolveAssertWritable } from './write-gate.mjs';
 
 /** @typedef {import('./commands.mjs').CommandHandler} CommandHandler */
 
@@ -145,7 +145,10 @@ export async function snapshotCommand(ctx, deps = {}) {
   const apply = !!(ctx.args && ctx.args.apply);
   const reason = ctx.args && typeof ctx.args.reason === 'string' ? ctx.args.reason : '';
   const includeAuth = !!(ctx.args && ctx.args['include-auth']);
-  const base = { targetClaudeDir: ctx.configDir, mgrStateDir: ctx.mgrStateDir, reason, includeAuth };
+  // `scope` (the per-target capture table) flows to createSnapshot → walkSnapshotScope.
+  // Absent for Claude (default scope); present for Codex (descriptor.snapshotScope).
+  const scope = ctx.descriptor && typeof ctx.descriptor === 'object' ? ctx.descriptor.snapshotScope : undefined;
+  const base = { targetClaudeDir: ctx.configDir, mgrStateDir: ctx.mgrStateDir, reason, includeAuth, scope };
 
   if (!apply) {
     const r = await createFn({ ...base, dryRun: true });
@@ -174,7 +177,11 @@ export async function snapshotCommand(ctx, deps = {}) {
       diagnostics: [{ severity: 'warn', code: 'snapshot-write-unavailable', message: `~/.claude/hooks/lib unloadable; snapshot --apply needs the write gate: ${message}`, phase: 'cli' }],
     };
   }
-  const r = await createFn({ ...base, assertWritable: paths.assertWritable, dryRun: false });
+  // Pick the target-bound gate: Codex needs a gate bound to ~/.codex (the bare
+  // paths.assertWritable is bound to ~/.claude and would reject the ~/.codex/.mgr-state
+  // write); Claude keeps paths.assertWritable (byte-identical). The snapshot writes only
+  // .mgr-state, so the gate's stateDir check is what authorizes it.
+  const r = await createFn({ ...base, assertWritable: resolveAssertWritable(paths, ctx), dryRun: false });
   return { result: summarizeSnapshot(r, true), diagnostics: r.diagnostics.slice() };
 }
 
