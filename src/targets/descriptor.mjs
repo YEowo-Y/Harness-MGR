@@ -117,6 +117,12 @@ import { codexDescriptor } from './codex.mjs';
  *   IGNORED (Claude — that flag is unreliable, false even for active plugins);
  *   'record-flag' = each plugin record's own `enabled` flag is authoritative and there
  *   is no settings enabledPlugins map (Codex — config.toml `[plugins."k"] enabled`).
+ * @property {import('../write-gate.mjs').WriteSurface} [writeSurface]  the governed WRITE
+ *   surface for this target (P6 write wave). ABSENT on Claude → the gate uses the
+ *   built-in default (paths.mjs CLAUDE_WRITE_SURFACE / bare `assertWritable`); PRESENT
+ *   on Codex → a CLI write command builds its gate via
+ *   `makeAssertWritable({configDir, mgrStateDir, surface: descriptor.writeSurface})`.
+ *   The gate's security logic is shared; only this data table varies per target.
  */
 
 /** The frozen registry of known targets, keyed by descriptor id. */
