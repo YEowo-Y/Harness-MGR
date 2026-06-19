@@ -123,6 +123,11 @@ import { codexDescriptor } from './codex.mjs';
  *   on Codex → a CLI write command builds its gate via
  *   `makeAssertWritable({configDir, mgrStateDir, surface: descriptor.writeSurface})`.
  *   The gate's security logic is shared; only this data table varies per target.
+ * @property {import('../ops/snapshot-walk.mjs').SnapshotScope} [snapshotScope]  the
+ *   snapshot-CAPTURE scope for this target (P6 write wave). ABSENT on Claude → the walker
+ *   uses CLAUDE_SNAPSHOT_SCOPE; PRESENT on Codex → the CLI forwards it to createSnapshot →
+ *   walkSnapshotScope. walkDirs ∪ topFiles MUST equal writeSurface.rollbackPaths (rollback
+ *   can only restore what snapshot captured).
  */
 
 /** The frozen registry of known targets, keyed by descriptor id. */
