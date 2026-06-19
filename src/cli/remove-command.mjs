@@ -29,7 +29,7 @@
  */
 
 import { removeComponent } from '../ops/remove.mjs';
-import { resolveWriteIntent } from './write-gate.mjs';
+import { resolveWriteIntent, resolveAssertWritable } from './write-gate.mjs';
 import { cascadeCommand } from './cascade-command.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
@@ -121,7 +121,7 @@ export async function removeCommand(ctx, deps = {}) {
       result: { status: 'no-spec' },
       diagnostics: [{
         severity: 'error', code: 'remove-no-spec', phase: 'cli',
-        message: 'remove requires a target: remove <kind>:<name> (kind = agent|command)',
+        message: 'remove requires a target: remove <kind>:<name> (kind = agent|command|skill)',
       }],
       code: 3,
     };
@@ -149,7 +149,8 @@ export async function removeCommand(ctx, deps = {}) {
   if (intent.enableWrites) {
     try {
       const paths = await (deps.loadPaths ?? (() => import('../paths.mjs')))();
-      assertWritable = paths.assertWritable;
+      // Codex ctx → a gate bound to ~/.codex + the codex remove surface; Claude → bare.
+      assertWritable = resolveAssertWritable(paths, ctx);
     } catch (err) {
       return {
         result: { status: 'write-unavailable' },
@@ -168,6 +169,7 @@ export async function removeCommand(ctx, deps = {}) {
   // or injected seam — a throw/reject degrades to a clean error result.
   let r;
   try {
+    const descriptor = ctx && ctx.descriptor && typeof ctx.descriptor === 'object' ? ctx.descriptor : null;
     r = await removeFn({
       spec,
       targetClaudeDir: ctx.configDir,
@@ -176,6 +178,10 @@ export async function removeCommand(ctx, deps = {}) {
       enableWrites: intent.enableWrites,
       reason,
       pid: process.pid,
+      // Codex: the remove kind table (agent→agents/.toml/command→prompts/.md/skill→skills/)
+      // + the snapshot scope for the reversibility auto-snapshot. Absent → Claude defaults.
+      componentKinds: descriptor ? descriptor.componentKinds : undefined,
+      scope: descriptor ? descriptor.snapshotScope : undefined,
     });
   } catch (err) {
     return {
