@@ -99,6 +99,37 @@ export const EXCLUDE_PREFIXES = Object.freeze([
   'plugins/cache/', 'plugins/marketplaces/',
 ]);
 
+/**
+ * A per-target snapshot-capture scope DATA table. The walker LOGIC (allowlist-driven
+ * walk, never-follow-symlinks, depth-guard, the belt-and-suspenders EXCLUDE filter) is
+ * SHARED and never duplicated; only this data varies per target. An absent scope means
+ * "use the built-in Claude default" (CLAUDE_SNAPSHOT_SCOPE). The ops layer never imports
+ * targets/ — the codex scope is DATA passed in by the CLI (same pattern as the gate's
+ * WriteSurface). See docs/phase-6-codex-snapshot-design.md.
+ *
+ * @typedef {Object} SnapshotScope
+ * @property {ReadonlyArray<string>} walkDirs        top-level dirs walked RECURSIVELY
+ * @property {ReadonlyArray<string>} topFiles        present-only top-level files
+ * @property {ReadonlyArray<string>} pluginFiles     present-only nested files (Claude plugins JSON; Codex none)
+ * @property {ReadonlyArray<string>} excludeTop      top-segment exclusions (belt; .mgr-state appended per-call)
+ * @property {ReadonlyArray<string>} excludePrefixes path-prefix exclusions (belt)
+ */
+
+/**
+ * The built-in Claude snapshot scope — the DEFAULT when no per-target scope is
+ * injected. Its data equals the historical exported consts (reused by reference), so
+ * routing walkSnapshotScope through the scope table is behavior-preserving (pinned by
+ * the existing snapshot-walk / snapshot-scope tests).
+ * @type {SnapshotScope}
+ */
+export const CLAUDE_SNAPSHOT_SCOPE = Object.freeze({
+  walkDirs: WALK_DIRS,
+  topFiles: TOP_FILES,
+  pluginFiles: PLUGIN_FILES,
+  excludeTop: EXCLUDE_TOP,
+  excludePrefixes: EXCLUDE_PREFIXES,
+});
+
 /** Maximum recursion depth for directory walks (matches probe-state.mjs). */
 const WALK_MAX_DEPTH = 64;
 
@@ -129,13 +160,13 @@ function toPosixRel(configDir, absPath) {
  * plugins/marketplaces/). The belt-and-suspenders filter applied to every emitted
  * candidate.
  * @param {string} rel
- * @param {Set<string>} excludeSet  top-segment exclusions
+ * @param {{set: Set<string>, prefixes: ReadonlyArray<string>}} excl  top-segment + path-prefix exclusions
  * @returns {boolean}
  */
-function isExcluded(rel, excludeSet) {
+function isExcluded(rel, excl) {
   const first = rel.split('/', 1)[0];
-  if (excludeSet.has(first)) return true;
-  for (const prefix of EXCLUDE_PREFIXES) {
+  if (excl.set.has(first)) return true;
+  for (const prefix of excl.prefixes) {
     if (rel.startsWith(prefix)) return true;
   }
   return false;
@@ -155,10 +186,10 @@ function isExcluded(rel, excludeSet) {
  * @param {string} dir          absolute path to walk
  * @param {string} configDir    root used for relative-path computation
  * @param {string[]} out        accumulator (mutated in place)
- * @param {Set<string>} excludeSet
+ * @param {{set: Set<string>, prefixes: ReadonlyArray<string>}} excl
  * @param {number} [depth]
  */
-function collectDirFiles(dir, configDir, out, excludeSet, depth = 0) {
+function collectDirFiles(dir, configDir, out, excl, depth = 0) {
   if (depth >= WALK_MAX_DEPTH) return;
   let entries;
   try {
@@ -170,7 +201,7 @@ function collectDirFiles(dir, configDir, out, excludeSet, depth = 0) {
     if (ent.isSymbolicLink()) continue; // never follow symlinks
     const abs = join(dir, ent.name);
     if (ent.isDirectory()) {
-      collectDirFiles(abs, configDir, out, excludeSet, depth + 1);
+      collectDirFiles(abs, configDir, out, excl, depth + 1);
     } else if (ent.isFile()) {
       // Skip atomic-write recovery sidecars (<target>.mgr-new / .mgr-old): a
       // catastrophic apply/rollback double-failure can strand these in the
@@ -178,7 +209,7 @@ function collectDirFiles(dir, configDir, out, excludeSet, depth = 0) {
       // config — and must never enter a snapshot archive.
       if (isLeftoverSidecar(ent.name)) continue;
       const rel = toPosixRel(configDir, abs);
-      if (isExcluded(rel, excludeSet)) continue; // second belt: never emit excluded
+      if (isExcluded(rel, excl)) continue; // second belt: never emit excluded
       out.push(rel);
     }
   }
@@ -193,10 +224,10 @@ function collectDirFiles(dir, configDir, out, excludeSet, depth = 0) {
  * @param {string} configDir
  * @param {string} rel          POSIX-relative candidate
  * @param {string[]} out
- * @param {Set<string>} excludeSet
+ * @param {{set: Set<string>, prefixes: ReadonlyArray<string>}} excl
  */
-function addFileIfPresent(configDir, rel, out, excludeSet) {
-  if (isExcluded(rel, excludeSet)) return; // belt-and-suspenders
+function addFileIfPresent(configDir, rel, out, excl) {
+  if (isExcluded(rel, excl)) return; // belt-and-suspenders
   const abs = join(configDir, ...rel.split('/'));
   try {
     const st = lstatSync(abs);
@@ -213,11 +244,14 @@ function addFileIfPresent(configDir, rel, out, excludeSet) {
  * @param {object} opts
  * @param {string} opts.targetClaudeDir              absolute path to the governed dir
  * @param {string} [opts.mgrStateDirname='.mgr-state'] self-exclusion dir name
+ * @param {SnapshotScope} [opts.scope]               per-target capture scope (default:
+ *   CLAUDE_SNAPSHOT_SCOPE). Codex passes its descriptor.snapshotScope via the CLI.
  * @returns {SnapshotWalkResult}
  */
 export function walkSnapshotScope(opts) {
   const bag = new DiagnosticBag();
   const { targetClaudeDir, mgrStateDirname = DEFAULT_MGR_STATE_DIRNAME } = opts ?? {};
+  const scope = (opts && opts.scope && typeof opts.scope === 'object') ? opts.scope : CLAUDE_SNAPSHOT_SCOPE;
 
   if (typeof targetClaudeDir !== 'string' || targetClaudeDir.length === 0) {
     bag.add({
@@ -227,10 +261,11 @@ export function walkSnapshotScope(opts) {
     return { files: [], diagnostics: bag.all() };
   }
 
-  // Exclusion set = the static top-dir list + the (parameterized) self-exclusion.
+  // Exclusion config = the scope's top-dir list + the (parameterized) self-exclusion,
+  // bundled with the scope's path-prefix exclusions (they travel together as `excl`).
   const stateDir = typeof mgrStateDirname === 'string' && mgrStateDirname.length > 0
     ? mgrStateDirname : DEFAULT_MGR_STATE_DIRNAME;
-  const excludeSet = new Set([...EXCLUDE_TOP, stateDir]);
+  const excl = { set: new Set([...scope.excludeTop, stateDir]), prefixes: scope.excludePrefixes };
 
   /** @type {string[]} */
   const out = [];
@@ -242,19 +277,19 @@ export function walkSnapshotScope(opts) {
   //    tree (secret leak) or pointing back at .mgr-state (recursive snapshot bloat).
   //    lstatSync reports the symlink itself (isSymbolicLink()===true) without
   //    following it; a real dir is false, so normal roots are never over-rejected.
-  for (const name of WALK_DIRS) {
+  for (const name of scope.walkDirs) {
     const abs = join(targetClaudeDir, name);
     try {
       if (lstatSync(abs).isSymbolicLink()) continue; // never follow a symlinked root
     } catch {
       continue; // absent / unreadable root — benign, simply nothing to capture
     }
-    collectDirFiles(abs, targetClaudeDir, out, excludeSet, 0);
+    collectDirFiles(abs, targetClaudeDir, out, excl, 0);
   }
   // 2. Top-level named files (present-only).
-  for (const rel of TOP_FILES) addFileIfPresent(targetClaudeDir, rel, out, excludeSet);
-  // 3. The two named plugins JSON files (present-only); plugins/ is otherwise excluded.
-  for (const rel of PLUGIN_FILES) addFileIfPresent(targetClaudeDir, rel, out, excludeSet);
+  for (const rel of scope.topFiles) addFileIfPresent(targetClaudeDir, rel, out, excl);
+  // 3. Nested named files (present-only; Claude plugins JSON). Codex's list is empty.
+  for (const rel of scope.pluginFiles) addFileIfPresent(targetClaudeDir, rel, out, excl);
 
   // Sort ascending → byte-stable golden output. De-dup defensively (a name can't
   // be added twice by construction, but keep the contract explicit).
