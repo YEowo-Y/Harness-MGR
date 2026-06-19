@@ -123,4 +123,42 @@ export const codexDescriptor = Object.freeze({
   // Enable signal = each plugin record's own `enabled` flag (config.toml
   // `[plugins."k"] enabled`); there is no settings enabledPlugins map for Codex.
   pluginEnableModel: 'record-flag',
+  // The Codex governed WRITE surface (P6 write wave, unit 1 — file-level only).
+  // Consumed by paths.mjs::makeAssertWritable; the gate's security LOGIC is shared
+  // with Claude, only this DATA differs. Least authority:
+  //   - forbiddenSubpaths: secrets (auth.json/.credentials.json), conversation
+  //     privacy (sessions/archived_sessions/history.jsonl), and rebuildable plugin
+  //     caches/catalog — ALWAYS denied (write-forbidden), defense in depth even
+  //     against a rollback that tried to restore them.
+  //   - applyWritableFiles: EMPTY. config.toml stays read-only this wave — no
+  //     in-place TOML mutation (no comment/format-preserving serializer exists).
+  //   - rollbackPaths: the governed config FILES (config.toml/AGENTS.md/hooks.json)
+  //     + component dirs (skills/prompts/agents) — restorable WHOLE-file by rollback
+  //     from a verified snapshot (NOT editable; same stance Claude takes for CLAUDE.md).
+  //   - removeLeaves: codex commands are prompts/*.md and codex agents are
+  //     agents/*.toml (NOT Claude's agents/*.md + commands/*.md). NOTE 'agents' is
+  //     BOTH a removeLeaves dir AND a rollbackPath: a 'remove' of agents/x.toml hits
+  //     the remove branch first (returns), while an 'apply' of it falls through to
+  //     rollback → write-rollback-only — the dual listing is intentional + tested.
+  //   - features: probe/propose/accept are Claude-only (loader-probe + skill
+  //     self-iteration), disabled here → those contexts fall through to a deny. No
+  //     probeDir is declared: it would be inert while probe is off, and OMITTING it
+  //     means enabling codex probe later FAILS LOUDLY (no dir to write) instead of
+  //     silently authorizing a write into the REAL agents/*.toml component dir.
+  // See docs/phase-6-codex-write-gate-design.md.
+  writeSurface: Object.freeze({
+    forbiddenSubpaths: Object.freeze([
+      'auth.json', '.credentials.json',
+      'plugins/cache', 'plugins/marketplaces',
+      'sessions', 'archived_sessions', 'history.jsonl',
+    ]),
+    applyWritableFiles: Object.freeze([]),
+    rollbackPaths: Object.freeze(['config.toml', 'AGENTS.md', 'hooks.json', 'skills', 'prompts', 'agents']),
+    removeLeaves: Object.freeze([
+      Object.freeze({ dir: 'prompts', leafRe: /^[A-Za-z0-9._-]+\.md$/i }),
+      Object.freeze({ dir: 'agents', leafRe: /^[A-Za-z0-9._-]+\.toml$/i }),
+    ]),
+    skillsDir: 'skills',
+    features: Object.freeze({ probe: false, propose: false, accept: false }),
+  }),
 });
