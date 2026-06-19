@@ -289,6 +289,8 @@ async function archiveWithBoundary(tarOpts, dir, bag) {
  *   undo point. Safe because the walker is allowlist-driven and only returns governed
  *   surface files — no stray id_rsa/.env/etc. are walked in the first place.
  * @param {(path:string, ctx:string)=>string} [opts.assertWritable]  governed-write gate (REQUIRED unless dryRun)
+ * @param {import('./snapshot-walk.mjs').SnapshotScope} [opts.scope]  per-target capture
+ *   scope forwarded to walkSnapshotScope (default: Claude). Codex passes descriptor.snapshotScope.
  * @param {() => Date} [opts.now]               clock injection (defaults to Date)
  * @param {object} [opts.seams]                 { resolveFn, spawnFn, readFileFn, mkdirFn, unlinkFn, rmdirFn }
  * @returns {Promise<SnapshotResult>}
@@ -297,7 +299,7 @@ export async function createSnapshot(opts) {
   const bag = new DiagnosticBag();
   const o = opts && typeof opts === 'object' ? opts : {};
   const { targetClaudeDir, mgrStateDir, reason = '', includeAuth = false, dryRun = false,
-    skipSecretFilter = false, assertWritable } = o;
+    skipSecretFilter = false, assertWritable, scope } = o;
   const now = typeof o.now === 'function' ? o.now : () => new Date();
   const seams = o.seams && typeof o.seams === 'object' ? o.seams : {};
   const resolveFn = seams.resolveFn ?? resolveTar;
@@ -340,8 +342,10 @@ export async function createSnapshot(opts) {
   const dir = snapshotDir(mgrStateDir, id);
   const archivePath = join(dir, ARCHIVE_NAME);
 
-  // 4. Walk the allowlist scope (self-exclude .mgr-state by its dir name).
-  const walk = walkSnapshotScope({ targetClaudeDir, mgrStateDirname: basename(mgrStateDir) });
+  // 4. Walk the allowlist scope (self-exclude .mgr-state by its dir name). `scope`
+  //    is the per-target capture table (default: Claude); the codex CLI passes
+  //    descriptor.snapshotScope so the walk captures codex's governed surface.
+  const walk = walkSnapshotScope({ targetClaudeDir, mgrStateDirname: basename(mgrStateDir), scope });
   for (const d of walk.diagnostics) bag.add(d);
 
   // 5. Drop secrets (name OR content) — runs BEFORE tar so no credential is archived.
