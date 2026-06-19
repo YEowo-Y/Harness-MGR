@@ -79,12 +79,17 @@ export const APPLY_WRITABLE_FILES = Object.freeze(['settings.json', 'settings.lo
  * @property {string} [probeDir]  'probe' context dir — read ONLY when features.probe is true.
  *   OMIT it when probe is disabled so enabling probe later fails loud (no dir) rather than
  *   silently defaulting to a dir that may be a real component dir (e.g. Codex agents/).
- * @property {{probe:boolean, propose:boolean, accept:boolean}} features  Claude-only feature
- *   contexts; a false flag makes that context fall through to a deny (Codex = all false).
+ * @property {ReadonlyArray<string>} configEditFiles  EXACT basenames directly under the config
+ *   dir writable in the 'config-edit' context (in-place single-token splice). ALWAYS present;
+ *   empty for Claude (config.toml is Codex-only). NOT the same as applyWritableFiles — a
+ *   config-edit file is NEVER whole-file overwritable via 'apply'.
+ * @property {{probe:boolean, propose:boolean, accept:boolean, configEdit:boolean}} features
+ *   per-target feature contexts; a false flag makes that context fall through to a deny
+ *   (Claude: configEdit false; Codex: probe/propose/accept false).
  */
 
 /**
- * @typedef {'apply'|'rollback'|'probe'|'remove'|'remove-skill'|'propose'|'accept'} WriteContext
+ * @typedef {'apply'|'rollback'|'probe'|'remove'|'remove-skill'|'propose'|'accept'|'config-edit'} WriteContext
  *   - 'apply'        — normal apply operation (default)
  *   - 'rollback'     — snapshot restore: may write to governed content surfaces
  *   - 'probe'        — transient loader-probe artifact: ONLY <probeDir>/__mgr-probe-<uuid>.md
@@ -92,6 +97,9 @@ export const APPLY_WRITABLE_FILES = Object.freeze(['settings.json', 'settings.lo
  *   - 'remove-skill' — single skill-DIRECTORY delete: ONLY a direct-child dir in skillsDir
  *   - 'propose'      — ONLY <skillsDir>/<skill>/SKILL.proposed-<ts>.md (skill self-iteration, P5.U8)
  *   - 'accept'       — ONLY <skillsDir>/<skill>/SKILL.md OR a SKILL.proposed-<ts>.md leaf (P5.U9)
+ *   - 'config-edit'  — in-place config-file mutation: ONLY an EXACT configEditFiles basename
+ *                      directly under the config dir (Codex config.toml; surgical single-token
+ *                      splice via src/lib/toml-edit.mjs). Off for Claude (features.configEdit).
  */
 
 /**
@@ -111,7 +119,11 @@ export const CLAUDE_WRITE_SURFACE = Object.freeze({
   ]),
   skillsDir: 'skills',
   probeDir: 'agents',
-  features: Object.freeze({ probe: true, propose: true, accept: true }),
+  // Claude has no in-place config-edit surface (settings.json is whole-file apply-writable);
+  // present-but-empty + features.configEdit:false makes the 'config-edit' context structurally
+  // unreachable for Claude (a false flag → fall-through to the historical deny).
+  configEditFiles: Object.freeze([]),
+  features: Object.freeze({ probe: true, propose: true, accept: true, configEdit: false }),
 });
 
 /**
@@ -325,7 +337,7 @@ function assertWritableCore(target, context, configDir, stateDir, surface) {
   if (typeof target !== 'string' || target.length === 0) {
     throw new WriteForbiddenError('write target must be a non-empty string', 'write-target-invalid');
   }
-  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill' || context === 'propose' || context === 'accept') ? context : 'apply';
+  const ctx = (context === 'rollback' || context === 'probe' || context === 'remove' || context === 'remove-skill' || context === 'propose' || context === 'accept' || context === 'config-edit') ? context : 'apply';
 
   // mgr's own state dir is always writable (NOT part of the governed config
   // surface; excluded from snapshot scope).
@@ -396,6 +408,22 @@ function assertWritableCore(target, context, configDir, stateDir, surface) {
   // the feature (Codex → falls through to a deny).
   if (ctx === 'propose' && surface.features.propose) return assertProposeContext(target, configDir, surface);
   if (ctx === 'accept' && surface.features.accept) return assertAcceptContext(target, configDir, surface);
+
+  // 'config-edit' (per-target feature): permit ONLY an EXACT-basename match of the surface's
+  // configEditFiles placed DIRECTLY under the config dir (Codex config.toml). This is the SOLE
+  // write path to config.toml — config.toml is deliberately NOT in applyWritableFiles, so the
+  // generic apply/overwrite path can never touch it and the surgical single-token splice
+  // (src/lib/toml-edit.mjs) is the only producer of the bytes. Reached only AFTER the forbidden
+  // denials (so a forbidden subpath always wins) and BEFORE the apply-writable check; skipped
+  // (falls through to a deny) when the surface disables the feature (Claude → configEdit:false).
+  if (ctx === 'config-edit' && surface.features.configEdit) {
+    const ct = canonical(target);
+    if (dirname(ct) === canonical(configDir) && surface.configEditFiles.includes(basename(ct))) return ct;
+    throw new WriteForbiddenError(
+      `config-edit context permits only ${surface.configEditFiles.join(', ') || '(none)'} directly under the config dir: ${target}`,
+      'write-config-edit-only',
+    );
+  }
 
   // Always-writable governed settings files (Claude settings.json / settings.local.json
   // / .mcp.json, DIRECTLY under the config dir, in BOTH 'apply' and 'rollback'). Codex's
