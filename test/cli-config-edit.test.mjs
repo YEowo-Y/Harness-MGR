@@ -82,6 +82,51 @@ test('disable --type mcp forwards kind:mcp + the server name (the engine owns th
   assert.equal(c.desired, false);
 });
 
+// ── skill: name (positional) vs --path selector duality ──────────────────────────────
+
+test('disable --type skill <name> → forwards selectorField:name + the positional value', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(codexCtx({ type: 'skill', positionals: ['ab-test-setup'] }), deps);
+  assert.equal(out.code, 0);
+  const c = deps.setEnabledFn.calls[0];
+  assert.equal(c.kind, 'skill');
+  assert.equal(c.name, 'ab-test-setup');
+  assert.equal(c.selectorField, 'name');
+});
+
+test('disable --type skill --path <path> → forwards selectorField:path + the path value', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(codexCtx({ type: 'skill', path: 'C:/Users/alice/.codex/skills/x/SKILL.md' }), deps);
+  assert.equal(out.code, 0);
+  const c = deps.setEnabledFn.calls[0];
+  assert.equal(c.name, 'C:/Users/alice/.codex/skills/x/SKILL.md');
+  assert.equal(c.selectorField, 'path');
+});
+
+test('--type skill with BOTH a name and --path → selector-conflict refusal (code 3, engine never called)', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(codexCtx({ type: 'skill', positionals: ['ab-test-setup'], path: 'C:/x/SKILL.md' }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-skill-selector-conflict'));
+  assert.equal(deps.setEnabledFn.calls.length, 0);
+});
+
+test('--type skill with NEITHER name nor --path → no-name refusal (code 3)', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(codexCtx({ type: 'skill', positionals: [] }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-no-name'));
+  assert.equal(deps.setEnabledFn.calls.length, 0);
+});
+
+test('--path on a NON-skill kind (plugin) → path-not-allowed refusal (code 3)', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(codexCtx({ type: 'plugin', positionals: ['a@b'], path: 'C:/x' }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-path-not-allowed'));
+  assert.equal(deps.setEnabledFn.calls.length, 0);
+});
+
 test('--apply resolves the codex-bound gate and forwards enableWrites:true + the snapshot scope', async () => {
   const GATE = (p) => p;
   const deps = makeDeps({ loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => GATE }) });
