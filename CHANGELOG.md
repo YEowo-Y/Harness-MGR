@@ -49,10 +49,19 @@ data tables over shared logic, drift-guarded so the default target is provably u
   `hooks.json` + `skills/`/`prompts/`/`agents/`). Secrets and privacy (`auth.json`, `.credentials.json`,
   `sessions/`, `sqlite/`, …) are **never captured** — the walk is allowlist-driven, so it cannot reach them.
 - **`rollback <id> --target codex`** — restore a Codex snapshot, refusing on drift without `--force`.
-- **The write gate** permits only the Codex rollback/remove surface and **forbids writing any secret in
-  every context** — even a `rollback` cannot write `auth.json` back. `config.toml` stays **read-only**: it
-  is restorable whole by `rollback`, but never edited in place. (Disabling a Codex MCP server / plugin — they
-  live inside `config.toml` — is intentionally out of scope; it would need a format-preserving TOML writer.)
+- **The write gate** permits only the Codex rollback/remove/config-edit surface and **forbids writing any
+  secret in every context** — even a `rollback` cannot write `auth.json` back.
+- **`disable` / `enable --type plugin <name@marketplace> --target codex`** — turn a Codex plugin off/on by
+  flipping its `enabled = <bool>` flag **in place** inside `config.toml`. A hand-rolled, comment- and
+  format-preserving TOML editor splices ONLY that one boolean token; every other byte — comments, key order,
+  and the `[mcp_servers.*.env]` / `bearer_token_env_var` **secret regions** — is preserved byte-for-byte
+  (proven on the real 49 KB config: a flip changes exactly one byte). It rides a new least-authority
+  `config-edit` gate context (the splice is the SOLE write path; `config.toml` is never whole-file
+  overwritable), is **dry-run by default** (the preview shows the exact `enabled = true → false` line), and
+  is **reversible** — `--apply` auto-snapshots `config.toml` whole first, so `rollback` restores it
+  byte-identical, and `disable`→`enable` is itself a byte-identical round-trip. Restart Codex to take effect.
+  Disabling an MCP server (no `enabled` key today → needs an insert) and a skill (the `name`/`path` selector
+  duality) are deferred to follow-up units.
 
 ### Added — Phase 5 (health / advice / hooks explanations / skill self-iteration / conflict dispositions / MCP server)
 
