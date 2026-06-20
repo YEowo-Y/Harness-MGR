@@ -70,9 +70,10 @@ data tables over shared logic, drift-guarded so the default target is provably u
   Codex docs assert the loader honors `enabled = false` but no live disabled instance confirms it on this machine, the
   command prints an honest **`config-edit-mcp-loader-unverified`** caveat: after `--apply`, restart Codex and confirm
   the server is gone — if it still loads, `rollback`. The TOML locator was also **hardened** to skip multi-line-string
-  (`"""`/`'''`) and inline-table (`{ }`) regions (fail-closed on unterminated spans), decoupling its safety from the
-  parser. Disabling a **skill** (the `name`/`path` selector duality — 51% of live entries are path-keyed) is the
-  remaining deferred unit.
+  (`"""`/`'''`), inline-table (`{ }`), and value-array (`[ … ]`) interiors (fail-closed on unterminated spans),
+  decoupling its safety from the parser and fixing an array-of-arrays edge case (a `[123]` row inside a multi-line array
+  was mis-read as a table header) at its root. Disabling a **skill** (the `name`/`path` selector duality — 51% of live
+  entries are path-keyed) is the remaining deferred unit.
 
 ### Added — Phase 5 (health / advice / hooks explanations / skill self-iteration / conflict dispositions / MCP server)
 
