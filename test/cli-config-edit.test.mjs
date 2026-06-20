@@ -72,6 +72,16 @@ test('enable sets desired:true', async () => {
   assert.equal(deps.setEnabledFn.calls[0].desired, true);
 });
 
+test('disable --type mcp forwards kind:mcp + the server name (the engine owns the insert policy)', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(codexCtx({ type: 'mcp', positionals: ['context7'] }), deps);
+  assert.equal(out.code, 0);
+  const c = deps.setEnabledFn.calls[0];
+  assert.equal(c.kind, 'mcp');
+  assert.equal(c.name, 'context7');
+  assert.equal(c.desired, false);
+});
+
 test('--apply resolves the codex-bound gate and forwards enableWrites:true + the snapshot scope', async () => {
   const GATE = (p) => p;
   const deps = makeDeps({ loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => GATE }) });
@@ -88,4 +98,36 @@ test('--apply with CLAUDE_MGR_ENABLE_WRITES=0 → refused (env lock), engine nev
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env'));
   assert.equal(deps.setEnabledFn.calls.length, 0);
+});
+
+// ── exit-code + error-handling contract (defensive branches) ──
+
+test('exit code maps lock-not-acquired → 6 and snapshot-failed → 4 and a bare failure → 1', async () => {
+  const cases = [
+    [{ ok: false, refused: false, apply: { lock: { acquired: false } }, diagnostics: [] }, 6],
+    [{ ok: false, refused: false, apply: { diagnostics: [{ code: 'apply-snapshot-failed' }] }, diagnostics: [] }, 4],
+    [{ ok: false, refused: false, apply: null, diagnostics: [] }, 1],
+  ];
+  for (const [result, code] of cases) {
+    const deps = makeDeps({ setEnabledFn: async () => result });
+    const out = await disableCommand(codexCtx({ type: 'plugin', positionals: ['x@y'] }), deps);
+    assert.equal(out.code, code);
+  }
+});
+
+test('--apply but the gate (loadPaths) is unloadable → write-unavailable, code 1, engine never called', async () => {
+  const calls = [];
+  const setEnabledFn = async (o) => { calls.push(o); return { ok: true, diagnostics: [] }; };
+  const deps = { env: {}, setEnabledFn, loadPaths: async () => { throw new Error('boom'); } };
+  const out = await disableCommand(codexCtx({ type: 'plugin', positionals: ['x@y'], apply: true }), deps);
+  assert.equal(out.code, 1);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-write-unavailable'));
+  assert.equal(calls.length, 0, 'the engine is not called when the gate cannot be resolved');
+});
+
+test('the engine throwing is caught → unexpected-error, code 1 (never propagates)', async () => {
+  const deps = { env: {}, setEnabledFn: async () => { throw new Error('kaboom'); } };
+  const out = await enableCommand(codexCtx({ type: 'mcp', positionals: ['context7'] }), deps);
+  assert.equal(out.code, 1);
+  assert.ok(out.diagnostics.some((d) => d.code === 'enable-unexpected-error'));
 });
