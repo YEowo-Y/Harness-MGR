@@ -44,6 +44,14 @@ const CONFIG = [
   '[plugins."other@openai-curated"]',
   'enabled = false',
   '',
+  '[[skills.config]]',
+  'name = "ab-test-setup"',
+  'enabled = false',
+  '',
+  '[[skills.config]]',
+  'path = "C:/Users/alice/.codex/skills/ab-test-setup/SKILL.md"',
+  'enabled = false',
+  '',
 ].join('\n');
 
 function put(base, rel, bytes) {
@@ -137,6 +145,45 @@ test('codex disable MCP: INSERTS enabled=false, secret intact, then rolls back B
     });
     assert.equal(rb.status, 'restored', `rollback failed: ${JSON.stringify(rb.diagnostics)}`);
     assert.ok(Buffer.compare(readFileSync(cfg), before) === 0, 'config.toml restored byte-identical (no enabled key)');
+  } finally {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+});
+
+test('codex enable skill by NAME then by PATH: flips the selected element, secret intact, rolls back BYTE-IDENTICAL', async (t) => {
+  const { tarPath } = resolveTar();
+  if (!tarPath) { t.skip('system tar not found — skipping codex skill round-trip'); return; }
+
+  const tmp = buildCodexTree();
+  const cfg = join(tmp, 'config.toml');
+  const before = readFileSync(cfg);
+  try {
+    // enable the NAME-keyed skill (false → true) — the path-keyed sibling for the same skill must stay disabled.
+    const r = await setComponentEnabled({ ...opts(tmp), kind: 'skill', name: 'ab-test-setup', desired: true, now: () => new Date(1700000003000) });
+    assert.equal(r.ok, true, `skill enable failed: ${JSON.stringify(r.diagnostics)}`);
+    assert.equal(r.apply.applied, true);
+    assert.equal(r.field, 'name');
+    const snapshotId = r.apply.snapshotId;
+
+    const after = readFileSync(cfg, 'utf8');
+    assert.ok(after.includes('name = "ab-test-setup"\nenabled = true'), 'the name-keyed skill was enabled');
+    assert.ok(after.includes('skills/ab-test-setup/SKILL.md"\nenabled = false'), 'the path-keyed sibling is untouched');
+    assert.ok(after.includes('SECRET = "sk-keep-me-safe-0123456789"'), 'mcp env secret byte-identical');
+
+    const rb = await rollbackSnapshot({
+      mgrStateDir: join(tmp, MGR_STATE_DIRNAME), targetClaudeDir: tmp, snapshotId,
+      assertWritable: opts(tmp).assertWritable, force: true, enableWrites: true, expectedTarget: tmp,
+    });
+    assert.equal(rb.status, 'restored', `rollback failed: ${JSON.stringify(rb.diagnostics)}`);
+    assert.ok(Buffer.compare(readFileSync(cfg), before) === 0, 'config.toml restored byte-identical');
+
+    // now enable the PATH-keyed sibling through the --path selector (false → true).
+    const p = await setComponentEnabled({ ...opts(tmp), kind: 'skill', name: 'C:/Users/alice/.codex/skills/ab-test-setup/SKILL.md', selectorField: 'path', desired: true, now: () => new Date(1700000009000) });
+    assert.equal(p.ok, true, `skill path enable failed: ${JSON.stringify(p.diagnostics)}`);
+    assert.equal(p.field, 'path');
+    const afterP = readFileSync(cfg, 'utf8');
+    assert.ok(afterP.includes('skills/ab-test-setup/SKILL.md"\nenabled = true'), 'the path-keyed skill was enabled');
+    assert.ok(afterP.includes('name = "ab-test-setup"\nenabled = false'), 'the name-keyed sibling stays disabled');
   } finally {
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
