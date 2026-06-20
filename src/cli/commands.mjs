@@ -39,6 +39,7 @@ import { rollbackCommand } from './rollback-command.mjs';
 import { recoverCommand } from './recover-command.mjs';
 import { lockCommand } from './lock-command.mjs';
 import { removeCommand } from './remove-command.mjs';
+import { disableCommand, enableCommand } from './config-edit-command.mjs';
 import { updateCommand } from './update-command.mjs';
 import { mcpCommand } from './mcp-command.mjs';
 import { hooksCommand } from './hooks-command.mjs';
@@ -348,6 +349,10 @@ export const COMMANDS = Object.freeze({
   'recover': (ctx) => recoverCommand(ctx),
   'lock': (ctx) => lockCommand(ctx),
   'remove': (ctx) => removeCommand(ctx),
+  // disable/enable (P6): in-place config.toml enable-flag flip (Codex plugins).
+  // Codex-only in effect — the gate denies for Claude (features.configEdit:false).
+  'disable': (ctx) => disableCommand(ctx),
+  'enable': (ctx) => enableCommand(ctx),
   'update': (ctx) => updateCommand(ctx),
   'mcp:remove': (ctx) => mcpCommand(ctx),
   // skill propose (P5.U8): write skills/<name>/SKILL.proposed-<ts>.md (dry-run default; 'propose' gate).
@@ -357,4 +362,4 @@ export const COMMANDS = Object.freeze({
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand, conflictsCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, disableCommand, enableCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand, conflictsCommand };
