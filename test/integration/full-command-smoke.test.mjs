@@ -106,6 +106,8 @@ function buildArgvTable(sandbox) {
     'recover': ['recover', fakeId, '--mark-failed'], // no --apply → gate-closed refusal (clean)
     'lock': ['lock'], // read-only status
     'remove': ['remove', 'agent:nonexistent-xyz'], // dry-run → target-not-found refusal
+    'disable': ['disable', '--type', 'plugin', 'nonexistent@x'], // claude target → unsupported-target refusal (clean exit 3)
+    'enable': ['enable', '--type', 'plugin', 'nonexistent@x'], // claude target → unsupported-target refusal (clean exit 3)
     'update': ['update', 'nonexistent-xyz'], // dry-run → plugin-not-found refusal
     'mcp:remove': ['mcp', 'remove', 'nonexistent-xyz'], // dry-run → advisory
     'skill:propose': ['skill', 'propose'], // no name → clean exit 3 (not an internal crash)
