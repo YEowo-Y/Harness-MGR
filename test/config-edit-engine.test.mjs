@@ -29,6 +29,30 @@ const FIXTURE = [
   '',
   '[mcp_servers.n8n.env]',
   'SECRET = "sk-do-not-touch"',
+  '',
+  '[[skills.config]]',
+  'name = "off-skill"',
+  'enabled = false',
+  '',
+  '[[skills.config]]',
+  'name = "on-skill"',
+  'enabled = true',
+  '',
+  '[[skills.config]]',
+  'path = "C:/Users/alice/.codex/skills/off-skill/SKILL.md"',
+  'enabled = false',
+  '',
+  '[[skills.config]]',         // a name shared by TWO entries → bare-name select is ambiguous
+  'name = "dupe"',
+  'enabled = false',
+  '',
+  '[[skills.config]]',
+  'name = "dupe"',
+  'enabled = true',
+  '',
+  '[[skills.config]]',         // a skill with NO enabled key → key-insert refusal (skills always carry one)
+  'name = "keyless"',
+  'description = "no enabled line here"',
 ].join('\n');
 
 const base = { targetClaudeDir: 'C:\\codex', mgrStateDir: 'C:\\codex\\.mgr-state', configFile: 'config.toml', readFn: () => FIXTURE };
@@ -81,12 +105,89 @@ test('apply a real change → forwards the config-edit plan + scope to applyFn, 
   assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-restart-needed'));
 });
 
-test('unsupported kind (skill / bogus) → clean refusal', async () => {
-  for (const kind of ['skill', 'widget']) {
-    const r = await setComponentEnabled({ ...base, kind, name: 'x@y', desired: false });
+test('unsupported kind (bogus) → clean refusal', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'widget', name: 'x', desired: false });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-unsupported-kind'));
+});
+
+// ── skill: flip a [[skills.config]] element selected by name OR path ──────────────────
+
+test('dry-run enable skill by NAME → previews the flip (false→true), field=name', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'off-skill', desired: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.dryRun, true);
+  assert.equal(r.field, 'name');
+  assert.deepEqual(r.diff, { line: 19, before: 'enabled = false', after: 'enabled = true' });
+  assert.deepEqual(r.plan.ops[0].selector, { kind: 'skill', match: { field: 'name', value: 'off-skill' } });
+});
+
+test('dry-run disable skill by PATH (selectorField:path) → previews the flip, field=path', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'C:/Users/alice/.codex/skills/off-skill/SKILL.md', selectorField: 'path', desired: false });
+  assert.equal(r.ok, true);
+  assert.equal(r.field, 'path');
+  // already false → disable is a safe no-op (alreadyInState), diff null
+  assert.equal(r.alreadyInState, true);
+  assert.deepEqual(r.plan.ops[0].selector, { kind: 'skill', match: { field: 'path', value: 'C:/Users/alice/.codex/skills/off-skill/SKILL.md' } });
+});
+
+test('dry-run enable skill by PATH → real flip (false→true)', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'C:/Users/alice/.codex/skills/off-skill/SKILL.md', selectorField: 'path', desired: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.alreadyInState, false);
+  assert.equal(r.diff.before, 'enabled = false');
+  assert.equal(r.diff.after, 'enabled = true');
+});
+
+test('skill enable that is already enabled → alreadyInState no-op (diff null)', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'on-skill', desired: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.alreadyInState, true);
+  assert.equal(r.diff, null);
+});
+
+test('ambiguous bare skill NAME (matches 2 entries) → refused with a --path hint', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'dupe', desired: false });
+  assert.equal(r.refused, true);
+  const d = r.diagnostics.find((x) => x.code === 'config-edit-ambiguous');
+  assert.ok(d, 'config-edit-ambiguous emitted');
+  assert.match(d.message, /--path/);
+});
+
+test('absent skill name → target-not-found refusal (no edit)', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'ghost-skill', desired: false });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-target-not-found'));
+});
+
+test('skill with NO enabled key → no-enabled-key refusal (skills are never key-inserted)', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'keyless', desired: false });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-no-enabled-key'));
+});
+
+test('bad skill name (slash / @) → refused; permissive PATH selector accepts a real path', async () => {
+  for (const name of ['a/b', 'x@y']) {
+    const r = await setComponentEnabled({ ...base, kind: 'skill', name, desired: false });
     assert.equal(r.refused, true);
-    assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-unsupported-kind'));
+    assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-bad-name'));
   }
+  // a control char in a path is rejected; a normal absolute path is accepted (reaches locate)
+  const ctrl = await setComponentEnabled({ ...base, kind: 'skill', name: 'C:/x//SKILL.md', selectorField: 'path', desired: false });
+  assert.ok(ctrl.diagnostics.some((d) => d.code === 'config-edit-bad-name'));
+});
+
+test('apply a real skill flip → forwards the skill selector + scope to applyFn', async () => {
+  let seen = null;
+  const r = await setComponentEnabled({
+    ...base, kind: 'skill', name: 'off-skill', desired: true, enableWrites: true,
+    assertWritable: PASS, scope: { walkDirs: ['skills'] },
+    seams: { applyFn: async (o) => { seen = o; return { ok: true, applied: true, snapshotId: 'S1', diagnostics: [] }; } },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.field, 'name');
+  assert.deepEqual(seen.plan.ops[0].selector, { kind: 'skill', match: { field: 'name', value: 'off-skill' } });
+  assert.deepEqual(seen.scope, { walkDirs: ['skills'] });
 });
 
 // ── mcp: disable INSERTS enabled=false; enable on a key-absent server is a default-enabled no-op ──
