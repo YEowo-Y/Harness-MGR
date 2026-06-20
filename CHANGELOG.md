@@ -60,8 +60,19 @@ data tables over shared logic, drift-guarded so the default target is provably u
   overwritable), is **dry-run by default** (the preview shows the exact `enabled = true → false` line), and
   is **reversible** — `--apply` auto-snapshots `config.toml` whole first, so `rollback` restores it
   byte-identical, and `disable`→`enable` is itself a byte-identical round-trip. Restart Codex to take effect.
-  Disabling an MCP server (no `enabled` key today → needs an insert) and a skill (the `name`/`path` selector
-  duality) are deferred to follow-up units.
+- **`disable` / `enable --type mcp <server> --target codex`** — turn a Codex **MCP server** off/on. An
+  `[mcp_servers.<name>]` table has **no `enabled` key** (enabled-by-default), so disable **INSERTS** `enabled = false`
+  as the table's first body line — structurally **before** any `[mcp_servers.*.env]` secret sub-table, with every
+  original byte (and every secret) preserved verbatim (position-based `applyVerifiedEdit` verification: V1 reparse, V2
+  one-contiguous-insertion byte-preservation, V3 re-locate, and a **V4 semantic** re-parse that confirms the server's
+  `enabled` truly resolves to the desired value). enable on a key-absent server is a safe no-op (it is already enabled
+  by default — no redundant key is written); `disable`→`enable` leaves an explicit `enabled = true` line. Because the
+  Codex docs assert the loader honors `enabled = false` but no live disabled instance confirms it on this machine, the
+  command prints an honest **`config-edit-mcp-loader-unverified`** caveat: after `--apply`, restart Codex and confirm
+  the server is gone — if it still loads, `rollback`. The TOML locator was also **hardened** to skip multi-line-string
+  (`"""`/`'''`) and inline-table (`{ }`) regions (fail-closed on unterminated spans), decoupling its safety from the
+  parser. Disabling a **skill** (the `name`/`path` selector duality — 51% of live entries are path-keyed) is the
+  remaining deferred unit.
 
 ### Added — Phase 5 (health / advice / hooks explanations / skill self-iteration / conflict dispositions / MCP server)
 
