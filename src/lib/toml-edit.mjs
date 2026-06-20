@@ -162,6 +162,7 @@ export function applyVerifiedEdit(text, selector, desired) {
   // the position-based V2 nor the same-scanner V3 covers that. Shared by flip + insert.
   const v4 = () => resolveEnabledValue(parsed.value, selector) === desired;
 
+  let reason;
   if (span.found && span.mode === 'flip') {
     const want = desired ? 'true' : 'false';
     const delta = want.length - span.literal.length;
@@ -171,11 +172,8 @@ export function applyVerifiedEdit(text, selector, desired) {
     // V3 — re-locate the SAME selector in the result: desired literal, exactly one enabled line.
     const re = findEnableSpan(after, selector);
     if (!re.found || re.mode !== 'flip' || re.literal !== want || re.enabledCount !== 1) return fail('postlocate-mismatch');
-    if (!v4()) return fail('semantic-mismatch');
-    return { ok: true, text: after, diff, reason: 'flipped', error: null };
-  }
-
-  if (span.found && span.mode === 'insert') {
+    reason = 'flipped';
+  } else if (span.found && span.mode === 'insert') {
     // Insert (mcp disable): EXACTLY one contiguous insertion at insertAt, every original byte
     // preserved. V2-insert is the position-based primary — the prefix [0,insertAt) and the
     // original tail [insertAt,len) must appear verbatim at the head and tail of `after`, so
@@ -188,9 +186,15 @@ export function applyVerifiedEdit(text, selector, desired) {
     // V3 — the result now resolves to a FLIP at a single `enabled = false` line.
     const re = findEnableSpan(after, selector);
     if (!re.found || re.mode !== 'flip' || re.literal !== 'false' || re.enabledCount !== 1) return fail('postlocate-mismatch');
-    if (!v4()) return fail('semantic-mismatch');
-    return { ok: true, text: after, diff, reason: 'inserted', error: null };
+    reason = 'inserted';
+  } else {
+    return fail('relocate-original');
   }
 
-  return fail('relocate-original');
+  // V4 — the shared SEMANTIC guard (one check for both flip + insert): a real parser must see
+  // the selector's enabled resolve to `desired`. Defends against any region mis-split that a
+  // line scanner can't (the array-of-arrays class is fixed at the locator now, so this is a
+  // belt-and-suspenders backstop) AND fail-LOUDLY blocks a not-yet-wired kind (skill).
+  if (!v4()) return fail('semantic-mismatch');
+  return { ok: true, text: after, diff, reason, error: null };
 }
