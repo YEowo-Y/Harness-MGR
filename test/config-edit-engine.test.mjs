@@ -19,6 +19,16 @@ const FIXTURE = [
   '',
   '[plugins."off@openai-curated"]',
   'enabled = false',
+  '',
+  '[mcp_servers.context7]',
+  'command = "npx"',
+  '',
+  '[mcp_servers.n8n]',
+  'url = "http://localhost:5678/mcp"',
+  'bearer_token_env_var = "N8N_MCP_TOKEN"',
+  '',
+  '[mcp_servers.n8n.env]',
+  'SECRET = "sk-do-not-touch"',
 ].join('\n');
 
 const base = { targetClaudeDir: 'C:\\codex', mgrStateDir: 'C:\\codex\\.mgr-state', configFile: 'config.toml', readFn: () => FIXTURE };
@@ -71,11 +81,55 @@ test('apply a real change → forwards the config-edit plan + scope to applyFn, 
   assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-restart-needed'));
 });
 
-test('unsupported kind (mcp / skill) → clean refusal', async () => {
-  for (const kind of ['mcp', 'skill']) {
+test('unsupported kind (skill / bogus) → clean refusal', async () => {
+  for (const kind of ['skill', 'widget']) {
     const r = await setComponentEnabled({ ...base, kind, name: 'x@y', desired: false });
     assert.equal(r.refused, true);
     assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-unsupported-kind'));
+  }
+});
+
+// ── mcp: disable INSERTS enabled=false; enable on a key-absent server is a default-enabled no-op ──
+
+test('dry-run disable mcp (no enabled key) → INSERT preview + loader-unverified caveat', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'mcp', name: 'context7', desired: false });
+  assert.equal(r.ok, true);
+  assert.equal(r.dryRun, true);
+  assert.equal(r.alreadyInState, false);
+  assert.equal(r.diff.before, '');           // nothing was there — it's an insert
+  assert.equal(r.diff.after, 'enabled = false');
+  assert.equal(r.plan.ops[0].kind, 'config-edit');
+  assert.deepEqual(r.plan.ops[0].selector, { kind: 'mcp', name: 'context7' });
+  assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-mcp-loader-unverified'), 'honest caveat present');
+});
+
+test('dry-run enable mcp on a key-absent (default-enabled) server → alreadyInState no-op, no caveat', async () => {
+  const r = await setComponentEnabled({ ...base, kind: 'mcp', name: 'context7', desired: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.alreadyInState, true);
+  assert.equal(r.diff, null);
+  assert.ok(!r.diagnostics.some((d) => d.code === 'config-edit-mcp-loader-unverified'));
+  assert.ok(r.diagnostics.some((d) => /defaults to enabled/.test(d.message)));
+});
+
+test('apply disable mcp → forwards a config-edit op for the mcp selector', async () => {
+  let seen = null;
+  const r = await setComponentEnabled({
+    ...base, kind: 'mcp', name: 'n8n', desired: false, enableWrites: true,
+    assertWritable: PASS, scope: { walkDirs: ['skills'] },
+    seams: { applyFn: async (o) => { seen = o; return { ok: true, applied: true, snapshotId: 'S1', diagnostics: [] }; } },
+  });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen.plan.ops[0].selector, { kind: 'mcp', name: 'n8n' });
+  assert.equal(seen.plan.ops[0].desired, false);
+  assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-mcp-loader-unverified'));
+});
+
+test('bad mcp name (has @ / separators) → refused', async () => {
+  for (const name of ['n8n@x', 'a/b', '../etc']) {
+    const r = await setComponentEnabled({ ...base, kind: 'mcp', name, desired: false });
+    assert.equal(r.refused, true);
+    assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-bad-name'));
   }
 });
 
