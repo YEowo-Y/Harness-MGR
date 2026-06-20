@@ -1,5 +1,5 @@
 /**
- * CLI handlers for `disable`/`enable --type plugin <name> [--apply]` (P6 config-edit unit).
+ * CLI handlers for `disable`/`enable --type plugin|mcp|skill <name> [--apply]` (P6 config-edit unit).
  *
  * Thin wrappers over the setComponentEnabled engine (src/ops/config-edit.mjs), behind
  * the SAME two-factor write gate every write command uses: resolveWriteIntent requires
@@ -9,7 +9,9 @@
  * Target support: config-edit is a per-target feature. Only a target whose write
  * surface enables it (Codex: configEditFiles=['config.toml'] + features.configEdit) is
  * accepted; on any other target (Claude) the command refuses with a clear message
- * rather than silently no-op'ing. --type is plugin or mcp (the engine refuses skill).
+ * rather than silently no-op'ing. --type is plugin, mcp, or skill. A skill selects by a
+ * bare name OR by `--path "<path>"` (mutually exclusive — 51% of live entries are
+ * path-keyed); plugin/mcp take a single positional and reject --path.
  *
  * M2-SAFETY: never STATICALLY imports paths.mjs; the gate is resolved via a DYNAMIC
  * import ONLY on the real --apply path (mirrors remove-command.mjs). Dry-run touches no
@@ -42,13 +44,14 @@ function summarize(r, verb) {
         : (o.dryRun ? 'dry-run' : (o.ok ? (verb === 'enable' ? 'enabled' : 'disabled') : 'failed')));
     return {
       status, ok: !!o.ok, dryRun: !!o.dryRun, kind: o.kind ?? null, name: o.name ?? null,
+      field: o.field ?? null,
       desired: typeof o.desired === 'boolean' ? o.desired : null, target: o.target ?? null,
       diff: o.diff ?? null, alreadyInState: !!o.alreadyInState,
       applied: o.apply ? !!o.apply.applied : false,
       snapshotId: o.apply ? (o.apply.snapshotId ?? null) : null,
     };
   } catch {
-    return { status: 'summary-error', ok: false, dryRun: false, kind: null, name: null,
+    return { status: 'summary-error', ok: false, dryRun: false, kind: null, name: null, field: null,
       desired: null, target: null, diff: null, alreadyInState: false, applied: false, snapshotId: null };
   }
 }
@@ -66,7 +69,8 @@ async function configEditCommand(ctx, deps, desired) {
   const verb = desired ? 'enable' : 'disable';
   const args = ctx && ctx.args ? ctx.args : {};
   const kind = typeof args.type === 'string' ? args.type : undefined;
-  const name = Array.isArray(args.positionals) ? args.positionals[0] : undefined;
+  const positional = Array.isArray(args.positionals) ? args.positionals[0] : undefined;
+  const pathArg = typeof args.path === 'string' ? args.path : undefined;
   const descriptor = ctx && ctx.descriptor && typeof ctx.descriptor === 'object' ? ctx.descriptor : null;
   const cli = (code, message, status, exit) => ({ result: { status }, diagnostics: [{ severity: 'error', code, phase: 'cli', message }], code: exit });
 
@@ -76,8 +80,22 @@ async function configEditCommand(ctx, deps, desired) {
   if (!supported) {
     return cli(`${verb}-unsupported-target`, `${verb} is only supported for a target with an in-place config surface (run with --target codex); the current target has none`, 'unsupported-target', 3);
   }
-  if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin|mcp and a name: ${verb} --type plugin <name@marketplace> | ${verb} --type mcp <server>`, 'no-type', 3);
-  if (typeof name !== 'string' || name.length === 0) return cli(`${verb}-no-name`, `${verb} requires a name: ${verb} --type ${kind} <name>`, 'no-name', 3);
+  if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin|mcp|skill and a name: ${verb} --type plugin <name@marketplace> | ${verb} --type mcp <server> | ${verb} --type skill <name> | ${verb} --type skill --path "<path>"`, 'no-type', 3);
+
+  // Resolve the selector VALUE + (skill-only) field. A skill selects by a bare name OR by
+  // --path (mutually exclusive); plugin/mcp take the single positional and reject --path.
+  let name, selectorField;
+  if (kind === 'skill') {
+    const hasName = typeof positional === 'string' && positional.length > 0;
+    if (pathArg !== undefined && hasName) return cli(`${verb}-skill-selector-conflict`, `${verb} --type skill takes EITHER a name OR --path, not both`, 'selector-conflict', 3);
+    if (pathArg !== undefined) { name = pathArg; selectorField = 'path'; }
+    else if (hasName) { name = positional; selectorField = 'name'; }
+    else return cli(`${verb}-no-name`, `${verb} --type skill needs a skill name or --path: ${verb} --type skill <name> | ${verb} --type skill --path "<path>"`, 'no-name', 3);
+  } else {
+    if (pathArg !== undefined) return cli(`${verb}-path-not-allowed`, `--path is only valid with --type skill (not --type ${kind})`, 'path-not-allowed', 3);
+    name = positional;
+    if (typeof name !== 'string' || name.length === 0) return cli(`${verb}-no-name`, `${verb} requires a name: ${verb} --type ${kind} <name>`, 'no-name', 3);
+  }
 
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
@@ -99,7 +117,7 @@ async function configEditCommand(ctx, deps, desired) {
   let r;
   try {
     r = await fn({
-      kind, name, desired,
+      kind, name, selectorField, desired,
       targetClaudeDir: ctx.configDir, mgrStateDir: ctx.mgrStateDir,
       configFile: ws.configEditFiles[0],
       assertWritable, enableWrites: intent.enableWrites,
