@@ -18,7 +18,7 @@
 export const VALUE_FLAGS = Object.freeze([
   '--format', '--config-dir', '--name', '--key', '--type', '--since', '--base',
   '--reason', '--keep', '--older-than', '--lock-version', '--scope', '--context',
-  '--from', '--target',
+  '--from', '--target', '--path',
 ]);
 
 /** Boolean flags are presence-only (no value token). */
