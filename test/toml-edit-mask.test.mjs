@@ -118,7 +118,7 @@ test('brace/bracket/triple-quote-looking chars INSIDE an ordinary single-line va
   assert.equal(applyVerifiedEdit(doc, PLUGIN('b@x'), false).ok, true);
 });
 
-test('a legitimate multi-line ARRAY is NOT masked (args = [ … ]) — the next enabled still flips', () => {
+test('a multi-line ARRAY interior is masked, but the enabled AFTER its closing ] is NOT — flip still works', () => {
   const doc = [
     '[mcp_servers.z]',
     'args = [',
@@ -127,12 +127,82 @@ test('a legitimate multi-line ARRAY is NOT masked (args = [ … ]) — the next 
     ']',
     'enabled = true',
   ].join('\n') + '\n';
-  assert.equal(spanMask(doc).malformed, false);
+  const mask = spanMask(doc);
+  assert.equal(mask.malformed, false);
+  assert.equal(mask.skip(doc.indexOf('"-y"')), true, 'array element is inside the masked span');
+  assert.equal(mask.skip(doc.indexOf('enabled = true')), false, 'the enabled AFTER the closing ] is outside the span');
   const r = setEnabled(doc, MCP('z'), false);   // existing enabled=true → flip, not insert
   assert.equal(r.changed, true);
   assert.equal(r.reason, 'flipped');
   assert.equal(parseToml(r.text).value.mcp_servers.z.enabled, false);
   assert.equal(parseToml(r.text).value.mcp_servers.z.args.length, 2);
+});
+
+// ── array-of-arrays: a column-0 [123] row is array content, NOT a header (root-cause hardening) ──
+
+test('a [123] row inside a multi-line array is masked, so it cannot split a table region', () => {
+  const doc = ['[mcp_servers.foo]', 'data = [', '[123],', ']', 'enabled = true'].join('\n') + '\n';
+  const mask = spanMask(doc);
+  assert.equal(mask.skip(doc.indexOf('[123]')), true, 'the [123] array row is masked → not a header candidate');
+  assert.equal(mask.skip(doc.indexOf('[mcp_servers.foo]')), false, 'the REAL table header is NOT masked');
+  assert.equal(mask.skip(doc.indexOf('enabled = true')), false, 'the real enabled (after the array) is NOT masked');
+  // end-to-end: the region is intact → disable FLIPS the real key (not a region-split insert)
+  const span = findEnableSpan(doc, MCP('foo'));
+  assert.equal(span.mode, 'flip');
+  assert.equal(span.literal, 'true');
+  const r = setEnabled(doc, MCP('foo'), false);
+  assert.equal(r.reason, 'flipped');
+  assert.equal((r.text.match(/enabled = /g) || []).length, 1);
+});
+
+test('a table HEADER ([…]/[[…]]) is never treated as an array opener — headers/skills still parse', () => {
+  const doc = [
+    '[mcp_servers.a]',
+    'command = "x"',
+    '[[skills.config]]',          // array-of-tables header — both [ are header, not an array value
+    'name = "s"',
+    'enabled = false',
+  ].join('\n') + '\n';
+  assert.equal(spanMask(doc).malformed, false);
+  // the [[skills.config]] header is recognized (the skill selector resolves it)
+  assert.equal(findEnableSpan(doc, { kind: 'skill', match: { field: 'name', value: 's' } }).mode, 'flip');
+  // and the mcp.a header still locates (its absent enabled → insert)
+  assert.equal(findEnableSpan(doc, MCP('a')).mode, 'insert');
+});
+
+test('an unterminated multi-line array → malformed → findEnableSpan fails closed', () => {
+  const doc = '[mcp_servers.x]\ndata = [\n  1,\n  2\n';   // no closing ]
+  assert.equal(spanMask(doc).malformed, true);
+  assert.equal(findEnableSpan(doc, MCP('x')).error.code, 'unparseable-multiline');
+});
+
+test('an inline table unterminated at EOF (no newline, no closing }) → malformed', () => {
+  assert.equal(spanMask('x = { a = 1').malformed, true);
+});
+
+test('a multi-line """ string element INSIDE an array is stepped over (its [..] is not a header)', () => {
+  const doc = '[mcp_servers.w]\ndata = [\n"""multi\nline [not a header]""",\n]\nenabled = true\n';
+  const mask = spanMask(doc);
+  assert.equal(mask.malformed, false);
+  assert.equal(mask.skip(doc.indexOf('[not a header]')), true, 'inside the array’s multi-line string → masked');
+  assert.equal(setEnabled(doc, MCP('w'), false).reason, 'flipped');
+});
+
+test('pastArray steps over strings (with ] inside), # comments, nested arrays and inline tables', () => {
+  const doc = [
+    '[mcp_servers.q]',
+    'data = [',
+    '  "has ] bracket",   # comment with a ] too',
+    '  [1, 2],',           // nested array
+    '  { k = "]" },',      // inline table whose value holds a ]
+    ']',
+    'enabled = true',
+  ].join('\n') + '\n';
+  const mask = spanMask(doc);
+  assert.equal(mask.malformed, false, 'the ] inside the string/comment/inline-table is not a false close');
+  assert.equal(mask.skip(doc.indexOf('"has ] bracket"')), true, 'array interior is masked');
+  assert.equal(mask.skip(doc.indexOf('enabled = true')), false, 'the enabled after the array is not masked');
+  assert.equal(setEnabled(doc, MCP('q'), false).reason, 'flipped');   // the real key still flips
 });
 
 test('spanMask is a strict NO-OP on an ordinary multi-table config (nothing masked, not malformed)', () => {
