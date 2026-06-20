@@ -41,6 +41,21 @@ import { parseToml } from './toml-parser.mjs';
  * @property {null|{code:string, message:string}} error
  */
 
+/** The `enabled` boolean the selector resolves to in the WHOLE reparsed document — the
+ *  semantic V4 guarantee that the byte edit actually achieved its goal. It defeats a region
+ *  mis-split (e.g. a column-0 array-of-arrays row `[123]` that a line scanner mistakes for a
+ *  header, hiding the real `enabled` so an INSERT silently adds a DUPLICATE key V1/V3 miss):
+ *  parseToml is a real parser, so it sees the true (TOML last-wins) value. Returns undefined
+ *  when absent / not a boolean, or for the not-yet-shipped skill kind (which never reaches a
+ *  write path; undefined → V4 fails closed, forcing the skill unit to extend this).
+ *  @param {any} value parseToml(after).value @param {import('./toml-edit-locate.mjs').EnableSelector} selector */
+function resolveEnabledValue(value, selector) {
+  if (!value || typeof value !== 'object' || !selector) return undefined;
+  if (selector.kind === 'plugin') return value.plugins?.[selector.name]?.enabled;
+  if (selector.kind === 'mcp') return value.mcp_servers?.[selector.name]?.enabled;
+  return undefined; // skill: a name/path-indexed array — its semantic check lands with the skill unit
+}
+
 /** 1-based line number of byte `offset` in `text`. @param {string} text @param {number} offset */
 function lineNumberAt(text, offset) {
   let line = 1;
@@ -139,7 +154,13 @@ export function applyVerifiedEdit(text, selector, desired) {
   const diff = { line: r.line, before: /** @type {string} */ (r.before), after: /** @type {string} */ (r.after) };
 
   // V1 — the result is still valid TOML (shared by flip + insert).
-  if (parseToml(after).errors.length !== 0) return fail('reparse-failed');
+  const parsed = parseToml(after);
+  if (parsed.errors.length !== 0) return fail('reparse-failed');
+  // V4 — SEMANTIC: the WHOLE reparsed document resolves the selector's enabled to `desired`.
+  // A real parser (TOML last-wins) catches a region mis-split that wrote a duplicate `enabled`
+  // the line scanner can't see (the array-of-arrays `[123]` header-confusion class) — neither
+  // the position-based V2 nor the same-scanner V3 covers that. Shared by flip + insert.
+  const v4 = () => resolveEnabledValue(parsed.value, selector) === desired;
 
   if (span.found && span.mode === 'flip') {
     const want = desired ? 'true' : 'false';
@@ -150,6 +171,7 @@ export function applyVerifiedEdit(text, selector, desired) {
     // V3 — re-locate the SAME selector in the result: desired literal, exactly one enabled line.
     const re = findEnableSpan(after, selector);
     if (!re.found || re.mode !== 'flip' || re.literal !== want || re.enabledCount !== 1) return fail('postlocate-mismatch');
+    if (!v4()) return fail('semantic-mismatch');
     return { ok: true, text: after, diff, reason: 'flipped', error: null };
   }
 
@@ -166,6 +188,7 @@ export function applyVerifiedEdit(text, selector, desired) {
     // V3 — the result now resolves to a FLIP at a single `enabled = false` line.
     const re = findEnableSpan(after, selector);
     if (!re.found || re.mode !== 'flip' || re.literal !== 'false' || re.enabledCount !== 1) return fail('postlocate-mismatch');
+    if (!v4()) return fail('semantic-mismatch');
     return { ok: true, text: after, diff, reason: 'inserted', error: null };
   }
 
