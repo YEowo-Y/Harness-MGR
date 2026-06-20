@@ -72,8 +72,19 @@ data tables over shared logic, drift-guarded so the default target is provably u
   the server is gone — if it still loads, `rollback`. The TOML locator was also **hardened** to skip multi-line-string
   (`"""`/`'''`), inline-table (`{ }`), and value-array (`[ … ]`) interiors (fail-closed on unterminated spans),
   decoupling its safety from the parser and fixing an array-of-arrays edge case (a `[123]` row inside a multi-line array
-  was mis-read as a table header) at its root. Disabling a **skill** (the `name`/`path` selector duality — 51% of live
-  entries are path-keyed) is the remaining deferred unit.
+  was mis-read as a table header) at its root.
+- **`disable` / `enable --type skill <name>` (or `--path "<path>"`) `--target codex`** — turn a Codex **skill** off/on by
+  flipping the `enabled = <bool>` of its `[[skills.config]]` array-of-tables element. Because **224/441 (51%)** of live
+  entries are `path`-keyed (and the same skill often appears as both a name-keyed and a path-keyed block — `ab-test-setup`
+  is at line 200 by name, line 1068 by path), a skill is selected by a bare `<name>` **OR** by `--path "<path>"` (mutually
+  exclusive); a bare name that matches **more than one** entry is refused as **ambiguous** with a "re-run with `--path`"
+  hint — it never edits the wrong element. Skills always carry an explicit `enabled`, so this is a **FLIP** (an absent key
+  is refused, never key-inserted). The same single-token splice + fail-closed `applyVerifiedEdit` applies, and the
+  **V4 semantic guard** was extended to navigate the `[[skills.config]]` array and resolve `enabled` **only for a unique
+  match** (zero or many → no write). Dogfood on the real 49 KB config: name and path flips both land on the right line and
+  the `disable`→`enable`→`disable` round-trip is **sha256 byte-identical**; the `[mcp_servers.*.env]` secrets are
+  untouched. Adversarial DoD review (3 refute-first reviewers + synthesis): **SAFE TO SHIP, 0 Blocker/High/Medium**. This
+  completes the in-place `config-edit` wave (**plugin · mcp · skill**). Restart Codex to take effect.
 
 ### Added — Phase 5 (health / advice / hooks explanations / skill self-iteration / conflict dispositions / MCP server)
 
