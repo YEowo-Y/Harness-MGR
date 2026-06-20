@@ -134,17 +134,84 @@ test('skill by PATH: flips the path-keyed element; the name-keyed sibling is unt
   assert.equal(cfg.find((e) => e.name === 'ab-test-setup').enabled, false);
 });
 
-// ── mcp: no enabled key today → safe no-op (insert deferred to the mcp unit) ────────
+// ── mcp: no enabled key → disable INSERTS `enabled = false`; enable is a default-enabled no-op ──
 
-test('mcp server with no enabled key → noop-absent-key (insert deferred), text unchanged', () => {
-  const r = setEnabled(FIXTURE, { kind: 'mcp', name: 'n8n_official' }, false);
+const MCP = (name) => ({ kind: 'mcp', name });
+
+test('mcp disable (no enabled key) → INSERTS enabled=false as the first body line', () => {
+  const r = setEnabled(FIXTURE, MCP('n8n_official'), false);
+  assert.equal(r.changed, true);
+  assert.equal(r.reason, 'inserted');
+  assert.equal(r.before, '');
+  assert.equal(r.after, 'enabled = false');
+  // inserted immediately after the header, BEFORE the existing url/bearer lines
+  assert.ok(r.text.includes('[mcp_servers.n8n_official]\nenabled = false\nurl = "http://localhost:5678/mcp"'));
+  assert.equal(parseToml(r.text).value.mcp_servers.n8n_official.enabled, false);
+  assert.deepEqual(parseToml(r.text).errors, []);
+});
+
+test('mcp insert lands BEFORE the [..env] secret sub-table; secret bytes byte-identical', () => {
+  const r = setEnabled(FIXTURE, MCP('n8n_community'), false);
+  const ins = r.text.indexOf('enabled = false');
+  const env = r.text.indexOf('[mcp_servers.n8n_community.env]');
+  assert.ok(ins !== -1 && env !== -1 && ins < env, 'insert is before the .env header');
+  assert.ok(r.text.includes('SECRET_TOKEN = "sk-do-not-touch-0123456789"'));
+  assert.ok(r.text.includes('bearer_token_env_var = "N8N_MCP_TOKEN"'));
+  assert.ok(!String(r.before).includes('sk-') && !String(r.after).includes('sk-'));
+});
+
+test('mcp enable on a key-absent (default-enabled) server → noop-default-enabled, text unchanged', () => {
+  const r = setEnabled(FIXTURE, MCP('n8n_official'), true);
   assert.equal(r.changed, false);
-  assert.equal(r.reason, 'noop-absent-key');
+  assert.equal(r.reason, 'noop-default-enabled');
   assert.equal(r.text === FIXTURE, true);
-  // the locator still reports where an insert WOULD go (for the future mcp unit)
-  const span = findEnableSpan(FIXTURE, { kind: 'mcp', name: 'n8n_official' });
-  assert.equal(span.mode, 'insert');
-  assert.equal(typeof span.insertAt, 'number');
+  assert.equal(r.error, null);
+});
+
+test('mcp disable is idempotent: after the insert, a second disable is a strict === no-op', () => {
+  const once = setEnabled(FIXTURE, MCP('n8n_official'), false);
+  const twice = setEnabled(once.text, MCP('n8n_official'), false);
+  assert.equal(twice.changed, false);
+  assert.equal(twice.reason, 'noop-already');
+  assert.equal(twice.text === once.text, true);
+});
+
+test('applyVerifiedEdit mcp insert → ok, every ORIGINAL byte preserved (V2-insert), diff present', () => {
+  const v = applyVerifiedEdit(FIXTURE, MCP('n8n_official'), false);
+  assert.equal(v.ok, true);
+  assert.equal(v.reason, 'inserted');
+  assert.equal(v.diff.before, '');
+  assert.equal(v.diff.after, 'enabled = false');
+  const insertAt = findEnableSpan(FIXTURE, MCP('n8n_official')).insertAt;
+  assert.equal(v.text.slice(0, insertAt), FIXTURE.slice(0, insertAt));               // prefix preserved
+  assert.equal(v.text.slice(v.text.length - (FIXTURE.length - insertAt)), FIXTURE.slice(insertAt)); // tail preserved
+});
+
+test('mcp disable→enable round-trip leaves an EXPLICIT enabled=true line (+1-line residue, documented)', () => {
+  const sel = MCP('n8n_official');
+  const d = applyVerifiedEdit(FIXTURE, sel, false);
+  const e = applyVerifiedEdit(d.text, sel, true);
+  assert.equal(e.ok, true);
+  assert.equal(parseToml(e.text).value.mcp_servers.n8n_official.enabled, true);
+  assert.notEqual(e.text, FIXTURE);                                   // NOT pristine — the key persists
+  assert.ok(e.text.includes('[mcp_servers.n8n_official]\nenabled = true\n'));
+});
+
+test('mcp insert at a header at EOF with NO trailing newline → clean insert, no header gluing (HIGH fix)', () => {
+  const eof = '[mcp_servers.solo]'; // header is the last line, no trailing newline
+  const r = setEnabled(eof, MCP('solo'), false);
+  assert.equal(r.changed, true);
+  assert.ok(r.text.startsWith('[mcp_servers.solo]\nenabled = false'), 'leading newline prevents gluing onto the header');
+  assert.deepEqual(parseToml(r.text).errors, []);
+  assert.equal(applyVerifiedEdit(eof, MCP('solo'), false).ok, true);
+});
+
+test('mcp insert in a CRLF document uses \\r\\n; no lone \\n is introduced', () => {
+  const crlf = ['[mcp_servers.c]', 'url = "https://x"', ''].join('\r\n');
+  const r = setEnabled(crlf, MCP('c'), false);
+  assert.equal(r.changed, true);
+  assert.ok(r.text.includes('enabled = false\r\n'));
+  assert.equal((r.text.match(/(^|[^\r])\n/g) || []).length, 0);
 });
 
 // ── secret safety: an unrelated flip never moves or echoes secret bytes ─────────────
