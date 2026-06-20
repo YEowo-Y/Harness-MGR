@@ -34,8 +34,8 @@ import { parseToml } from './toml-parser.mjs';
  * @typedef {Object} EditResult
  * @property {boolean} changed
  * @property {string} text   the new text (=== input when unchanged)
- * @property {'flipped'|'noop-already'|'noop-absent-table'|'noop-absent-key'|null} reason
- * @property {string|null} before  the old `enabled` line (diff display) — null unless flipped/already
+ * @property {'flipped'|'inserted'|'noop-already'|'noop-absent-table'|'noop-absent-key'|'noop-default-enabled'|null} reason
+ * @property {string|null} before  the old `enabled` line (diff display); '' for an insert (no prior line)
  * @property {string|null} after   the new `enabled` line (diff display)
  * @property {number} line   1-based line of the `enabled` token (0 when not located)
  * @property {null|{code:string, message:string}} error
@@ -47,6 +47,32 @@ function lineNumberAt(text, offset) {
   const end = Math.min(offset, text.length);
   for (let k = 0; k < end; k += 1) if (text[k] === '\n') line += 1;
   return line;
+}
+
+/** The newline style to emit at `insertAt`: match the line that terminates just before
+ *  the insertion point (CRLF when that line ended `\r\n`); fall back to the document's
+ *  first newline, defaulting LF. @param {string} text @param {number} insertAt */
+function detectNewline(text, insertAt) {
+  if (insertAt >= 1 && text[insertAt - 1] === '\n') return insertAt >= 2 && text[insertAt - 2] === '\r' ? '\r\n' : '\n';
+  const j = text.indexOf('\n');
+  return j >= 1 && text[j - 1] === '\r' ? '\r\n' : '\n';
+}
+
+/** Build the INSERT edit — add `enabled = false` as a NEW line at `insertAt` (the region
+ *  bodyStart, structurally BEFORE any [..env] secret sub-table). The HIGH fix: when the
+ *  byte before insertAt is not a newline (a header at EOF with no trailing newline), a
+ *  leading newline is prepended so the inserted key never glues onto the header line.
+ *  @param {string} text @param {number} insertAt @returns {import('./toml-edit.mjs').EditResult} */
+function insertDisabled(text, insertAt) {
+  const nl = detectNewline(text, insertAt);
+  const before = text.slice(0, insertAt);
+  const lead = before.length > 0 && !before.endsWith('\n') ? nl : '';
+  const newText = `${before}${lead}enabled = false${nl}${text.slice(insertAt)}`;
+  return {
+    changed: true, text: newText, reason: 'inserted',
+    before: '', after: 'enabled = false',
+    line: lineNumberAt(newText, before.length + lead.length), error: null,
+  };
 }
 
 /**
@@ -64,7 +90,16 @@ export function setEnabled(text, selector, desired) {
   const span = findEnableSpan(text, selector);
   if (span.error) return noop(null, { error: span.error });
   if (span.absent) return noop('noop-absent-table');
-  if (span.mode === 'insert') return noop('noop-absent-key', { insertAt: span.insertAt }); // insert deferred to the mcp unit
+  if (span.mode === 'insert') {
+    // No `enabled` key present. For mcp an absent key means default-ENABLED, so:
+    //   disable → INSERT `enabled = false` as the first body line (before any [..env] secret);
+    //   enable  → safe no-op (already enabled by default — do NOT add a redundant `enabled = true`).
+    // Other kinds (plugin/skill always carry an explicit enabled) keep the deferred no-op.
+    if (selector && selector.kind === 'mcp') {
+      return desired === false ? insertDisabled(text, span.insertAt) : noop('noop-default-enabled', { insertAt: span.insertAt });
+    }
+    return noop('noop-absent-key', { insertAt: span.insertAt });
+  }
 
   if (span.literal !== 'true' && span.literal !== 'false') {
     return noop(null, { error: { code: 'enabled-not-boolean', message: `enabled is '${span.literal}', not a boolean` } });
@@ -99,20 +134,40 @@ export function applyVerifiedEdit(text, selector, desired) {
   /** @param {string} code */
   const fail = (code) => ({ ok: false, text, diff: null, error: { code: `verify-${code}`, message: `config-edit verification failed (${code}); no write performed` } });
 
-  const span = findEnableSpan(text, selector); // re-locate in the ORIGINAL for the token bounds
-  if (!span.found || span.mode !== 'flip') return fail('relocate-original');
-  const want = desired ? 'true' : 'false';
-  const delta = want.length - span.literal.length;
+  const span = findEnableSpan(text, selector); // re-locate in the ORIGINAL for the token/insert bounds
   const after = r.text;
+  const diff = { line: r.line, before: /** @type {string} */ (r.before), after: /** @type {string} */ (r.after) };
 
-  // V1 — the result is still valid TOML.
+  // V1 — the result is still valid TOML (shared by flip + insert).
   if (parseToml(after).errors.length !== 0) return fail('reparse-failed');
-  // V2 — every byte OUTSIDE the spliced token is byte-identical (primary, position-based).
-  if (text.slice(0, span.tokenStart) !== after.slice(0, span.tokenStart)) return fail('byte-drift-before');
-  if (text.slice(span.tokenEnd) !== after.slice(span.tokenEnd + delta)) return fail('byte-drift-after');
-  // V3 — re-locate the SAME selector in the result: desired literal, exactly one enabled line.
-  const re = findEnableSpan(after, selector);
-  if (!re.found || re.mode !== 'flip' || re.literal !== want || re.enabledCount !== 1) return fail('postlocate-mismatch');
 
-  return { ok: true, text: after, diff: { line: r.line, before: /** @type {string} */ (r.before), after: /** @type {string} */ (r.after) }, reason: 'flipped', error: null };
+  if (span.found && span.mode === 'flip') {
+    const want = desired ? 'true' : 'false';
+    const delta = want.length - span.literal.length;
+    // V2 — every byte OUTSIDE the spliced token is byte-identical (primary, position-based).
+    if (text.slice(0, span.tokenStart) !== after.slice(0, span.tokenStart)) return fail('byte-drift-before');
+    if (text.slice(span.tokenEnd) !== after.slice(span.tokenEnd + delta)) return fail('byte-drift-after');
+    // V3 — re-locate the SAME selector in the result: desired literal, exactly one enabled line.
+    const re = findEnableSpan(after, selector);
+    if (!re.found || re.mode !== 'flip' || re.literal !== want || re.enabledCount !== 1) return fail('postlocate-mismatch');
+    return { ok: true, text: after, diff, reason: 'flipped', error: null };
+  }
+
+  if (span.found && span.mode === 'insert') {
+    // Insert (mcp disable): EXACTLY one contiguous insertion at insertAt, every original byte
+    // preserved. V2-insert is the position-based primary — the prefix [0,insertAt) and the
+    // original tail [insertAt,len) must appear verbatim at the head and tail of `after`, so
+    // every secret region (all physically after insertAt) is copied untouched.
+    const insertAt = span.insertAt;
+    if (after.length <= text.length) return fail('insert-no-growth');
+    const tailLen = text.length - insertAt;
+    if (after.slice(0, insertAt) !== text.slice(0, insertAt)) return fail('byte-drift-before');
+    if (after.slice(after.length - tailLen) !== text.slice(insertAt)) return fail('byte-drift-after');
+    // V3 — the result now resolves to a FLIP at a single `enabled = false` line.
+    const re = findEnableSpan(after, selector);
+    if (!re.found || re.mode !== 'flip' || re.literal !== 'false' || re.enabledCount !== 1) return fail('postlocate-mismatch');
+    return { ok: true, text: after, diff, reason: 'inserted', error: null };
+  }
+
+  return fail('relocate-original');
 }
