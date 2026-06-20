@@ -275,6 +275,21 @@ test('applyVerifiedEdit: FAIL-CLOSED on a region with duplicate enabled lines (V
   assert.equal(r.text, doc); // ORIGINAL text returned
 });
 
+test('applyVerifiedEdit: FAIL-CLOSED on an array-of-arrays region split (V4 semantic guard)', () => {
+  // VALID TOML whose array element row starts at column 0 with `[123]` (a nested array). The
+  // line scanner mistakes `[123]` for a header → splits foo's region BEFORE the real enabled,
+  // so a disable INSERT would write a DUPLICATE enabled that V1 (no dup-key error) and V3
+  // (same split scanner sees count 1) both miss. The V4 whole-document re-parse (TOML last-wins
+  // → enabled=true) catches it: ok:false, ORIGINAL returned, no duplicate written.
+  const doc = ['[mcp_servers.foo]', 'data = [', '[123],', ']', 'enabled = true'].join('\n') + '\n';
+  assert.deepEqual(parseToml(doc).errors, []);                       // it really is valid TOML
+  assert.equal(parseToml(doc).value.mcp_servers.foo.enabled, true);  // and the real key is enabled=true
+  const r = applyVerifiedEdit(doc, MCP('foo'), false);
+  assert.equal(r.ok, false);
+  assert.equal(r.error.code, 'verify-semantic-mismatch');
+  assert.equal(r.text, doc);
+});
+
 test('applyVerifiedEdit: disable→enable round-trip is byte-identical to the original', () => {
   const sel = PLUGIN('superpowers@openai-curated');
   const d = applyVerifiedEdit(FIXTURE, sel, false);
