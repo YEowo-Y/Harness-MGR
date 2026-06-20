@@ -29,6 +29,12 @@ import { codexDescriptor } from '../../src/targets/codex.mjs';
 const CONFIG = [
   'model = "gpt-5.5"',
   '',
+  '[mcp_servers.context7]',
+  'command = "npx"',
+  '',
+  '[mcp_servers.svc]',
+  'command = "node"',
+  '',
   '[mcp_servers.svc.env]',
   'SECRET = "sk-keep-me-safe-0123456789"',
   '',
@@ -93,6 +99,44 @@ test('codex disable plugin: flips enabled then rolls back BYTE-IDENTICAL (BLOCKE
     });
     assert.equal(rb.status, 'restored', `rollback failed: ${JSON.stringify(rb.diagnostics)}`);
     assert.ok(Buffer.compare(readFileSync(cfg), before) === 0, 'config.toml restored byte-identical (enabled = true again)');
+  } finally {
+    try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+});
+
+test('codex disable MCP: INSERTS enabled=false, secret intact, then rolls back BYTE-IDENTICAL', async (t) => {
+  const { tarPath } = resolveTar();
+  if (!tarPath) { t.skip('system tar not found — skipping codex mcp insert round-trip'); return; }
+
+  const tmp = buildCodexTree();
+  const cfg = join(tmp, 'config.toml');
+  const before = readFileSync(cfg);
+  try {
+    const r = await setComponentEnabled({ ...opts(tmp), kind: 'mcp', name: 'context7', desired: false });
+    assert.equal(r.ok, true, `mcp disable failed: ${JSON.stringify(r.diagnostics)}`);
+    assert.equal(r.apply.applied, true);
+    assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-mcp-loader-unverified'), 'honest caveat surfaced on apply');
+    const snapshotId = r.apply.snapshotId;
+
+    const after = readFileSync(cfg, 'utf8');
+    assert.ok(after.includes('[mcp_servers.context7]\nenabled = false\ncommand = "npx"'), 'enabled=false inserted as the first body line');
+    assert.ok(after.includes('SECRET = "sk-keep-me-safe-0123456789"'), 'the mcp env secret is byte-identical');
+    // the insert is structurally before the secret sub-table
+    assert.ok(after.indexOf('enabled = false') < after.indexOf('[mcp_servers.svc.env]'));
+
+    // a SECOND disable apply is a safe no-op (idempotent — no write, no snapshot)
+    const again = await setComponentEnabled({ ...opts(tmp), kind: 'mcp', name: 'context7', desired: false });
+    assert.equal(again.ok, true);
+    assert.equal(again.alreadyInState, true);
+    assert.equal(readFileSync(cfg, 'utf8'), after, 'second disable wrote nothing');
+
+    // rollback removes the inserted line → config.toml byte-identical to the key-absent original
+    const rb = await rollbackSnapshot({
+      mgrStateDir: join(tmp, MGR_STATE_DIRNAME), targetClaudeDir: tmp, snapshotId,
+      assertWritable: opts(tmp).assertWritable, force: true, enableWrites: true, expectedTarget: tmp,
+    });
+    assert.equal(rb.status, 'restored', `rollback failed: ${JSON.stringify(rb.diagnostics)}`);
+    assert.ok(Buffer.compare(readFileSync(cfg), before) === 0, 'config.toml restored byte-identical (no enabled key)');
   } finally {
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
