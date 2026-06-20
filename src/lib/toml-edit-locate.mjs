@@ -25,12 +25,14 @@
  */
 
 import { parseBasicString, parseLiteralString } from './toml-scan.mjs';
+import { spanMask } from './toml-edit-mask.mjs';
 
 /**
  * @typedef {{kind:'plugin', name:string}
  *   | {kind:'mcp', name:string}
  *   | {kind:'skill', match:{field:'name'|'path', value:string}}} EnableSelector
  */
+/** @typedef {import('./toml-edit-mask.mjs').SpanMask} SpanMask */
 
 /** A bare-key char: A-Za-z0-9 _ - (same rule the parser uses). @param {string|undefined} ch */
 function isBareKeyChar(ch) {
@@ -107,16 +109,19 @@ function eqSegments(a, b) {
 
 /** Collect every header in `text` with its body span [bodyStart, regionEnd). A region
  *  ends at the NEXT header line or EOF, so a sub-table header closes its parent region.
- *  @param {string} text
+ *  A `[`-line whose start byte falls inside a masked span (a multi-line string or an
+ *  inline-table brace region) is NOT a real header — it is string/brace content — so it
+ *  can never open or close a region.
+ *  @param {string} text @param {SpanMask} mask
  *  @returns {Array<{segments:string[], isArray:boolean, bodyStart:number, regionEnd:number}>} */
-function collectHeaders(text) {
+function collectHeaders(text, mask) {
   const heads = [];
   const n = text.length;
   let i = 0;
   while (i < n) {
     const lineEnd = lineEndOf(text, i);
     const content = text.slice(i, lineEnd);
-    if (content[skipSp(content, 0)] === '[') {
+    if (content[skipSp(content, 0)] === '[' && !mask.skip(i)) {
       const hdr = parseHeader(content);
       if (hdr) {
         if (heads.length) heads[heads.length - 1].regionEnd = i;
@@ -143,13 +148,16 @@ function readStringKey(text, lineStart, lineEnd, wantKey) {
   return r ? r.value : null;
 }
 
-/** True when the region body has a `<field> = "<value>"` line. @param {string} text
- *  @param {{bodyStart:number, regionEnd:number}} region @param {string} field @param {string} value */
-function regionMatchesField(text, region, field, value) {
+/** True when the region body has a `<field> = "<value>"` line. A line whose start byte
+ *  is masked (inside a multi-line string / inline table) is skipped, so a field selector
+ *  can never match text that is actually string/brace content. @param {string} text
+ *  @param {{bodyStart:number, regionEnd:number}} region @param {string} field @param {string} value
+ *  @param {SpanMask} mask */
+function regionMatchesField(text, region, field, value, mask) {
   let i = region.bodyStart;
   while (i < region.regionEnd) {
     const lineEnd = Math.min(lineEndOf(text, i), region.regionEnd);
-    if (readStringKey(text, i, lineEnd, field) === value) return true;
+    if (!mask.skip(i) && readStringKey(text, i, lineEnd, field) === value) return true;
     i = lineEnd + 1;
   }
   return false;
@@ -157,8 +165,11 @@ function regionMatchesField(text, region, field, value) {
 
 /** The `enabled = <token>` line(s) in a region — value-token byte range + literal +
  *  full-line range. Requires the bare key === 'enabled' (defends `enabled_tools`/quoted).
- *  @param {string} text @param {number} bodyStart @param {number} regionEnd */
-function scanEnabledLines(text, bodyStart, regionEnd) {
+ *  A line whose start byte OR whose value token is masked (inside a multi-line string /
+ *  inline-table region) is skipped, so the splice can never target a token that is really
+ *  string or brace content. @param {string} text @param {number} bodyStart
+ *  @param {number} regionEnd @param {SpanMask} mask */
+function scanEnabledLines(text, bodyStart, regionEnd, mask) {
   const out = [];
   let i = bodyStart;
   while (i < regionEnd) {
@@ -166,13 +177,13 @@ function scanEnabledLines(text, bodyStart, regionEnd) {
     let j = skipSp(text, i);
     let key = '';
     while (j < lineEnd && isBareKeyChar(text[j])) { key += text[j]; j += 1; }
-    if (key === 'enabled') {
+    if (key === 'enabled' && !mask.skip(i)) {
       let k = skipSp(text, j);
       if (text[k] === '=') {
         k = skipSp(text, k + 1);
         const valStart = k;
         while (k < lineEnd && !isDelim(text[k])) k += 1;
-        out.push({ valStart, valEnd: k, literal: text.slice(valStart, k), lineStart: i, lineEnd });
+        if (!mask.skip(valStart)) out.push({ valStart, valEnd: k, literal: text.slice(valStart, k), lineStart: i, lineEnd });
       }
     }
     i = lineEnd + 1;
@@ -180,10 +191,11 @@ function scanEnabledLines(text, bodyStart, regionEnd) {
   return out;
 }
 
-/** Resolve the selector to its single matching table region. @param {string} text @param {EnableSelector} selector
+/** Resolve the selector to its single matching table region. @param {string} text
+ *  @param {EnableSelector} selector @param {SpanMask} mask
  *  @returns {{region?:object, absent?:boolean, ambiguous?:boolean, error?:{code:string,message:string}}} */
-function locateRegion(text, selector) {
-  const heads = collectHeaders(text);
+function locateRegion(text, selector, mask) {
+  const heads = collectHeaders(text, mask);
   const s = selector;
   let matches;
   if (s && s.kind === 'plugin' && typeof s.name === 'string') {
@@ -192,7 +204,7 @@ function locateRegion(text, selector) {
     matches = heads.filter((h) => !h.isArray && eqSegments(h.segments, ['mcp_servers', s.name]));
   } else if (s && s.kind === 'skill' && s.match && (s.match.field === 'name' || s.match.field === 'path') && typeof s.match.value === 'string') {
     matches = heads.filter((h) => h.isArray && eqSegments(h.segments, ['skills', 'config'])
-      && regionMatchesField(text, h, s.match.field, s.match.value));
+      && regionMatchesField(text, h, s.match.field, s.match.value, mask));
   } else {
     return { error: { code: 'invalid-selector', message: 'unrecognized enable selector' } };
   }
@@ -209,15 +221,21 @@ function locateRegion(text, selector) {
  *   { found:false, error:{code,message} }                 — bad input/selector
  *   { found:true, mode:'flip', tokenStart, tokenEnd, literal, lineStart, lineEnd, enabledCount }
  *   { found:true, mode:'insert', insertAt, enabledCount:0 } — table exists but has no `enabled` key
+ *   { found:false, error:{code:'unparseable-multiline'} } — an unterminated `"""`/`'''`/inline table
  * @param {string} text @param {EnableSelector} selector
  */
 export function findEnableSpan(text, selector) {
   if (typeof text !== 'string') return { found: false, error: { code: 'input-not-string', message: 'text must be a string' } };
-  const loc = locateRegion(text, selector);
+  // Compute the multi-line-string / inline-table mask ONCE. An unterminated span makes the
+  // document structurally ambiguous to a line scanner → fail closed BEFORE locating, so the
+  // splice can never land in a region a line scanner would misread (decouples us from parseToml).
+  const mask = spanMask(text);
+  if (mask.malformed) return { found: false, error: { code: 'unparseable-multiline', message: 'document has an unterminated multi-line string or inline table; refusing to locate' } };
+  const loc = locateRegion(text, selector, mask);
   if (loc.error) return { found: false, error: loc.error };
   if (loc.ambiguous) return { found: false, ambiguous: true, error: { code: 'ambiguous-selector', message: 'selector matched more than one table' } };
   if (loc.absent) return { found: false, absent: true };
-  const lines = scanEnabledLines(text, loc.region.bodyStart, loc.region.regionEnd);
+  const lines = scanEnabledLines(text, loc.region.bodyStart, loc.region.regionEnd, mask);
   if (lines.length === 0) return { found: true, mode: 'insert', insertAt: loc.region.bodyStart, enabledCount: 0 };
   const first = lines[0];
   return {
