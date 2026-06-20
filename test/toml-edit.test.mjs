@@ -291,14 +291,27 @@ test('array-of-arrays region is NOT split: a [123] row inside an array is masked
   assert.equal((r.text.match(/enabled = /g) || []).length, 1, 'exactly one enabled line — no duplicate');
 });
 
-test('applyVerifiedEdit: V4 fail-closes a skill flip — resolveEnabledValue is not wired for skill yet (fail-LOUD for the skill unit)', () => {
-  // setEnabled flips the skill at the byte level (V1/V2/V3 all pass), but the V4 semantic guard
-  // has no skill navigator yet → it returns undefined !== desired → fail-closed. This pins the
-  // contract that the future skill unit MUST extend resolveEnabledValue (fail-loud > silent gap).
+test('applyVerifiedEdit: skill flip by NAME now succeeds — V4 navigates skills.config and confirms enabled===desired', () => {
+  // The skill unit wired resolveEnabledValue to navigate the [[skills.config]] array-of-tables.
+  // A name-keyed flip passes V1/V2/V3 AND the V4 semantic guard (a real parser resolves the
+  // UNIQUE matching element's enabled to the desired value) — the fail-LOUD gap is now closed.
   const r = applyVerifiedEdit(FIXTURE, SKILL('name', 'ab-test-setup'), true);
-  assert.equal(r.ok, false);
-  assert.equal(r.error.code, 'verify-semantic-mismatch');
-  assert.equal(r.text, FIXTURE);
+  assert.equal(r.ok, true);
+  assert.equal(r.reason, 'flipped');
+  const cfg = parseToml(r.text).value.skills.config;
+  assert.equal(cfg.find((e) => e.name === 'ab-test-setup').enabled, true);
+  assert.equal(cfg.find((e) => e.path && e.path.includes('x-twitter-growth')).enabled, false); // sibling untouched
+  assert.ok(r.text.includes('SECRET_TOKEN = "sk-do-not-touch-0123456789"'), 'secret region byte-identical');
+});
+
+test('applyVerifiedEdit: skill flip by PATH succeeds + disable→enable→disable is byte-identical', () => {
+  const sel = SKILL('path', 'C:/Users/alice/.codex/skills/x-twitter-growth/SKILL.md');
+  const e = applyVerifiedEdit(FIXTURE, sel, true);
+  assert.equal(e.ok, true);
+  assert.equal(parseToml(e.text).value.skills.config.find((x) => x.path && x.path.includes('x-twitter-growth')).enabled, true);
+  const back = applyVerifiedEdit(e.text, sel, false);
+  assert.equal(back.ok, true);
+  assert.equal(back.text, FIXTURE, 'path-keyed round-trip restores the original byte-for-byte');
 });
 
 test('applyVerifiedEdit: disable→enable round-trip is byte-identical to the original', () => {
