@@ -21,16 +21,22 @@
  *   (a) multi-line basic strings   `""" … """`
  *   (b) multi-line literal strings  `''' … '''`
  *   (c) inline-table brace regions  `{ … }`   (nested braces tracked)
+ *   (d) array VALUE regions         `[ … ]`   (a `[` in value position, possibly multi-line)
  * It STEPS OVER ordinary single-line quoted values (reusing the parser's own
  * escape-aware string grammar) and `#` comments, so a `{` / `"""` / `[` that lives
- * INSIDE a normal quoted value or a comment never opens a span. Multi-line ARRAYS
- * (`[ … ]`, e.g. `args = [ … ]`) are deliberately NOT masked — they are legitimate in
- * the live config and the line scanners are not fooled by them. It returns a
- * `skip(offset)` predicate plus `malformed:true` when any span is opened and never
- * closed before EOF (the document is structurally ambiguous to a line scanner →
- * findEnableSpan fails closed). It does NOT decode or validate the contents; that is
- * parseToml's job, and duplicating it would bloat the module + re-introduce a second
- * grammar to keep in sync.
+ * INSIDE a normal quoted value or a comment never opens a span. A `[` that is the FIRST
+ * non-blank char of a line is a TABLE HEADER (`[…]` / `[[…]]`) and is NOT masked; a `[`
+ * anywhere else is an array value and its INTERIOR is masked. This is load-bearing for
+ * arrays-of-arrays: a row like `[123]` formatted alone on a line inside a multi-line
+ * `data = [ … ]` would otherwise be mis-read as a table header by the line scanner,
+ * splitting the table's region before its real `enabled` (an mcp disable would then
+ * INSERT a duplicate key). Masking the array interior closes that at the locator's root.
+ * (The legitimate `enabled` that follows AFTER an array's closing `]` is outside the span,
+ * so it is still found.) It returns a `skip(offset)` predicate plus `malformed:true` when
+ * any span is opened and never closed before EOF (the document is structurally ambiguous
+ * to a line scanner → findEnableSpan fails closed). It does NOT decode or validate the
+ * contents; that is parseToml's job, and duplicating it would bloat the module +
+ * re-introduce a second grammar to keep in sync.
  *
  * Pure string processing; never throws; zero npm deps; no node:* imports.
  */
@@ -82,6 +88,38 @@ function pastInlineTable(text, open) {
 }
 
 /**
+ * Find the matching close of an array VALUE that OPENS at text[open] === '['. Unlike an
+ * inline table, an array MAY span lines and contain `#` comments between elements; it may
+ * also contain strings, nested arrays, and inline tables — all stepped over so a `]` inside
+ * them is not a false close. Returns the index just past the matching `]`, or -1 when the
+ * array is unterminated before EOF (→ the document is malformed). @param {string} text
+ * @param {number} open */
+function pastArray(text, open) {
+  const n = text.length;
+  let depth = 0;
+  let j = open;
+  while (j < n) {
+    const c = text[j];
+    if (c === '#') { const nl = text.indexOf('\n', j); j = nl === -1 ? n : nl; continue; } // comment between elements
+    if (c === '"' || c === "'") {
+      if (text[j + 1] === c && text[j + 2] === c) { // a multi-line string element
+        const close = text.indexOf(c + c + c, j + 3);
+        if (close === -1) return -1;
+        j = close + 3; continue;
+      }
+      const nxt = pastSingleLineString(text, j);
+      if (nxt === -1) return -1;
+      j = nxt; continue;
+    }
+    if (c === '{') { const e = pastInlineTable(text, j); if (e === -1) return -1; j = e; continue; }
+    if (c === '[') { depth += 1; j += 1; continue; }
+    if (c === ']') { depth -= 1; j += 1; if (depth === 0) return j; continue; }
+    j += 1;
+  }
+  return -1;
+}
+
+/**
  * Pre-scan `text` and return the unsafe-byte-range mask (see module header). NEVER
  * throws; a non-string yields an empty, never-skipping, non-malformed mask.
  * @param {string} text @returns {SpanMask}
@@ -93,9 +131,18 @@ export function spanMask(text) {
   if (typeof text === 'string') {
     const n = text.length;
     let i = 0;
+    let atLineStart = true; // true at the first non-blank char of a logical line
     while (i < n) {
       const c = text[i];
-      if (c === '#') { const nl = text.indexOf('\n', i); i = nl === -1 ? n : nl + 1; continue; } // comment → EOL
+      if (c === '\n') { atLineStart = true; i += 1; continue; }
+      if (c === ' ' || c === '\t' || c === '\r') { i += 1; continue; } // leading ws keeps atLineStart
+      if (c === '#') { const nl = text.indexOf('\n', i); i = nl === -1 ? n : nl; continue; } // comment → up to the \n
+      // A '[' that is the FIRST non-blank char of a line is a TABLE HEADER ([…]/[[…]]),
+      // never a value array — skip the whole header line (its inner '['/']'/quoted key can
+      // then never open a span). An array-CONTENT '[' (a row like `[123]`) is consumed inside
+      // pastArray when the array opened on an earlier line, so it can never reach here.
+      if (atLineStart && c === '[') { const nl = text.indexOf('\n', i); i = nl === -1 ? n : nl; continue; }
+      atLineStart = false; // any other significant char puts us in value (mid-statement) position
       if (c === '"' || c === "'") {
         if (text[i + 1] === c && text[i + 2] === c) { // multi-line string: span to the next triple-quote
           const close = text.indexOf(c + c + c, i + 3);
@@ -104,6 +151,11 @@ export function spanMask(text) {
         }
         const nxt = pastSingleLineString(text, i); // ordinary single-line string: step over (NOT masked)
         i = nxt === -1 ? i + 1 : nxt; continue;
+      }
+      if (c === '[') { // value-position '[' = a (possibly multi-line) array → mask its interior
+        const end = pastArray(text, i);
+        if (end === -1) { malformed = true; ranges.push([i, n]); break; }
+        ranges.push([i, end]); i = end; continue;
       }
       if (c === '{') { // inline-table brace region
         const end = pastInlineTable(text, i);
