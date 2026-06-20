@@ -9,7 +9,7 @@
  * Target support: config-edit is a per-target feature. Only a target whose write
  * surface enables it (Codex: configEditFiles=['config.toml'] + features.configEdit) is
  * accepted; on any other target (Claude) the command refuses with a clear message
- * rather than silently no-op'ing. MVP --type is plugin (the engine refuses mcp/skill).
+ * rather than silently no-op'ing. --type is plugin or mcp (the engine refuses skill).
  *
  * M2-SAFETY: never STATICALLY imports paths.mjs; the gate is resolved via a DYNAMIC
  * import ONLY on the real --apply path (mirrors remove-command.mjs). Dry-run touches no
@@ -76,7 +76,7 @@ async function configEditCommand(ctx, deps, desired) {
   if (!supported) {
     return cli(`${verb}-unsupported-target`, `${verb} is only supported for a target with an in-place config surface (run with --target codex); the current target has none`, 'unsupported-target', 3);
   }
-  if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin and a name: ${verb} --type plugin <name@marketplace>`, 'no-type', 3);
+  if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin|mcp and a name: ${verb} --type plugin <name@marketplace> | ${verb} --type mcp <server>`, 'no-type', 3);
   if (typeof name !== 'string' || name.length === 0) return cli(`${verb}-no-name`, `${verb} requires a name: ${verb} --type ${kind} <name>`, 'no-name', 3);
 
   const apply = !!(args && args.apply);
