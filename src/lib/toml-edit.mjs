@@ -46,14 +46,25 @@ import { parseToml } from './toml-parser.mjs';
  *  mis-split (e.g. a column-0 array-of-arrays row `[123]` that a line scanner mistakes for a
  *  header, hiding the real `enabled` so an INSERT silently adds a DUPLICATE key V1/V3 miss):
  *  parseToml is a real parser, so it sees the true (TOML last-wins) value. Returns undefined
- *  when absent / not a boolean, or for the not-yet-shipped skill kind (which never reaches a
- *  write path; undefined → V4 fails closed, forcing the skill unit to extend this).
+ *  when absent / not a boolean, or when a skill selector resolves to anything other than
+ *  EXACTLY one matching element (zero or >1 → undefined → V4 fails closed, never edits an
+ *  ambiguous skill the locator should already have refused).
  *  @param {any} value parseToml(after).value @param {import('./toml-edit-locate.mjs').EnableSelector} selector */
 function resolveEnabledValue(value, selector) {
   if (!value || typeof value !== 'object' || !selector) return undefined;
   if (selector.kind === 'plugin') return value.plugins?.[selector.name]?.enabled;
   if (selector.kind === 'mcp') return value.mcp_servers?.[selector.name]?.enabled;
-  return undefined; // skill: a name/path-indexed array — its semantic check lands with the skill unit
+  if (selector.kind === 'skill' && selector.match && typeof selector.match.field === 'string') {
+    // skill: `[[skills.config]]` is a name/path-indexed array of tables. Navigate the parsed
+    // array, match the selector's field === value, and resolve enabled only for a UNIQUE hit —
+    // a real parser settling the array is the semantic backstop to the byte splice.
+    const arr = value.skills?.config;
+    if (!Array.isArray(arr)) return undefined;
+    const { field, value: want } = selector.match;
+    const hits = arr.filter((el) => el && typeof el === 'object' && el[field] === want);
+    return hits.length === 1 ? hits[0].enabled : undefined;
+  }
+  return undefined;
 }
 
 /** 1-based line number of byte `offset` in `text`. @param {string} text @param {number} offset */
