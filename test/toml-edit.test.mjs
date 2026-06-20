@@ -275,19 +275,30 @@ test('applyVerifiedEdit: FAIL-CLOSED on a region with duplicate enabled lines (V
   assert.equal(r.text, doc); // ORIGINAL text returned
 });
 
-test('applyVerifiedEdit: FAIL-CLOSED on an array-of-arrays region split (V4 semantic guard)', () => {
+test('array-of-arrays region is NOT split: a [123] row inside an array is masked, so disable FLIPS the real key', () => {
   // VALID TOML whose array element row starts at column 0 with `[123]` (a nested array). The
-  // line scanner mistakes `[123]` for a header → splits foo's region BEFORE the real enabled,
-  // so a disable INSERT would write a DUPLICATE enabled that V1 (no dup-key error) and V3
-  // (same split scanner sees count 1) both miss. The V4 whole-document re-parse (TOML last-wins
-  // → enabled=true) catches it: ok:false, ORIGINAL returned, no duplicate written.
+  // locator hardening (spanMask masks the array INTERIOR) means `[123]` is no longer mistaken
+  // for a table header, so foo's region stays intact and its real `enabled = true` is found →
+  // disable correctly FLIPS it (mode 'flip', not the old region-split 'insert'), writing exactly
+  // ONE enabled line. Root-cause fix for the array-of-arrays defect (was a V4-caught fail-close).
   const doc = ['[mcp_servers.foo]', 'data = [', '[123],', ']', 'enabled = true'].join('\n') + '\n';
   assert.deepEqual(parseToml(doc).errors, []);                       // it really is valid TOML
-  assert.equal(parseToml(doc).value.mcp_servers.foo.enabled, true);  // and the real key is enabled=true
+  assert.equal(findEnableSpan(doc, MCP('foo')).mode, 'flip');        // the real key is visible again (not 'insert')
   const r = applyVerifiedEdit(doc, MCP('foo'), false);
+  assert.equal(r.ok, true);
+  assert.equal(r.reason, 'flipped');
+  assert.equal(parseToml(r.text).value.mcp_servers.foo.enabled, false);
+  assert.equal((r.text.match(/enabled = /g) || []).length, 1, 'exactly one enabled line — no duplicate');
+});
+
+test('applyVerifiedEdit: V4 fail-closes a skill flip — resolveEnabledValue is not wired for skill yet (fail-LOUD for the skill unit)', () => {
+  // setEnabled flips the skill at the byte level (V1/V2/V3 all pass), but the V4 semantic guard
+  // has no skill navigator yet → it returns undefined !== desired → fail-closed. This pins the
+  // contract that the future skill unit MUST extend resolveEnabledValue (fail-loud > silent gap).
+  const r = applyVerifiedEdit(FIXTURE, SKILL('name', 'ab-test-setup'), true);
   assert.equal(r.ok, false);
   assert.equal(r.error.code, 'verify-semantic-mismatch');
-  assert.equal(r.text, doc);
+  assert.equal(r.text, FIXTURE);
 });
 
 test('applyVerifiedEdit: disable→enable round-trip is byte-identical to the original', () => {
