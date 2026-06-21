@@ -13,14 +13,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { disableCommand, enableCommand } from '../src/cli/config-edit-command.mjs';
 import { codexDescriptor } from '../src/targets/codex.mjs';
+import { claudeDescriptor } from '../src/targets/claude.mjs';
 
 const codexCtx = (args) => ({ configDir: 'C:\\codex', mgrStateDir: 'C:\\codex\\.mgr-state', args, descriptor: codexDescriptor });
+const claudeCtx = (args) => ({ configDir: 'C:\\claude', mgrStateDir: 'C:\\claude\\.mgr-state', args, descriptor: claudeDescriptor });
 
 function makeDeps(over = {}) {
   const calls = [];
   const setEnabledFn = async (o) => { calls.push(o); return { ok: true, refused: false, dryRun: !o.enableWrites, kind: o.kind, name: o.name, desired: o.desired, diagnostics: [] }; };
   setEnabledFn.calls = calls;
-  return { env: {}, setEnabledFn, loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => ((p) => p) }), ...over };
+  const pcalls = [];
+  const setPluginEnabledFn = async (o) => { pcalls.push(o); return { ok: true, refused: false, dryRun: !o.enableWrites, kind: 'plugin', name: o.key, desired: o.desired, diagnostics: [] }; };
+  setPluginEnabledFn.calls = pcalls;
+  return { env: {}, setEnabledFn, setPluginEnabledFn, loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => ((p) => p) }), ...over };
 }
 
 test('unsupported target (no writeSurface) → refused, code 3, engine never called', async () => {
@@ -175,4 +180,83 @@ test('the engine throwing is caught → unexpected-error, code 1 (never propagat
   const out = await enableCommand(codexCtx({ type: 'mcp', positionals: ['context7'] }), deps);
   assert.equal(out.code, 1);
   assert.ok(out.diagnostics.some((d) => d.code === 'enable-unexpected-error'));
+});
+
+// ── CLAUDE plugin-toggle path (settings.json enabledPlugins; --type plugin only) ──────
+
+test('claude + --type plugin dry-run → routes to setPluginEnabledFn (key+desired, NO gate), codex engine untouched', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(claudeCtx({ type: 'plugin', positionals: ['ecc@everything-claude-code'] }), deps);
+  assert.equal(out.code, 0);
+  assert.equal(deps.setEnabledFn.calls.length, 0, 'the codex (TOML) engine must NOT be called for claude');
+  assert.equal(deps.setPluginEnabledFn.calls.length, 1);
+  const c = deps.setPluginEnabledFn.calls[0];
+  assert.equal(c.key, 'ecc@everything-claude-code');
+  assert.equal(c.desired, false);
+  assert.equal(c.enableWrites, false);
+  assert.equal(c.assertWritable, undefined, 'dry-run must not resolve a write gate');
+  assert.equal(c.targetClaudeDir, 'C:\\claude');
+});
+
+test('claude enable sets desired:true', async () => {
+  const deps = makeDeps();
+  await enableCommand(claudeCtx({ type: 'plugin', positionals: ['x@y'] }), deps);
+  assert.equal(deps.setPluginEnabledFn.calls[0].desired, true);
+});
+
+test('claude + --type mcp → claude-kind-unsupported (code 3), neither engine called', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(claudeCtx({ type: 'mcp', positionals: ['ctx7'] }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-claude-kind-unsupported'));
+  assert.equal(deps.setPluginEnabledFn.calls.length, 0);
+  assert.equal(deps.setEnabledFn.calls.length, 0);
+});
+
+test('claude + --type skill → claude-kind-unsupported (code 3)', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(claudeCtx({ type: 'skill', positionals: ['x'] }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-claude-kind-unsupported'));
+});
+
+test('claude + --type plugin + no name → no-name (code 3)', async () => {
+  const deps = makeDeps();
+  const out = await enableCommand(claudeCtx({ type: 'plugin', positionals: [] }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'enable-no-name'));
+  assert.equal(deps.setPluginEnabledFn.calls.length, 0);
+});
+
+test('claude + --type plugin + --path → path-not-allowed (code 3)', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(claudeCtx({ type: 'plugin', positionals: ['a@b'], path: 'C:/x' }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-path-not-allowed'));
+  assert.equal(deps.setPluginEnabledFn.calls.length, 0);
+});
+
+test('claude + no --type → no-type (code 3)', async () => {
+  const deps = makeDeps();
+  const out = await disableCommand(claudeCtx({ positionals: ['a@b'] }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-no-type'));
+});
+
+test('claude --apply resolves the bare gate (byte-identical) + enableWrites:true + claude scope (undefined)', async () => {
+  const BARE = (p) => p;
+  const deps = makeDeps({ loadPaths: async () => ({ assertWritable: BARE, makeAssertWritable: () => ((p) => p) }) });
+  await disableCommand(claudeCtx({ type: 'plugin', positionals: ['x@y'], apply: true }), deps);
+  const c = deps.setPluginEnabledFn.calls[0];
+  assert.equal(c.enableWrites, true);
+  assert.equal(c.assertWritable, BARE, 'claude (no writeSurface) → the bare paths.assertWritable');
+  assert.equal(c.scope, undefined, 'claude descriptor has no snapshotScope → default claude scope');
+});
+
+test('claude --apply with CLAUDE_MGR_ENABLE_WRITES=0 → env lock refusal, engine never called', async () => {
+  const deps = makeDeps({ env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+  const out = await disableCommand(claudeCtx({ type: 'plugin', positionals: ['x@y'], apply: true }), deps);
+  assert.equal(out.code, 3);
+  assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env'));
+  assert.equal(deps.setPluginEnabledFn.calls.length, 0);
 });
