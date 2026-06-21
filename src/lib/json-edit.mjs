@@ -52,15 +52,6 @@ function lineNumberAt(text, offset) {
   return line;
 }
 
-/** The [lineStart, lineEnd) bounds of the line containing `offset` (lineEnd excludes '\n';
- *  a CRLF '\r' stays inside the line). @param {string} text @param {number} offset */
-function lineBounds(text, offset) {
-  let lineStart = offset;
-  while (lineStart > 0 && text[lineStart - 1] !== '\n') lineStart -= 1;
-  const nl = text.indexOf('\n', offset);
-  return { lineStart, lineEnd: nl === -1 ? text.length : nl };
-}
-
 /** Build the INSERT edit — add `"key": true` as a new member at the enabledPlugins body start
  *  (before the first member, replicating its leading whitespace), or compactly into an empty
  *  object. The key is JSON-escaped via JSON.stringify so any char is safe. @param {string} text
@@ -93,18 +84,17 @@ export function setPluginEnabled(text, key, desired) {
   }
 
   const want = desired ? 'true' : 'false';
-  const { lineStart, lineEnd } = lineBounds(text, span.tokenStart);
-  const oldLine = text.slice(lineStart, lineEnd);
+  // Build the diff from the key + boolean — NEVER slice the physical line. A hand-minified
+  // settings.json could co-locate an env secret on the same line as the plugin member, and the
+  // diff is echoed to stdout; synthesizing `"key": <bool>` is leak-proof by construction (the
+  // written bytes are still verified byte-identical-outside-the-token by applyVerifiedJsonEdit V2).
+  const member = (val) => `${JSON.stringify(key)}: ${val}`;
+  const line = lineNumberAt(text, span.tokenStart);
   if (span.literal === want) {
-    return { changed: false, text, reason: 'noop-already', before: oldLine, after: oldLine, line: lineNumberAt(text, span.tokenStart), error: null };
+    return { changed: false, text, reason: 'noop-already', before: member(span.literal), after: member(want), line, error: null };
   }
   const newText = text.slice(0, span.tokenStart) + want + text.slice(span.tokenEnd);
-  const delta = want.length - span.literal.length;
-  return {
-    changed: true, text: newText, reason: 'flipped',
-    before: oldLine, after: newText.slice(lineStart, lineEnd + delta),
-    line: lineNumberAt(text, span.tokenStart), error: null,
-  };
+  return { changed: true, text: newText, reason: 'flipped', before: member(span.literal), after: member(want), line, error: null };
 }
 
 /**
