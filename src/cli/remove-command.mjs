@@ -31,6 +31,7 @@
 import { removeComponent } from '../ops/remove.mjs';
 import { resolveWriteIntent, resolveAssertWritable } from './write-gate.mjs';
 import { cascadeCommand } from './cascade-command.mjs';
+import { pruneConfigCommand } from './prune-config-command.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('./commands.mjs').CommandContext} CommandContext */
@@ -108,6 +109,13 @@ function summarizeRemove(r) {
  */
 export async function removeCommand(ctx, deps = {}) {
   const args = ctx && ctx.args ? ctx.args : {};
+
+  // Route --prune-config to the prune-aware remove path (codex skill + orphaned
+  // [[skills.config]] cleanup in ONE reversible plan). Checked BEFORE --cascade: the
+  // two are distinct cleanup models, and pruneConfigCommand refuses if both are set.
+  if (args && args['prune-config']) {
+    return pruneConfigCommand(ctx, deps);
+  }
 
   // Route --cascade to the cascade handler (same ctx + deps shape).
   if (args && args.cascade) {
