@@ -257,3 +257,81 @@ test('--apply without an injected gate → refused before any apply', async () =
   assert.equal(r.refused, true);
   assert.ok(r.diagnostics.some((d) => d.code === 'config-edit-bad-args'));
 });
+
+// ── unsupported config shape (P6 §9): a clear refusal instead of a generic/misleading one ──
+// The in-place editor can only flip a bare `enabled = true|false` token inside a real
+// `[header]` region. A component present in some OTHER TOML shape (a non-boolean enabled,
+// an inline table/array, or a file with a """ string the whole-doc verifier rejects) can
+// never be flipped — these used to surface a cryptic locate-error, a misleading
+// "not found", or (only at --apply) a verify-reparse-failed. Each is now one clear
+// `config-edit-unsupported-shape` refusal (still fail-closed: refused, no write).
+
+test('A — enabled value is a quoted string (not a bare boolean) → unsupported-shape', async () => {
+  const text = '[plugins."x@y"]\nenabled = "true"\n';
+  const r = await setComponentEnabled({ ...base, kind: 'plugin', name: 'x@y', desired: false, readFn: () => text });
+  assert.equal(r.refused, true);
+  const d = r.diagnostics.find((x) => x.code === 'config-edit-unsupported-shape');
+  assert.ok(d, 'config-edit-unsupported-shape emitted');
+  assert.match(d.message, /by hand/i);
+  assert.ok(!r.diagnostics.some((x) => x.code === 'config-edit-locate-error'), 'no longer the generic locate-error');
+});
+
+test('B — file has an unterminated/multi-line construct → unsupported-shape (not locate-error)', async () => {
+  const text = '[plugins."x@y"]\nenabled = true\ndesc = """\nunterminated\n';
+  const r = await setComponentEnabled({ ...base, kind: 'plugin', name: 'x@y', desired: false, readFn: () => text });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((x) => x.code === 'config-edit-unsupported-shape'));
+  assert.ok(!r.diagnostics.some((x) => x.code === 'config-edit-locate-error'));
+});
+
+test('C — plugin defined as an INLINE TABLE → unsupported-shape (not the misleading target-not-found)', async () => {
+  const text = 'plugins."x@y" = { enabled = true, version = "1.0" }\n';
+  const r = await setComponentEnabled({ ...base, kind: 'plugin', name: 'x@y', desired: false, readFn: () => text });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((x) => x.code === 'config-edit-unsupported-shape'));
+  assert.ok(!r.diagnostics.some((x) => x.code === 'config-edit-target-not-found'));
+});
+
+test('C — skills written as an INLINE ARRAY → unsupported-shape', async () => {
+  const text = 'skills.config = [ { name = "foo", enabled = true } ]\n';
+  const r = await setComponentEnabled({ ...base, kind: 'skill', name: 'foo', desired: false, readFn: () => text });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((x) => x.code === 'config-edit-unsupported-shape'));
+  assert.ok(!r.diagnostics.some((x) => x.code === 'config-edit-target-not-found'));
+});
+
+test('C-negative — a genuinely absent component on a clean file STAYS target-not-found', async () => {
+  // ghost@x is not defined in any shape → the honest message is still "not found", not unsupported-shape.
+  const r = await setComponentEnabled({ ...base, kind: 'plugin', name: 'ghost@x', desired: false });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((x) => x.code === 'config-edit-target-not-found'));
+  assert.ok(!r.diagnostics.some((x) => x.code === 'config-edit-unsupported-shape'));
+});
+
+test('D — a flip that locates fine but would not reparse → unsupported-shape (predicts the apply-time verify failure)', async () => {
+  // The locator+mask flip `enabled` fine, but the doc carries a """ string the whole-doc
+  // verifier (and apply V1) rejects. dry-run now refuses with the friendly message instead
+  // of letting --apply fail later with a cryptic verify-reparse-failed.
+  const text = '[plugins."x@y"]\nenabled = true\ndesc = """\nhi\n"""\n';
+  const r = await setComponentEnabled({ ...base, kind: 'plugin', name: 'x@y', desired: false, readFn: () => text });
+  assert.equal(r.refused, true);
+  assert.ok(r.diagnostics.some((x) => x.code === 'config-edit-unsupported-shape'));
+});
+
+test('unsupported-shape refusals all map to exit-relevant refused:true (no write, fail-closed)', async () => {
+  const text = '[plugins."x@y"]\nenabled = "true"\n';
+  const r = await setComponentEnabled({ ...base, kind: 'plugin', name: 'x@y', desired: false, readFn: () => text });
+  assert.equal(r.refused, true);
+  assert.equal(r.ok, false);
+  assert.equal(r.apply, null, 'never reached the apply path');
+});
+
+test('positive — a clean header flip still PROCEEDS (the new preview gate never over-refuses)', async () => {
+  // Pins the "never over-refuse" invariant right beside classifyPreview: a normal, flippable
+  // plugin in a clean [header] file must still reach ok:true / dryRun:true with NO
+  // unsupported-shape (or any) refusal now that the gate sits in the path.
+  const r = await setComponentEnabled({ ...base, kind: 'plugin', name: 'superpowers@openai-curated', desired: false });
+  assert.equal(r.ok, true);
+  assert.equal(r.dryRun, true);
+  assert.ok(!(r.diagnostics || []).some((d) => d.code === 'config-edit-unsupported-shape'));
+});
