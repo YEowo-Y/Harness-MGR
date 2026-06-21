@@ -67,17 +67,22 @@ test('disable→enable round-trip: stash captures config, add-json restores it b
   });
 });
 
-test('env-bearing server: disable refuses (no stash, no remove spawn)', async () => {
-  await withTree(async ({ stateDir, appFile, gate }) => {
-    const m = liveModel({ command: 'node', args: ['s.js'], env: { API_KEY: 'sk-secret' }, type: 'stdio' });
-    let removeCalls = 0;
-    const seams = { readRawEntryFn: m.readRawEntryFn, mcpRemoveFn: (o) => { removeCalls += 1; return m.mcpRemoveFn(o); }, mcpAddJsonFn: m.mcpAddJsonFn };
-    const r = await setMcpEnabledClaude({ name: 'svc', desired: false, targetClaudeDir: 'x', mgrStateDir: stateDir, appFile, assertWritable: gate, enableWrites: true, seams });
-    assert.equal(r.refused, true);
-    assert.ok(r.diagnostics.some((dg) => dg.code === 'mcp-toggle-has-env'));
-    assert.equal(removeCalls, 0, 'never delegated the removal');
-    assert.equal(stashExists(stateDir, 'svc'), false, 'never stashed a secret');
-  });
+test('credential-bearing server: disable refuses (no stash, no remove spawn) — env AND headers', async () => {
+  for (const evil of [
+    { command: 'node', args: ['s.js'], env: { API_KEY: 'sk-secret' }, type: 'stdio' },
+    { type: 'http', url: 'https://x/mcp', headers: { Authorization: 'Bearer sk-ant-api03-AbCdEf0123456789AbCdEf0123456789' } }, // DoD HIGH
+  ]) {
+    await withTree(async ({ stateDir, appFile, gate }) => {
+      const m = liveModel(evil);
+      let removeCalls = 0;
+      const seams = { readRawEntryFn: m.readRawEntryFn, mcpRemoveFn: (o) => { removeCalls += 1; return m.mcpRemoveFn(o); }, mcpAddJsonFn: m.mcpAddJsonFn };
+      const r = await setMcpEnabledClaude({ name: 'svc', desired: false, targetClaudeDir: 'x', mgrStateDir: stateDir, appFile, assertWritable: gate, enableWrites: true, seams });
+      assert.equal(r.refused, true);
+      assert.ok(r.diagnostics.some((dg) => dg.code === 'mcp-toggle-has-secret'));
+      assert.equal(removeCalls, 0, 'never delegated the removal');
+      assert.equal(stashExists(stateDir, 'svc'), false, 'never stashed a secret');
+    });
+  }
 });
 
 test('dry-run disable: stashes nothing + delegates nothing', async () => {

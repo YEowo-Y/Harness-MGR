@@ -18,6 +18,7 @@ import { makeAssertWritable, MGR_STATE_DIRNAME } from '../src/paths.mjs';
 
 const CFG = { command: 'npx', args: ['-y', '@upstash/context7-mcp'], type: 'stdio', timeout: 30000 };
 const CFG_ENV = { command: 'node', args: ['s.js'], env: { API_KEY: 'sk-x' }, type: 'stdio' };
+const CFG_HEADERS = { type: 'http', url: 'https://x/mcp', headers: { Authorization: 'Bearer sk-ant-api03-AbCdEf0123456789AbCdEf0123456789' } };
 
 // ASYNC + `await fn` so the finally cleanup waits for the async test body — a plain
 // `try { return fn() } finally { rmSync }` would delete the temp dir MID-RUN (the cleanup
@@ -65,9 +66,20 @@ test('disable refuses an env-bearing server (never stash a secret), no remove', 
     const mcpRemoveFn = recRemove();
     const r = await setMcpEnabledClaude({ name: 'svc', desired: false, targetClaudeDir: 'x', mgrStateDir: stateDir, appFile, assertWritable: gate, enableWrites: true, seams: { readRawEntryFn: () => CFG_ENV, mcpRemoveFn } });
     assert.equal(r.refused, true);
-    assert.ok(r.diagnostics.some((d) => d.code === 'mcp-toggle-has-env'));
+    assert.ok(r.diagnostics.some((d) => d.code === 'mcp-toggle-has-secret'));
     assert.equal(mcpRemoveFn.calls.length, 0);
     assert.equal(stashExists(stateDir, 'svc'), false);
+  });
+});
+
+test('disable refuses a HEADERS-bearing http server (DoD HIGH: never stash a Bearer token), no remove', async () => {
+  await withTree(async ({ stateDir, appFile, gate }) => {
+    const mcpRemoveFn = recRemove();
+    const r = await setMcpEnabledClaude({ name: 'remote', desired: false, targetClaudeDir: 'x', mgrStateDir: stateDir, appFile, assertWritable: gate, enableWrites: true, seams: { readRawEntryFn: () => CFG_HEADERS, mcpRemoveFn } });
+    assert.equal(r.refused, true);
+    assert.ok(r.diagnostics.some((d) => d.code === 'mcp-toggle-has-secret'));
+    assert.equal(mcpRemoveFn.calls.length, 0, 'never delegate the removal');
+    assert.equal(stashExists(stateDir, 'remote'), false, 'the Bearer token never reaches .mgr-state');
   });
 });
 

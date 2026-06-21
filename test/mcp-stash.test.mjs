@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { readRawEntry, entryHasEnv, writeStash, readStash, deleteStash, stashExists, stashPath } from '../src/ops/mcp-stash.mjs';
+import { readRawEntry, entryHasSecret, writeStash, readStash, deleteStash, stashExists, stashPath } from '../src/ops/mcp-stash.mjs';
 import { makeAssertWritable, MGR_STATE_DIRNAME } from '../src/paths.mjs';
 
 const APP = {
@@ -20,6 +20,7 @@ const APP = {
   mcpServers: {
     context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'], type: 'stdio', timeout: 30000 },
     withenv: { command: 'node', args: ['s.js'], env: { API_KEY: 'sk-secret' }, type: 'stdio' },
+    withheaders: { type: 'http', url: 'https://x/mcp', headers: { Authorization: 'Bearer sk-ant-api03-AbCdEf0123456789AbCdEf0123456789' } },
   },
 };
 
@@ -45,11 +46,14 @@ test('readRawEntry returns ONLY the named entry — never the file\'s other (sec
   });
 });
 
-test('entryHasEnv detects an env block (the stash-refusal trigger)', () => {
-  assert.equal(entryHasEnv(APP.mcpServers.withenv), true);
-  assert.equal(entryHasEnv(APP.mcpServers.context7), false);
-  assert.equal(entryHasEnv({ env: {} }), false); // empty env is not a secret
-  assert.equal(entryHasEnv(null), false);
+test('entryHasSecret detects env, headers, AND inline token-shaped values (the stash-refusal trigger)', () => {
+  assert.equal(entryHasSecret(APP.mcpServers.withenv), true, 'env block');
+  assert.equal(entryHasSecret(APP.mcpServers.withheaders), true, 'headers block (the DoD HIGH: http/sse Bearer)');
+  assert.equal(entryHasSecret({ type: 'http', url: 'https://x/mcp?token=ghp_0123456789ABCDEFabcdef0123456789ABCD' }), true, 'inline url token (content backstop)');
+  assert.equal(entryHasSecret(APP.mcpServers.context7), false, 'a plain stdio server is clean');
+  assert.equal(entryHasSecret({ env: {} }), false); // empty env is not a secret
+  assert.equal(entryHasSecret({ headers: {} }), false); // empty headers is not a secret
+  assert.equal(entryHasSecret(null), false);
 });
 
 test('writeStash → readStash round-trips an env-free record (gated)', () => {
@@ -70,6 +74,17 @@ test('writeStash fails closed without a gate or with a bad name', () => {
     assert.equal(writeStash({ mgrStateDir: stateDir, name: 'context7', entry: {}, /* no gate */ }).written, false);
     assert.equal(writeStash({ mgrStateDir: stateDir, name: 'bad name!', entry: {}, assertWritable: gate }).written, false);
     assert.equal(writeStash({ mgrStateDir: stateDir, name: 'x', entry: null, assertWritable: gate }).written, false);
+  });
+});
+
+test('writeStash SELF-GUARDS: refuses an env/headers/token-bearing entry even with a valid gate (no secret in .mgr-state)', () => {
+  withTree(({ stateDir, gate }) => {
+    for (const [n, entry] of [['withenv', APP.mcpServers.withenv], ['withheaders', APP.mcpServers.withheaders]]) {
+      const w = writeStash({ mgrStateDir: stateDir, name: n, entry, assertWritable: gate });
+      assert.equal(w.written, false, `${n} must be refused`);
+      assert.ok(w.diagnostics.some((d) => d.code === 'mcp-stash-refused-secret'));
+      assert.equal(stashExists(stateDir, n), false, `${n} never written to .mgr-state`);
+    }
   });
 });
 
