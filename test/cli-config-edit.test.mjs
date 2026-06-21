@@ -25,7 +25,10 @@ function makeDeps(over = {}) {
   const pcalls = [];
   const setPluginEnabledFn = async (o) => { pcalls.push(o); return { ok: true, refused: false, dryRun: !o.enableWrites, kind: 'plugin', name: o.key, desired: o.desired, diagnostics: [] }; };
   setPluginEnabledFn.calls = pcalls;
-  return { env: {}, setEnabledFn, setPluginEnabledFn, loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => ((p) => p) }), ...over };
+  const mcalls = [];
+  const setMcpEnabledFn = async (o) => { mcalls.push(o); return { ok: true, refused: false, dryRun: !o.enableWrites, kind: 'mcp', name: o.name, desired: o.desired, diagnostics: [] }; };
+  setMcpEnabledFn.calls = mcalls;
+  return { env: {}, setEnabledFn, setPluginEnabledFn, setMcpEnabledFn, homedirFn: () => 'C:\\Users\\me', loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => ((p) => p) }), ...over };
 }
 
 test('unsupported target (no writeSurface) → refused, code 3, engine never called', async () => {
@@ -204,11 +207,12 @@ test('claude enable sets desired:true', async () => {
   assert.equal(deps.setPluginEnabledFn.calls[0].desired, true);
 });
 
-test('claude + --type mcp → claude-kind-unsupported (code 3), neither engine called', async () => {
+test('claude + --type mcp → routes to the mcp-toggle engine (not the plugin/codex engine)', async () => {
   const deps = makeDeps();
   const out = await disableCommand(claudeCtx({ type: 'mcp', positionals: ['ctx7'] }), deps);
-  assert.equal(out.code, 3);
-  assert.ok(out.diagnostics.some((d) => d.code === 'disable-claude-kind-unsupported'));
+  assert.equal(out.code, 0);
+  assert.equal(deps.setMcpEnabledFn.calls.length, 1, 'routed to the mcp toggle');
+  assert.equal(deps.setMcpEnabledFn.calls[0].desired, false);
   assert.equal(deps.setPluginEnabledFn.calls.length, 0);
   assert.equal(deps.setEnabledFn.calls.length, 0);
 });
