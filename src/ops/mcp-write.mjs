@@ -95,7 +95,7 @@ const SPAWN_TIMEOUT_MS = 120000;
  *  leading-`-` token bypasses positionalPattern and hits the flag gate instead,
  *  so this engine check is the single source closing that gap. Rejects
  *  separators, traversal, ADS, spaces, and every shell metacharacter. */
-const NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._-]*$/;
+export const NAME_RE = /^[A-Za-z0-9._][A-Za-z0-9._-]*$/;
 
 /** The valid `--scope` enum values (claude's `mcp remove -s`). */
 export const VALID_SCOPES = Object.freeze(['local', 'user', 'project']);
