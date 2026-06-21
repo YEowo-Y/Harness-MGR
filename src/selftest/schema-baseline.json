@@ -4,6 +4,7 @@
       "companion",
       "githubRepoPaths",
       "installMethod",
+      "machineID",
       "mcpServers",
       "oauthAccount",
       "projects",
@@ -78,7 +79,7 @@
       "telemetry"
     ]
   },
-  "fingerprint": "705b1f11b2e63eb3c6496033fd8c668f1113726d53bca2f176e5a006e5b5eb4f",
-  "generatedAt": "2026-06-12T05:44:08.563Z",
+  "fingerprint": "ea8f0cb0e7cebff799a4ef09ecc0c0dddde0123ee2ca203d6a3d0a9d7de552d4",
+  "generatedAt": "2026-06-21T10:04:10.738Z",
   "schemaCanaryVersion": 1
 }
