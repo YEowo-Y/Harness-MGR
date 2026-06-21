@@ -163,6 +163,28 @@ describe('schema-canary ephemeral appKey denylist', () => {
     assert.deepEqual(dimensions.appKeys, [...keep].sort());
   });
 
+  // ── 2026-06-21 live drift: classify the two newly-observed appKeys ────────────
+  // The live ~/.claude.json grew lastShownEmergencyTip (ephemeral tip marker) and
+  // machineID (durable identity). This pins the classification: the tip marker is
+  // FILTERED (so it never re-drifts); machineID is KEPT (a vanished machineID is a
+  // real signal, like userID). Mutating the denylist either way flips this oracle.
+  it('2026-06-21 drift: lastShownEmergencyTip is FILTERED, machineID is KEPT', () => {
+    const { dimensions } = fp({
+      ...BASE_FACTS,
+      appKeys: ['mcpServers', 'userID', 'machineID', 'lastShownEmergencyTip'],
+    });
+    assert.ok(!dimensions.appKeys.includes('lastShownEmergencyTip'), 'tip marker filtered');
+    assert.ok(dimensions.appKeys.includes('machineID'), 'machineID kept (durable identity)');
+    assert.deepEqual(dimensions.appKeys, ['machineID', 'mcpServers', 'userID']);
+  });
+
+  it('2026-06-21 drift: a fact set differing ONLY in lastShownEmergencyTip → clean', () => {
+    const without = fp({ ...BASE_FACTS, appKeys: ['mcpServers', 'machineID'] });
+    const withTip = fp({ ...BASE_FACTS, appKeys: ['mcpServers', 'machineID', 'lastShownEmergencyTip'] });
+    const cmp = compareFingerprint({ current: withTip, baseline: without });
+    assert.equal(cmp.status, 'clean');
+  });
+
   // ── never-throws ──────────────────────────────────────────────────────────────
 
   it('never-throws: junk appKeys entries are filtered without throwing', () => {
