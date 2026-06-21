@@ -25,7 +25,7 @@
  * Pure string-in/string-out; never throws; zero npm deps; no node:* imports.
  */
 
-import { findEnableSpan } from './toml-edit-locate.mjs';
+import { findEnableSpan, findBlockSpan } from './toml-edit-locate.mjs';
 import { parseToml } from './toml-parser.mjs';
 
 /** @typedef {import('./toml-edit-locate.mjs').EnableSelector} EnableSelector */
@@ -208,4 +208,66 @@ export function applyVerifiedEdit(text, selector, desired) {
   // belt-and-suspenders backstop) AND fail-LOUDLY blocks a not-yet-wired kind (skill).
   if (!v4()) return fail('semantic-mismatch');
   return { ok: true, text: after, diff, reason, error: null };
+}
+
+/** Count `[[skills.config]]` elements whose `<field> === <value>` in the parsed doc — the V4
+ *  semantic basis for a block delete (before === 1 unique, after === 0 gone). Returns -1 for a
+ *  non-skill selector (block-delete is skill-only). @param {any} value @param {EnableSelector} selector */
+function countSkillMatches(value, selector) {
+  if (!value || typeof value !== 'object' || !selector || selector.kind !== 'skill' || !selector.match) return -1;
+  const arr = value.skills?.config;
+  if (!Array.isArray(arr)) return 0;
+  const { field, value: want } = selector.match;
+  return arr.filter((el) => el && typeof el === 'object' && el[field] === want).length;
+}
+
+/**
+ * Delete the WHOLE block (header line + body + trailing blank lines) of the `[[skills.config]]`
+ * element named by `selector` — the prune-config primitive, and the ONLY block-delete a write
+ * path may call. Splices out [headerStart, regionEnd); every other byte is copied verbatim.
+ * Fail-closed verification (mirrors applyVerifiedEdit) — returns the ORIGINAL text on ANY failure:
+ *   V4-before  the selector resolves to EXACTLY one element (unique-or-refuse; a duplicate name
+ *              is never half-deleted — the same discipline as the V4 enable navigator);
+ *   span-sane  the locator's [headerStart, regionEnd) is in-bounds + well-ordered (a slice splice
+ *              is byte-safe BY CONSTRUCTION once the span is — and secret bytes sit OUTSIDE it
+ *              structurally, since a region ENDS at the next header, before any [..env] sub-table);
+ *   V1         the result still parses;
+ *   V4-after   the reparsed skills.config no longer contains the element (count 1 → 0).
+ * An ABSENT selector is a safe no-op (deleted:false). Block-delete is skill-only. NEVER throws.
+ * @param {string} text @param {EnableSelector} selector
+ * @returns {{ok:boolean, text:string, deleted:boolean, removed:null|{headerStart:number,regionEnd:number,lines:number}, reason?:string, error:null|{code:string,message:string}}}
+ */
+export function deleteBlock(text, selector) {
+  if (typeof text !== 'string') return { ok: false, text: '', deleted: false, removed: null, error: { code: 'input-not-string', message: 'text must be a string' } };
+  if (!selector || selector.kind !== 'skill') return { ok: false, text, deleted: false, removed: null, error: { code: 'block-delete-kind-unsupported', message: 'deleteBlock supports only the skill selector' } };
+
+  const span = findBlockSpan(text, selector);
+  if (span.error) return { ok: false, text, deleted: false, removed: null, error: span.error };
+  if (span.absent) return { ok: true, text, deleted: false, removed: null, reason: 'noop-absent', error: null };
+
+  /** @param {string} code */
+  const fail = (code) => ({ ok: false, text, deleted: false, removed: null, error: { code: `verify-${code}`, message: `config-block-delete verification failed (${code}); no write performed` } });
+
+  // V4-before — the selector must resolve to EXACTLY one element (unique-or-refuse, fail-closed).
+  const before = parseToml(text);
+  if (before.errors.length !== 0) return fail('before-reparse-failed');
+  if (countSkillMatches(before.value, selector) !== 1) return fail('not-unique-before');
+
+  const { headerStart, regionEnd } = span;
+  // Span sanity — validate the locator's offsets BEFORE slicing. This is a REAL check (it
+  // cross-validates the locator's output), unlike a post-slice byte-compare which would only
+  // re-verify the splice's own arithmetic. Once the span is in-bounds + well-ordered, the slice
+  // splice is byte-safe by construction; the substantive risks (wrong block / broken doc) are
+  // caught by V4-before (unique) above and V1 + V4-after below.
+  if (!Number.isInteger(headerStart) || !Number.isInteger(regionEnd)
+      || headerStart < 0 || headerStart >= regionEnd || regionEnd > text.length) return fail('bad-span');
+  const after = text.slice(0, headerStart) + text.slice(regionEnd);
+
+  // V1 — the result still parses; V4-after — the element is gone (siblings intact).
+  const afterParsed = parseToml(after);
+  if (afterParsed.errors.length !== 0) return fail('reparse-failed');
+  if (countSkillMatches(afterParsed.value, selector) !== 0) return fail('semantic-mismatch');
+
+  const lines = text.slice(headerStart, regionEnd).split('\n').length - 1; // \n count; correct for LF + CRLF
+  return { ok: true, text: after, deleted: true, removed: { headerStart, regionEnd, lines }, reason: 'deleted', error: null };
 }
