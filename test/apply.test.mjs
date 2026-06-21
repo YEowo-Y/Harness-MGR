@@ -230,6 +230,7 @@ function happySeams(over = {}) {
     atomicDirDeleteFn: over.atomicDirDeleteFn ?? makeAtomicDirDelete(),
     atomicConfigEditFn: over.atomicConfigEditFn ?? makeAtomicConfigEdit(),
     atomicConfigBlockDeleteFn: over.atomicConfigBlockDeleteFn ?? makeAtomicConfigBlockDelete(),
+    atomicJsonEditFn: over.atomicJsonEditFn ?? makeAtomicJsonEdit(),
     manifestReadFileFn: over.manifestReadFileFn ?? makeManifestReadFile(),
   };
 }
@@ -1247,4 +1248,82 @@ test('config-block-delete op: NOT a *.json write → the paranoid re-parse seam 
   assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
   assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a config-block-delete op under paranoid');
   assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'));
+});
+
+// ── json-edit op (Claude plugin-toggle: settings.json enabledPlugins flip/insert) ──
+
+/** A json-edit op targeting settings.json (selector.key + desired, NO content). */
+function jsonEditOp(over = {}) {
+  return { kind: 'json-edit', target: `${TARGET}\\settings.json`, summary: 'disable plugin a@b', selector: { key: 'a@b' }, desired: false, ...over };
+}
+
+/** A recording atomicJsonEdit seam (default: a successful flip that wrote). */
+function makeAtomicJsonEdit(result = { ok: true, wrote: true }) {
+  const calls = [];
+  const fn = (opts) => { calls.push(opts); return { diagnostics: [], leftovers: { newPath: null, oldPath: null }, ...result }; };
+  fn.calls = calls;
+  return fn;
+}
+
+test('json-edit op: dispatches to atomicJsonEditFn (selector.key+desired, NO content) and reaches committed', async () => {
+  // settings.json IS in the default manifest → the membership check passes for free (reversible).
+  const atomicJsonEditFn = makeAtomicJsonEdit();
+  const seams = happySeams({ atomicJsonEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonEditOp()]), enableWrites: true }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  assert.equal(atomicJsonEditFn.calls.length, 1);
+  assert.equal(atomicJsonEditFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.deepEqual(atomicJsonEditFn.calls[0].selector, { key: 'a@b' });
+  assert.equal(atomicJsonEditFn.calls[0].desired, false);
+  assert.equal(atomicJsonEditFn.calls[0].content, undefined);
+});
+
+test('json-edit op: an invalid op (carries content) is refused BEFORE any write', async () => {
+  const atomicJsonEditFn = makeAtomicJsonEdit();
+  const seams = happySeams({ atomicJsonEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonEditOp({ content: 'x' })]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicJsonEditFn.calls.length, 0);
+});
+
+test('json-edit op: an invalid op (non-boolean desired) is refused BEFORE any write', async () => {
+  const atomicJsonEditFn = makeAtomicJsonEdit();
+  const seams = happySeams({ atomicJsonEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonEditOp({ desired: undefined })]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicJsonEditFn.calls.length, 0);
+});
+
+test('json-edit op: a primitive failure → apply-op-json-edit-failed, journal failed', async () => {
+  const atomicJsonEditFn = makeAtomicJsonEdit({ ok: false, wrote: false });
+  const seams = happySeams({ atomicJsonEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonEditOp()]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-json-edit-failed'), JSON.stringify(res.diagnostics));
+});
+
+test('json-edit op: does its OWN reparse → the paranoid *.json re-read seam is never invoked', async () => {
+  const atomicJsonEditFn = makeAtomicJsonEdit();
+  const readFileFn = (() => { const f = (p) => { f.calls.push(p); return '{}'; }; f.calls = []; return f; })();
+  const seams = happySeams({ atomicJsonEditFn, readFileFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonEditOp()]), enableWrites: true, paranoid: true }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a json-edit op under paranoid');
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'));
+});
+
+test('json-edit op NOT in the snapshot manifest → refused (apply-target-not-snapshotted), no write', async () => {
+  // a json-edit op targeting a file the manifest does NOT list (settings.local.json) must refuse.
+  const atomicJsonEditFn = makeAtomicJsonEdit();
+  const seams = happySeams({ atomicJsonEditFn });
+  const op = jsonEditOp({ target: `${TARGET}\\settings.local.json` });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([op]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-target-not-snapshotted'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicJsonEditFn.calls.length, 0, 'no write attempted when the target is not snapshotted (irreversible)');
 });
