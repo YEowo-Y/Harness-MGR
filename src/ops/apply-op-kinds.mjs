@@ -24,6 +24,12 @@ export const CONFIG_EDIT_KINDS = Object.freeze(['config-edit']);
  *  context (it writes config.toml); carries {selector} only — never `content` or `desired`. */
 export const CONFIG_BLOCK_DELETE_KINDS = Object.freeze(['config-block-delete']);
 
+/** Op kinds this unit edits IN PLACE via a surgical JSON boolean flip/insert (the Claude
+ *  plugin-toggle primitive: flips/inserts one `enabledPlugins[key]` boolean in settings.json).
+ *  Routes through the 'apply' gate context (settings.json IS whole-file apply-writable — no new
+ *  context); carries {selector:{key}, desired}, never whole-file `content`. */
+export const JSON_EDIT_KINDS = Object.freeze(['json-edit']);
+
 /** True for a non-empty string. */
 function isNonEmptyStr(v) { return typeof v === 'string' && v.length > 0; }
 
@@ -46,9 +52,10 @@ export function invalidOpReason(op) {
   const isDirDelete = obj && DIR_DELETABLE_KINDS.includes(op.kind);
   const isConfigEdit = obj && CONFIG_EDIT_KINDS.includes(op.kind);
   const isConfigBlockDelete = obj && CONFIG_BLOCK_DELETE_KINDS.includes(op.kind);
-  if (!isWrite && !isDelete && !isDirDelete && !isConfigEdit && !isConfigBlockDelete) {
+  const isJsonEdit = obj && JSON_EDIT_KINDS.includes(op.kind);
+  if (!isWrite && !isDelete && !isDirDelete && !isConfigEdit && !isConfigBlockDelete && !isJsonEdit) {
     return { code: 'apply-op-kind-unsupported',
-      message: `apply supports only ${[...WRITABLE_KINDS, ...DELETABLE_KINDS, ...DIR_DELETABLE_KINDS, ...CONFIG_EDIT_KINDS, ...CONFIG_BLOCK_DELETE_KINDS].join('/')} ops` };
+      message: `apply supports only ${[...WRITABLE_KINDS, ...DELETABLE_KINDS, ...DIR_DELETABLE_KINDS, ...CONFIG_EDIT_KINDS, ...CONFIG_BLOCK_DELETE_KINDS, ...JSON_EDIT_KINDS].join('/')} ops` };
   }
   if (!isNonEmptyStr(op.target)) {
     return { code: 'apply-op-invalid', message: 'op must have a non-empty string target' };
@@ -65,6 +72,11 @@ export function invalidOpReason(op) {
     if (!op.selector || typeof op.selector !== 'object') return { code: 'apply-op-invalid', message: 'config-block-delete op must have a selector object' };
     if (op.content !== undefined) return { code: 'apply-op-invalid', message: 'config-block-delete op must not carry content' };
     if (op.desired !== undefined) return { code: 'apply-op-invalid', message: 'config-block-delete op must not carry desired' };
+  }
+  if (isJsonEdit) {
+    if (typeof op.desired !== 'boolean') return { code: 'apply-op-invalid', message: 'json-edit op must have a boolean desired' };
+    if (!op.selector || typeof op.selector !== 'object') return { code: 'apply-op-invalid', message: 'json-edit op must have a selector object' };
+    if (op.content !== undefined) return { code: 'apply-op-invalid', message: 'json-edit op must not carry content' };
   }
   return null;
 }
