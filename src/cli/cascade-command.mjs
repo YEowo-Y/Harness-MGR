@@ -105,8 +105,12 @@ function summarizeCascade(r) {
  * ~/.codex). So a codex cascade is refused cleanly and the user is routed to the two
  * codex paths that DO work (plain remove, --prune-config) — never silently mis-run.
  * Mirrors prune-config-command.mjs's unsupported-target refusal + the conflicts
- * descriptor.id==='codex' special-case. Returns null for any non-codex target (the Claude
- * cascade proceeds). The natural flip-point to a real cascade once codex grows an edge model.
+ * descriptor.id==='codex' special-case. The diagnostic code intentionally follows the
+ * codex-specific `conflicts-unverified-for-codex` `-for-codex` convention (this guard
+ * shares that exact id==='codex' predicate) rather than prune-config's capability-generic
+ * `-unsupported-target` form — the refusal is codex-specific, not "any unsupported target".
+ * Returns null for any non-codex target (the Claude cascade proceeds). The natural
+ * flip-point to a real cascade once codex grows an edge model.
  *
  * @param {unknown} descriptor  ctx.descriptor
  * @returns {{result: object, diagnostics: Diagnostic[], code: number} | null}
