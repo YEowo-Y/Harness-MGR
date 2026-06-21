@@ -107,13 +107,15 @@ function eqSegments(a, b) {
   return a.length === b.length && a.every((x, k) => x === b[k]);
 }
 
-/** Collect every header in `text` with its body span [bodyStart, regionEnd). A region
+/** Collect every header in `text` with its FULL span [headerStart, regionEnd) and body span
+ *  [bodyStart, regionEnd). `headerStart` is the byte where the header LINE begins (used by a
+ *  whole-block delete); `bodyStart` is just past it (used by the enable-line scan). A region
  *  ends at the NEXT header line or EOF, so a sub-table header closes its parent region.
  *  A `[`-line whose start byte falls inside a masked span (a multi-line string or an
  *  inline-table brace region) is NOT a real header — it is string/brace content — so it
  *  can never open or close a region.
  *  @param {string} text @param {SpanMask} mask
- *  @returns {Array<{segments:string[], isArray:boolean, bodyStart:number, regionEnd:number}>} */
+ *  @returns {Array<{segments:string[], isArray:boolean, headerStart:number, bodyStart:number, regionEnd:number}>} */
 function collectHeaders(text, mask) {
   const heads = [];
   const n = text.length;
@@ -125,7 +127,7 @@ function collectHeaders(text, mask) {
       const hdr = parseHeader(content);
       if (hdr) {
         if (heads.length) heads[heads.length - 1].regionEnd = i;
-        heads.push({ segments: hdr.segments, isArray: hdr.isArray, bodyStart: lineEnd < n ? lineEnd + 1 : n, regionEnd: n });
+        heads.push({ segments: hdr.segments, isArray: hdr.isArray, headerStart: i, bodyStart: lineEnd < n ? lineEnd + 1 : n, regionEnd: n });
       }
     }
     i = lineEnd + 1;
@@ -243,4 +245,26 @@ export function findEnableSpan(text, selector) {
     tokenStart: first.valStart, tokenEnd: first.valEnd, literal: first.literal,
     lineStart: first.lineStart, lineEnd: first.lineEnd, enabledCount: lines.length,
   };
+}
+
+/**
+ * Locate the FULL byte span of the single block named by `selector`, for a whole-block DELETE
+ * (the prune-config unit). The block spans [headerStart, regionEnd): its header line through the
+ * byte just before the NEXT header (or EOF), so deleting it removes the header + body + any
+ * trailing blank lines, leaving the next block flush. NEVER throws. Discriminated result:
+ *   { found:true, headerStart, regionEnd }    — the block to splice out
+ *   { found:false, absent:true }              — no such block (a safe no-op for the caller)
+ *   { found:false, ambiguous:true, error }    — selector matched >1 block (refuse; never guess)
+ *   { found:false, error:{code,message} }     — bad input / unparseable-multiline / invalid selector
+ * @param {string} text @param {EnableSelector} selector
+ */
+export function findBlockSpan(text, selector) {
+  if (typeof text !== 'string') return { found: false, error: { code: 'input-not-string', message: 'text must be a string' } };
+  const mask = spanMask(text);
+  if (mask.malformed) return { found: false, error: { code: 'unparseable-multiline', message: 'document has an unterminated multi-line string or inline table; refusing to locate' } };
+  const loc = locateRegion(text, selector, mask);
+  if (loc.error) return { found: false, error: loc.error };
+  if (loc.ambiguous) return { found: false, ambiguous: true, error: { code: 'ambiguous-selector', message: 'selector matched more than one block' } };
+  if (loc.absent) return { found: false, absent: true };
+  return { found: true, headerStart: loc.region.headerStart, regionEnd: loc.region.regionEnd };
 }
