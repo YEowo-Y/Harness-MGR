@@ -20,6 +20,7 @@
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
+import { sniffSecretContent } from '../lib/secrets-content-sniff.mjs';
 import { NAME_RE } from './mcp-write.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
@@ -34,11 +35,18 @@ export function stashPath(mgrStateDir, name) {
   return join(mgrStateDir, STASH_SUBDIR, `${name}.json`);
 }
 
-/** True when an mcpServers entry carries a non-empty `env` → the engine refuses to stash it
- *  (never write a secret to .mgr-state). Pure; never throws. */
-export function entryHasEnv(entry) {
-  return !!(entry && typeof entry === 'object' && entry.env && typeof entry.env === 'object'
-    && !Array.isArray(entry.env) && Object.keys(entry.env).length > 0);
+/** True when an entry carries credential material that must NOT be stashed: a non-empty `env`
+ *  (stdio env vars) OR a non-empty `headers` (http/sse Bearer / API-key) block — the two
+ *  STRUCTURAL credential homes — OR any PEM / token-shaped / high-entropy value anywhere in the
+ *  serialized entry (a content backstop that also catches an inline `url`/`args` token). The
+ *  engine refuses such a server BEFORE stashing AND writeStash self-guards on it. A field-name
+ *  guard alone is the wrong shape for "never stash a secret" (DoD review HIGH: headers leak).
+ *  Pure; never throws. */
+export function entryHasSecret(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  const nonEmptyObj = (v) => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
+  if (nonEmptyObj(entry.env) || nonEmptyObj(entry.headers)) return true;
+  try { return sniffSecretContent(JSON.stringify(entry)).match === true; } catch { return false; }
 }
 
 /** True when a stash file exists for `name`. Pure read; never throws. */
@@ -82,6 +90,9 @@ export function writeStash(opts) {
     if (typeof mgrStateDir !== 'string' || mgrStateDir.length === 0) return fail('mcp-stash-bad-args', 'mgrStateDir required');
     if (typeof name !== 'string' || !NAME_RE.test(name)) return fail('mcp-stash-bad-name', `invalid stash name ${JSON.stringify(name)}`);
     if (!entry || typeof entry !== 'object') return fail('mcp-stash-bad-entry', 'entry must be an object');
+    // Self-guard: never write credential material to .mgr-state even if a caller forgot the
+    // pre-check (defense-in-depth behind the engine's mcp-toggle-has-secret refusal).
+    if (entryHasSecret(entry)) return fail('mcp-stash-refused-secret', 'refusing to stash a server that carries credential material (env/headers/token-shaped value)');
     if (typeof assertWritable !== 'function') return fail('mcp-stash-bad-args', 'assertWritable (the gate) is required');
     const p = stashPath(mgrStateDir, name);
     assertWritable(p, 'apply'); // throws WriteForbiddenError if somehow outside .mgr-state
