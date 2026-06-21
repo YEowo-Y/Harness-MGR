@@ -85,6 +85,15 @@ data tables over shared logic, drift-guarded so the default target is provably u
   the `disable`→`enable`→`disable` round-trip is **sha256 byte-identical**; the `[mcp_servers.*.env]` secrets are
   untouched. Adversarial DoD review (3 refute-first reviewers + synthesis): **SAFE TO SHIP, 0 Blocker/High/Medium**. This
   completes the in-place `config-edit` wave (**plugin · mcp · skill**). Restart Codex to take effect.
+- **Clearer "unsupported config shape" refusal** — when a component you ask to flip is present but in a TOML shape the
+  in-place editor cannot safely reach (a non-boolean `enabled = "true"`, an inline table `{ … }` / `skills.config` written
+  as an inline array, or a file carrying a multi-line `"""` string that would fail the verifier), `disable`/`enable` now
+  prints ONE clear **`config-edit-unsupported-shape`** refusal that says to edit `config.toml` by hand — instead of the old
+  cryptic locate-error, a misleading "not found", or a failure that only surfaced at `--apply` time. Strictly more
+  conservative: it only **adds** refusals (still dry-run-default, fail-closed, no write), never enabling a write that was
+  impossible before nor refusing a flip that previously succeeded — the dry-run check reuses apply's own V1 reparse
+  predicate, so it can never be stricter than the real write. Adversarial DoD review (3 lenses + synthesis):
+  **SAFE TO SHIP, 0 Blocker/High/Medium**.
 
 ### Added — Phase 5 (health / advice / hooks explanations / skill self-iteration / conflict dispositions / MCP server)
 
