@@ -209,7 +209,12 @@ export function findEnabledPluginSpan(text, key) {
   const { valueStart, valueEnd } = map.matches[0];
   const literal = text.slice(valueStart, valueEnd);
   if (literal !== 'true' && literal !== 'false') {
-    return { found: false, error: { code: 'not-boolean', message: `enabledPlugins['${key}'] is not a bare true/false (found ${literal.slice(0, 20)})` } };
+    // Report the value's TYPE, never its bytes — a non-boolean here is malformed config, but a
+    // value like "sk-…" must not echo to stdout via the refusal message.
+    const c = literal[0];
+    const type = c === '"' ? 'a string' : c === '{' ? 'an object' : c === '[' ? 'an array'
+      : (c === '-' || (c >= '0' && c <= '9')) ? 'a number' : 'a non-boolean value';
+    return { found: false, error: { code: 'not-boolean', message: `enabledPlugins['${key}'] is not a bare true/false (found ${type})` } };
   }
   return { found: true, mode: 'flip', tokenStart: valueStart, tokenEnd: valueEnd, literal, current: literal === 'true' };
 }
