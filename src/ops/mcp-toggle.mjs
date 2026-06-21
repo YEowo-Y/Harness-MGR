@@ -19,7 +19,7 @@
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { mcpRemove, NAME_RE } from './mcp-write.mjs';
 import { mcpAddJson } from './mcp-add.mjs';
-import { readRawEntry, entryHasEnv, writeStash, readStash, deleteStash, stashExists } from './mcp-stash.mjs';
+import { readRawEntry, entryHasSecret, writeStash, readStash, deleteStash, stashExists } from './mcp-stash.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -82,7 +82,7 @@ async function disableServer(ctx) {
     if (stashed) { bag.add({ severity: 'info', code: 'mcp-toggle-already-disabled', phase: PHASE, message: `mcp server '${name}' is already disabled (absent from ~/.claude.json, stash present)` }); return result({ ok: true, dryRun: !enableWrites, name, desired: false, action: 'noop', alreadyInState: true }, bag); }
     return refuse('mcp-toggle-not-found', `mcp server '${name}' is not in ~/.claude.json (user scope); nothing to disable`, { name, desired: false, action: 'not-found' });
   }
-  if (entryHasEnv(entry)) return refuse('mcp-toggle-has-env', `mcp server '${name}' carries env values claude-mgr will NOT stash to .mgr-state; disable it by hand with \`claude mcp remove ${name} --scope user\` (and re-add later with \`claude mcp add\`)`, { name, desired: false });
+  if (entryHasSecret(entry)) return refuse('mcp-toggle-has-secret', `mcp server '${name}' carries credential material (an env or headers block, or a token-shaped value) that claude-mgr will NOT stash to .mgr-state; disable it by hand with \`claude mcp remove ${name} --scope user\` (and re-add later with \`claude mcp add\`)`, { name, desired: false });
   if (!PRINTABLE_ASCII_RE.test(JSON.stringify(entry))) return refuse('mcp-toggle-unsupported-config', `mcp server '${name}' config has non-ASCII/control characters claude-mgr can't safely round-trip via add-json; disable it by hand with \`claude mcp remove ${name} --scope user\``, { name, desired: false });
 
   const human = `claude mcp remove ${name} --scope user`;
@@ -108,8 +108,9 @@ async function enableServer(ctx) {
   const { name, mgrStateDir, entry, stashed, bag, refuse, enableWrites, o } = ctx;
   if (entry !== null) {
     // Already present = already enabled. Clear a stale stash (it was re-added out-of-band).
-    if (stashed && enableWrites && typeof ctx.assertWritable === 'function') { for (const d of deleteStash({ mgrStateDir, name, assertWritable: ctx.assertWritable }).diagnostics) bag.add(d); }
-    bag.add({ severity: 'info', code: 'mcp-toggle-already-enabled', phase: PHASE, message: `mcp server '${name}' is already present in ~/.claude.json (enabled)${stashed ? '; cleared a stale stash' : ''}` });
+    const clearedStale = stashed && enableWrites && typeof ctx.assertWritable === 'function';
+    if (clearedStale) { for (const d of deleteStash({ mgrStateDir, name, assertWritable: ctx.assertWritable }).diagnostics) bag.add(d); }
+    bag.add({ severity: 'info', code: 'mcp-toggle-already-enabled', phase: PHASE, message: `mcp server '${name}' is already present in ~/.claude.json (enabled)${clearedStale ? '; cleared a stale stash' : (stashed ? '; a stale stash is present (re-run with --apply to clear it)' : '')}` });
     return result({ ok: true, dryRun: !enableWrites, name, desired: true, action: 'noop', alreadyInState: true }, bag);
   }
   if (!stashed) return refuse('mcp-toggle-not-found', `mcp server '${name}' is not present and has no claude-mgr stash to restore; nothing to enable`, { name, desired: true, action: 'not-found' });
