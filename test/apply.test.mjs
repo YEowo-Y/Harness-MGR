@@ -229,6 +229,7 @@ function happySeams(over = {}) {
     atomicDeleteFn: over.atomicDeleteFn ?? makeAtomicDelete(),
     atomicDirDeleteFn: over.atomicDirDeleteFn ?? makeAtomicDirDelete(),
     atomicConfigEditFn: over.atomicConfigEditFn ?? makeAtomicConfigEdit(),
+    atomicConfigBlockDeleteFn: over.atomicConfigBlockDeleteFn ?? makeAtomicConfigBlockDelete(),
     manifestReadFileFn: over.manifestReadFileFn ?? makeManifestReadFile(),
   };
 }
@@ -1178,4 +1179,72 @@ test('config-edit op: an invalid op (missing desired) is refused BEFORE any edit
   assert.equal(res.ok, false);
   assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'), JSON.stringify(res.diagnostics));
   assert.equal(atomicConfigEditFn.calls.length, 0);
+});
+
+// ── config-block-delete op (P6 prune-config whole-block delete) ──────────────────
+
+/** A config-block-delete op targeting config.toml (selector only, NO content, NO desired). */
+function configBlockDeleteOp(over = {}) {
+  return { kind: 'config-block-delete', target: `${TARGET}\\config.toml`, summary: 'prune skill foo', selector: { kind: 'skill', match: { field: 'name', value: 'foo' } }, ...over };
+}
+
+/** A recording atomicConfigBlockDelete seam (default: a successful delete that wrote). */
+function makeAtomicConfigBlockDelete(result = { ok: true, wrote: true }) {
+  const calls = [];
+  const fn = (opts) => { calls.push(opts); return { diagnostics: [], leftovers: { newPath: null, oldPath: null }, ...result }; };
+  fn.calls = calls;
+  return fn;
+}
+
+test('config-block-delete op: dispatches to atomicConfigBlockDeleteFn (selector, NO desired/content) and reaches committed', async () => {
+  const atomicConfigBlockDeleteFn = makeAtomicConfigBlockDelete();
+  const seams = happySeams({ atomicConfigBlockDeleteFn, manifestReadFileFn: manifestWithConfigToml() });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configBlockDeleteOp()]), enableWrites: true }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  assert.equal(atomicConfigBlockDeleteFn.calls.length, 1);
+  assert.equal(atomicConfigBlockDeleteFn.calls[0].target, `${TARGET}\\config.toml`);
+  assert.deepEqual(atomicConfigBlockDeleteFn.calls[0].selector, { kind: 'skill', match: { field: 'name', value: 'foo' } });
+  // A whole-block delete carries NO `desired` and NO `content` into the primitive.
+  assert.equal(atomicConfigBlockDeleteFn.calls[0].desired, undefined);
+  assert.equal(atomicConfigBlockDeleteFn.calls[0].content, undefined);
+});
+
+test('BLOCKER-1 guard: a config-block-delete op NOT in the snapshot manifest → refused (apply-target-not-snapshotted), no delete', async () => {
+  const atomicConfigBlockDeleteFn = makeAtomicConfigBlockDelete();
+  // default makeManifestReadFile lists settings.json/agents/... but NOT config.toml.
+  const seams = happySeams({ atomicConfigBlockDeleteFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configBlockDeleteOp()]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-target-not-snapshotted'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicConfigBlockDeleteFn.calls.length, 0, 'no delete attempted when the target is not snapshotted (irreversible)');
+});
+
+test('config-block-delete op: an invalid op (carries content) is refused BEFORE any delete', async () => {
+  const atomicConfigBlockDeleteFn = makeAtomicConfigBlockDelete();
+  const seams = happySeams({ atomicConfigBlockDeleteFn, manifestReadFileFn: manifestWithConfigToml() });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configBlockDeleteOp({ content: 'x' })]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicConfigBlockDeleteFn.calls.length, 0);
+});
+
+test('config-block-delete op: a primitive failure → apply-op-config-block-delete-failed, journal failed', async () => {
+  const atomicConfigBlockDeleteFn = makeAtomicConfigBlockDelete({ ok: false, wrote: false });
+  const seams = happySeams({ atomicConfigBlockDeleteFn, manifestReadFileFn: manifestWithConfigToml() });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configBlockDeleteOp()]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-config-block-delete-failed'), JSON.stringify(res.diagnostics));
+});
+
+test('config-block-delete op: NOT a *.json write → the paranoid re-parse seam is never invoked', async () => {
+  const atomicConfigBlockDeleteFn = makeAtomicConfigBlockDelete();
+  const readFileFn = (() => { const f = (p) => { f.calls.push(p); return '{}'; }; f.calls = []; return f; })();
+  const seams = happySeams({ atomicConfigBlockDeleteFn, readFileFn, manifestReadFileFn: manifestWithConfigToml() });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([configBlockDeleteOp()]), enableWrites: true, paranoid: true }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a config-block-delete op under paranoid');
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'));
 });
