@@ -41,8 +41,11 @@
  *      and they happen ONLY under `enableWrites === true`. A create/overwrite routes
  *      through atomicApplyWrite (assertWritable(target,'apply')); a delete routes
  *      through atomicApplyDelete (assertWritable(target,'remove')); a delete-dir
- *      routes through atomicApplyDirDelete (assertWritable(target,'remove-skill')) —
- *      each primitive calls the gate INTERNALLY. There is NO local path allowlist;
+ *      routes through atomicApplyDirDelete (assertWritable(target,'remove-skill')); a
+ *      config-edit AND a config-block-delete both route through atomic-toml-edit
+ *      (assertWritable(config.toml,'config-edit') — a single-token splice / a whole
+ *      `[[skills.config]]` block splice over the SAME config-edit context) — each
+ *      primitive calls the gate INTERNALLY. There is NO local path allowlist;
  *      the gate is the single source of truth. All .mgr-state writes (lock, snapshot,
  *      journal) are likewise gated by the INJECTED assertWritable.
  *   2. assertWritable is INJECTED + REQUIRED (fail-safe: refuse if absent, never
@@ -88,10 +91,10 @@ import { createJournal, transition, writeJournal } from './apply-journal-writer.
 import { atomicApplyWrite } from './atomic-write.mjs';
 import { atomicApplyDelete } from './atomic-delete.mjs';
 import { atomicApplyDirDelete } from './atomic-dir-delete.mjs';
-import { atomicConfigEdit } from './atomic-toml-edit.mjs';
+import { atomicConfigEdit, atomicConfigBlockDelete } from './atomic-toml-edit.mjs';
 import { paranoidVerify } from './apply-paranoid.mjs';
 import { checkOpTargetsInManifest } from './apply-manifest-check.mjs';
-import { DELETABLE_KINDS, DIR_DELETABLE_KINDS, CONFIG_EDIT_KINDS, invalidOpReason } from './apply-op-kinds.mjs';
+import { DELETABLE_KINDS, DIR_DELETABLE_KINDS, CONFIG_EDIT_KINDS, CONFIG_BLOCK_DELETE_KINDS, invalidOpReason } from './apply-op-kinds.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('../lib/plan.mjs').Plan} Plan */
@@ -251,8 +254,11 @@ async function performApply(a) {
     const isDelete = DELETABLE_KINDS.includes(op.kind);
     const isDirDelete = DIR_DELETABLE_KINDS.includes(op.kind);
     const isConfigEdit = CONFIG_EDIT_KINDS.includes(op.kind);
+    const isConfigBlockDelete = CONFIG_BLOCK_DELETE_KINDS.includes(op.kind);
     let res;
-    if (isConfigEdit) {
+    if (isConfigBlockDelete) {
+      res = await fns.atomicConfigBlockDeleteFn({ target: op.target, selector: op.selector, assertWritable, retry: a.retry });
+    } else if (isConfigEdit) {
       res = await fns.atomicConfigEditFn({ target: op.target, selector: op.selector, desired: op.desired, assertWritable, retry: a.retry });
     } else if (isDirDelete) {
       res = await fns.atomicDirDeleteFn({ target: op.target, assertWritable, retry: a.retry });
@@ -263,17 +269,18 @@ async function performApply(a) {
     }
     for (const d of res.diagnostics ?? []) bag.add(d);
     if (!res.ok) {
-      const kindLabel = isConfigEdit ? 'config-edit' : (isDirDelete ? 'dir-delete' : (isDelete ? 'delete' : 'write'));
-      const failCode = isConfigEdit ? 'apply-op-config-edit-failed' : (isDirDelete ? 'apply-op-dir-delete-failed' : (isDelete ? 'apply-op-delete-failed' : 'apply-op-failed'));
+      const kindLabel = isConfigBlockDelete ? 'config-block-delete' : (isConfigEdit ? 'config-edit' : (isDirDelete ? 'dir-delete' : (isDelete ? 'delete' : 'write')));
+      const failCode = isConfigBlockDelete ? 'apply-op-config-block-delete-failed' : (isConfigEdit ? 'apply-op-config-edit-failed' : (isDirDelete ? 'apply-op-dir-delete-failed' : (isDelete ? 'apply-op-delete-failed' : 'apply-op-failed')));
       return toFailed(a, journal, failCode,
         `the governed ${kindLabel} failed at op ${opsWritten + 1} of ${ops.length}; the journal is marked failed ` +
           '(snapshot intact — run recover --rollback to restore)',
         { applied: opsWritten > 0, opsWritten, leftovers: res.leftovers, journalPath: wp.path });
     }
     opsWritten += 1;
-    // paranoid re-parse applies ONLY to written *.json files — deletes/config-edits have nothing to re-read
-    // (config-edit does its OWN re-parse inside applyVerifiedEdit before any byte is written).
-    if (!isDelete && !isDirDelete && !isConfigEdit && a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
+    // paranoid re-parse applies ONLY to written *.json files — deletes/config-edits/block-deletes
+    // have nothing to re-read (config-edit + config-block-delete do their OWN re-parse inside
+    // toml-edit before any byte is written).
+    if (!isDelete && !isDirDelete && !isConfigEdit && !isConfigBlockDelete && a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
       return toFailed(a, journal, 'apply-paranoid-failed',
         `op ${opsWritten} of ${ops.length} wrote an unparseable file (paranoid re-parse failed); ` +
           'the journal is marked failed (snapshot intact — run recover --rollback to restore)',
@@ -365,7 +372,7 @@ function persistAt(a, journal) {
  *                                                  it; a parse failure aborts → failed
  * @param {object}  [opts.retry]                    retry schedule forwarded to the atomic write
  * @param {() => Date} [opts.now]                   clock injection (defaults to Date)
- * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, atomicDeleteFn, atomicDirDeleteFn, readFileFn }
+ * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, atomicDeleteFn, atomicDirDeleteFn, atomicConfigEditFn, atomicConfigBlockDeleteFn, readFileFn }
  * @returns {Promise<ApplyResult>}
  */
 export async function applyPlan(opts) {
@@ -387,6 +394,7 @@ export async function applyPlan(opts) {
     atomicDeleteFn: seams.atomicDeleteFn ?? atomicApplyDelete,
     atomicDirDeleteFn: seams.atomicDirDeleteFn ?? atomicApplyDirDelete,
     atomicConfigEditFn: seams.atomicConfigEditFn ?? atomicConfigEdit,
+    atomicConfigBlockDeleteFn: seams.atomicConfigBlockDeleteFn ?? atomicConfigBlockDelete,
     readFileFn: seams.readFileFn ?? ((p) => readFileSync(p, 'utf8')),
     manifestReadFileFn: seams.manifestReadFileFn ?? ((p) => readFileSync(p, 'utf8')),
   };
