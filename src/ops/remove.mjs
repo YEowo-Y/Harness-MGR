@@ -150,12 +150,18 @@ function buildResult(fields, bag) {
  * Returns `{ kind, base, target, spec: kindSpec }` on success, or `{ refusal }`
  * on any refusal. Pure except for a read-only lstatSync probe of the target.
  * Never throws (the lstat is try/caught).
+ *
+ * EXPORTED so the prune-config engine (prune-config.mjs) reuses this SAME security-
+ * critical spec/target validation (NAME_RE traversal/separator/ADS guards + the
+ * existence/symlink/type refusals) rather than re-deriving it — keeping the one
+ * validation single-sourced (the prune path only adds config-block-delete ops to the
+ * skill delete this validates). Refusal codes stay `remove-*`; the validation is shared.
  * @param {unknown} spec
  * @param {string} targetClaudeDir
  * @param {Record<string, {dir:string, isDir:boolean, ext?:string, opKind:string}>} kindTable
  * @returns {{kind:string, base:string, target:string, spec:{dir:string,isDir:boolean,ext?:string,opKind:string}}|{refusal:{code:string,message:string}}}
  */
-function validateSpec(spec, targetClaudeDir, kindTable) {
+export function validateSpec(spec, targetClaudeDir, kindTable) {
   const refuse = (code, message) => ({ refusal: { code, message } });
 
   // Parse <kind>:<name> on the FIRST colon. Reject a missing colon / empty parts.
