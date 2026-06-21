@@ -9,9 +9,9 @@
  * Target support is per-target: Codex has an in-place config.toml surface
  * (configEditFiles=['config.toml'] + features.configEdit; --type plugin|mcp|skill, a skill
  * selecting by a bare name OR by `--path` — 51% of live entries are path-keyed); CLAUDE has
- * the settings.json enabledPlugins map (pluginEnableModel:'settings-map'; --type plugin ONLY
- * this increment, routed to setPluginEnabledClaude). A target with neither surface refuses
- * with a clear message rather than silently no-op'ing.
+ * the settings.json enabledPlugins map (pluginEnableModel:'settings-map'; --type plugin →
+ * setPluginEnabledClaude, --type mcp → the delegate+stash mcpToggleCommand, --type skill →
+ * declined). A target with neither surface refuses with a clear message rather than no-op'ing.
  *
  * M2-SAFETY: never STATICALLY imports paths.mjs; the gate is resolved via a DYNAMIC
  * import ONLY on the real --apply path (mirrors remove-command.mjs). Dry-run touches no
@@ -21,6 +21,7 @@
 
 import { setComponentEnabled } from '../ops/config-edit.mjs';
 import { setPluginEnabledClaude } from '../ops/plugin-toggle.mjs';
+import { mcpToggleCommand } from './mcp-toggle-command.mjs';
 import { resolveWriteIntent, resolveAssertWritable } from './write-gate.mjs';
 
 /** @typedef {import('./commands.mjs').CommandContext} CommandContext */
@@ -83,9 +84,12 @@ async function configEditCommand(ctx, deps, desired) {
   if (!codexConfigEdit && !claudePluginToggle) {
     return cli(`${verb}-unsupported-target`, `${verb} is only supported for a target with an in-place config surface (Codex config.toml) or the Claude enabledPlugins map; the current target has neither`, 'unsupported-target', 3);
   }
-  // CLAUDE plugin-toggle path (settings.json enabledPlugins). Only --type plugin this increment;
-  // the codex (config.toml) path continues below unchanged.
+  // CLAUDE write paths (the codex config.toml path continues below unchanged):
+  //   --type plugin → settings.json enabledPlugins flip (claudePluginCommand)
+  //   --type mcp    → delegate+stash MCP toggle (mcpToggleCommand)
+  //   --type skill  → declined (no per-skill enable lever; claudePluginCommand refuses)
   if (claudePluginToggle && !codexConfigEdit) {
+    if (kind === 'mcp') return mcpToggleCommand(ctx, deps, desired, verb);
     return claudePluginCommand(ctx, deps, desired, verb, { kind, positional, pathArg });
   }
   if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin|mcp|skill and a name: ${verb} --type plugin <name@marketplace> | ${verb} --type mcp <server> | ${verb} --type skill <name> | ${verb} --type skill --path "<path>"`, 'no-type', 3);
@@ -153,7 +157,7 @@ async function claudePluginCommand(ctx, deps, desired, verb, parsed) {
   const { kind, positional, pathArg } = parsed;
   const cli = (code, message, status, exit) => ({ result: { status }, diagnostics: [{ severity: 'error', code, phase: 'cli', message }], code: exit });
   if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin and a name: ${verb} --type plugin <name@marketplace>`, 'no-type', 3);
-  if (kind !== 'plugin') return cli(`${verb}-claude-kind-unsupported`, `for the Claude target, ${verb} supports only --type plugin (got --type ${kind}); mcp/skill toggling is not available for Claude`, 'kind-unsupported', 3);
+  if (kind !== 'plugin') return cli(`${verb}-claude-kind-unsupported`, `for the Claude target, ${verb} --type ${kind} is not supported (plugin and mcp are); Claude has no per-skill enable/disable lever — use \`remove skill:<name>\` to remove a skill (rollback-reversible)`, 'kind-unsupported', 3);
   if (pathArg !== undefined) return cli(`${verb}-path-not-allowed`, '--path is not valid for --type plugin', 'path-not-allowed', 3);
   const name = positional;
   if (typeof name !== 'string' || name.length === 0) return cli(`${verb}-no-name`, `${verb} requires a plugin name: ${verb} --type plugin <name@marketplace>`, 'no-name', 3);
