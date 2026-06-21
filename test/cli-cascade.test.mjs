@@ -113,6 +113,23 @@ test('cascadeCommand: claude descriptor (id "claude") → guard does NOT fire, e
   assert.equal(out.result.status, 'dry-run');
 });
 
+test('cascadeCommand: undefined / null / {} / other-id / "CODEX" descriptors do NOT fire the guard (exact id==="codex" only)', async () => {
+  // The guard fires ONLY on an own descriptor.id === 'codex' (case-sensitive). Every other
+  // shape — absent, null, id-less, a different target id, or a different-cased 'CODEX' —
+  // must fall through to the engine, never the codex refusal.
+  for (const descriptor of [undefined, null, {}, { id: 'other-target' }, { id: 'CODEX' }]) {
+    const cas = recorder({ ok: true, dryRun: true, target: 'agent:foo', dependents: [] });
+    const out = await cascadeCommand(
+      makeCtx(['agent:foo'], {}, descriptor),
+      { cascadeFn: cas.fn, env: {} },
+    );
+    assert.equal(cas.calls.length, 1,
+      `descriptor ${JSON.stringify(descriptor)} must reach the engine (guard fires only on id==='codex')`);
+    assert.notEqual(out.result.status, 'unsupported-target',
+      `descriptor ${JSON.stringify(descriptor)} must not produce the codex refusal`);
+  }
+});
+
 // ── RELAXED write gate ────────────────────────────────────────────────────────────
 
 test('cascadeCommand: env=0 (opt-out lock) + --apply → code 3 writes-disabled-env, engine + loadPaths NOT called', async () => {
