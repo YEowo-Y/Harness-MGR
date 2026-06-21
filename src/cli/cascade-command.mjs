@@ -10,6 +10,12 @@
  * factor the cascade actually runs: ONE auto-snapshot first (reversible via
  * `rollback`), then the multi-op governed delete.
  *
+ * CLAUDE-ONLY: cascade's edge model lives in component-graph-edges.mjs and reads
+ * Claude-specific skill frontmatter (agent/next-skill/pipeline). A `--target codex`
+ * cascade is refused at the top with `cascade-unsupported-for-codex` (see the guard
+ * in cascadeCommand) — codex has no such edge model, and this handler is not
+ * descriptor-aware. Plain `remove --target codex` and `--prune-config` cover codex.
+ *
  * EXIT-CODE MAP:
  *   0 — clean dry-run preview or successful apply
  *   2 — validation refused (bad spec, unsupported kind, target not found)
@@ -92,6 +98,35 @@ function summarizeCascade(r) {
 }
 
 /**
+ * The codex refusal for `--cascade`. cascade's edge model (component-graph-edges.mjs
+ * REFERENCE_FIELDS) reads Claude-only skill frontmatter (agent/next-skill/pipeline);
+ * codex components declare no such references, AND this handler is not descriptor-aware
+ * (it would run the Claude component walk + a Claude-default snapshot scope against
+ * ~/.codex). So a codex cascade is refused cleanly and the user is routed to the two
+ * codex paths that DO work (plain remove, --prune-config) — never silently mis-run.
+ * Mirrors prune-config-command.mjs's unsupported-target refusal + the conflicts
+ * descriptor.id==='codex' special-case. Returns null for any non-codex target (the Claude
+ * cascade proceeds). The natural flip-point to a real cascade once codex grows an edge model.
+ *
+ * @param {unknown} descriptor  ctx.descriptor
+ * @returns {{result: object, diagnostics: Diagnostic[], code: number} | null}
+ */
+function codexCascadeRefusal(descriptor) {
+  const d = descriptor && typeof descriptor === 'object' ? descriptor : null;
+  if (!d || d.id !== 'codex') return null;
+  return {
+    result: { status: 'unsupported-target' },
+    diagnostics: [{
+      severity: 'error', code: 'cascade-unsupported-for-codex', phase: 'cli',
+      message: '--cascade has no codex edge model (codex components declare no cross-component ' +
+        'references); use plain remove --target codex, or remove skill:<name> --target codex ' +
+        '--prune-config to clean orphaned config entries',
+    }],
+    code: 3,
+  };
+}
+
+/**
  * Drive `cascadeRemove` from the CLI.
  *
  * @param {import('./commands.mjs').CommandContext} ctx  { configDir, mgrStateDir, args }
@@ -105,6 +140,11 @@ function summarizeCascade(r) {
 export async function cascadeCommand(ctx, deps = {}) {
   const args = ctx && ctx.args ? ctx.args : {};
   const spec = args && Array.isArray(args.positionals) ? args.positionals[0] : undefined;
+
+  // CODEX GUARD — checked FIRST so even a spec-less `--cascade --target codex` is told
+  // the feature is unsupported (a spec would not help). See codexCascadeRefusal.
+  const codexRefusal = codexCascadeRefusal(ctx && ctx.descriptor);
+  if (codexRefusal) return codexRefusal;
 
   if (typeof spec !== 'string' || spec.length === 0) {
     return {
