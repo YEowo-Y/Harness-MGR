@@ -142,3 +142,27 @@ test('insert into an empty enabledPlugins object yields valid JSON', () => {
   assert.equal(v.ok, true);
   assert.equal(parseJsonc(v.text).value.enabledPlugins['x@m'], true);
 });
+
+test('the diff NEVER echoes a co-located secret on a minified file (leak-proof by construction)', () => {
+  // a hand-minified settings.json with an env secret and the plugin on the SAME physical line.
+  const minified = '{ "env": {"SECRET":"sk-LIVE-must-not-leak"}, "enabledPlugins": { "ecc@m": true } }';
+  const r = setPluginEnabled(minified, 'ecc@m', false);
+  assert.equal(r.changed, true);
+  // the written file still flips correctly + preserves the secret byte (V2 guarantees this)
+  assert.ok(r.text.includes('sk-LIVE-must-not-leak'));
+  // but the DIFF (echoed to stdout) is synthesized from the key+bool — never the physical line
+  assert.equal(r.before, '"ecc@m": true');
+  assert.equal(r.after, '"ecc@m": false');
+  assert.ok(!r.before.includes('sk-LIVE'));
+  assert.ok(!r.after.includes('sk-LIVE'));
+  // applyVerifiedJsonEdit's diff carries the same leak-proof member strings
+  const v = applyVerifiedJsonEdit(minified, 'ecc@m', false);
+  assert.ok(!JSON.stringify(v.diff).includes('sk-LIVE'));
+});
+
+test('the not-boolean refusal reports a TYPE, never the value bytes', () => {
+  const r = setPluginEnabled('{"enabledPlugins":{"x@m":"sk-secret-value-here"}}', 'x@m', false);
+  assert.equal(r.error.code, 'not-boolean');
+  assert.ok(r.error.message.includes('a string'));
+  assert.ok(!r.error.message.includes('sk-secret'));
+});
