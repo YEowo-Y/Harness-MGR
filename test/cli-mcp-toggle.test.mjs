@@ -74,12 +74,23 @@ test('--apply with CLAUDE_MGR_ENABLE_WRITES=0 → env lock refusal, engine never
   assert.equal(deps.setMcpEnabledFn.calls.length, 0);
 });
 
-test('exit codes: a refused engine result → 2; ok → 0', async () => {
+test('exit codes: refused → 2; ok → 0; a plain failure (not refused, not ok) → 1', async () => {
   const refusedDeps = makeDeps({ setMcpEnabledFn: async () => ({ refused: true, ok: false, diagnostics: [] }) });
   assert.equal((await mcpToggleCommand(claudeCtx({ type: 'mcp', positionals: ['x'] }), refusedDeps, false, 'disable')).code, 2);
   const okDeps = makeDeps({ setMcpEnabledFn: async () => ({ ok: true, diagnostics: [] }) });
   assert.equal((await mcpToggleCommand(claudeCtx({ type: 'mcp', positionals: ['x'] }), okDeps, false, 'disable')).code, 0);
+  const failDeps = makeDeps({ setMcpEnabledFn: async () => ({ ok: false, refused: false, diagnostics: [] }) });
+  assert.equal((await mcpToggleCommand(claudeCtx({ type: 'mcp', positionals: ['x'] }), failDeps, false, 'disable')).code, 1);
 });
+
+test('--apply but the gate (loadPaths) is unloadable → write-unavailable, code 1, engine never called', async () => {
+  const deps = makeDeps({ loadPaths: async () => { throw new Error('boom'); } });
+  const out = await mcpToggleCommand(claudeCtx({ type: 'mcp', positionals: ['x'], apply: true }), deps, false, 'disable');
+  assert.equal(out.code, 1);
+  assert.ok(out.diagnostics.some((d) => d.code === 'disable-write-unavailable'));
+  assert.equal(deps.setMcpEnabledFn.calls.length, 0);
+});
+
 
 test('the engine throwing is caught → unexpected-error, code 1', async () => {
   const deps = makeDeps({ setMcpEnabledFn: async () => { throw new Error('boom'); } });
