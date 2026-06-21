@@ -6,12 +6,12 @@
  * --apply (dry-run by default; CLAUDE_MGR_ENABLE_WRITES=0 force-locks writes). disable
  * sets enabled=false, enable sets enabled=true — one shared configEditCommand.
  *
- * Target support: config-edit is a per-target feature. Only a target whose write
- * surface enables it (Codex: configEditFiles=['config.toml'] + features.configEdit) is
- * accepted; on any other target (Claude) the command refuses with a clear message
- * rather than silently no-op'ing. --type is plugin, mcp, or skill. A skill selects by a
- * bare name OR by `--path "<path>"` (mutually exclusive — 51% of live entries are
- * path-keyed); plugin/mcp take a single positional and reject --path.
+ * Target support is per-target: Codex has an in-place config.toml surface
+ * (configEditFiles=['config.toml'] + features.configEdit; --type plugin|mcp|skill, a skill
+ * selecting by a bare name OR by `--path` — 51% of live entries are path-keyed); CLAUDE has
+ * the settings.json enabledPlugins map (pluginEnableModel:'settings-map'; --type plugin ONLY
+ * this increment, routed to setPluginEnabledClaude). A target with neither surface refuses
+ * with a clear message rather than silently no-op'ing.
  *
  * M2-SAFETY: never STATICALLY imports paths.mjs; the gate is resolved via a DYNAMIC
  * import ONLY on the real --apply path (mirrors remove-command.mjs). Dry-run touches no
@@ -20,6 +20,7 @@
  */
 
 import { setComponentEnabled } from '../ops/config-edit.mjs';
+import { setPluginEnabledClaude } from '../ops/plugin-toggle.mjs';
 import { resolveWriteIntent, resolveAssertWritable } from './write-gate.mjs';
 
 /** @typedef {import('./commands.mjs').CommandContext} CommandContext */
@@ -74,11 +75,18 @@ async function configEditCommand(ctx, deps, desired) {
   const descriptor = ctx && ctx.descriptor && typeof ctx.descriptor === 'object' ? ctx.descriptor : null;
   const cli = (code, message, status, exit) => ({ result: { status }, diagnostics: [{ severity: 'error', code, phase: 'cli', message }], code: exit });
 
-  // Target support: only a target whose write surface enables config-edit (Codex).
+  // Target support: Codex has an in-place config.toml surface (plugin/mcp/skill); Claude has the
+  // settings.json enabledPlugins map (plugin only). A target with NEITHER is refused.
   const ws = descriptor && descriptor.writeSurface;
-  const supported = !!(ws && ws.features && ws.features.configEdit === true && Array.isArray(ws.configEditFiles) && ws.configEditFiles.length > 0);
-  if (!supported) {
-    return cli(`${verb}-unsupported-target`, `${verb} is only supported for a target with an in-place config surface (run with --target codex); the current target has none`, 'unsupported-target', 3);
+  const codexConfigEdit = !!(ws && ws.features && ws.features.configEdit === true && Array.isArray(ws.configEditFiles) && ws.configEditFiles.length > 0);
+  const claudePluginToggle = !!(descriptor && descriptor.pluginEnableModel === 'settings-map');
+  if (!codexConfigEdit && !claudePluginToggle) {
+    return cli(`${verb}-unsupported-target`, `${verb} is only supported for a target with an in-place config surface (Codex config.toml) or the Claude enabledPlugins map; the current target has neither`, 'unsupported-target', 3);
+  }
+  // CLAUDE plugin-toggle path (settings.json enabledPlugins). Only --type plugin this increment;
+  // the codex (config.toml) path continues below unchanged.
+  if (claudePluginToggle && !codexConfigEdit) {
+    return claudePluginCommand(ctx, deps, desired, verb, { kind, positional, pathArg });
   }
   if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin|mcp|skill and a name: ${verb} --type plugin <name@marketplace> | ${verb} --type mcp <server> | ${verb} --type skill <name> | ${verb} --type skill --path "<path>"`, 'no-type', 3);
 
@@ -122,6 +130,58 @@ async function configEditCommand(ctx, deps, desired) {
       configFile: ws.configEditFiles[0],
       assertWritable, enableWrites: intent.enableWrites,
       scope: descriptor.snapshotScope, pid: process.pid,
+    });
+  } catch (err) {
+    return { result: { status: 'error' }, diagnostics: [{ severity: 'error', code: `${verb}-unexpected-error`, phase: 'cli',
+      message: `${verb} failed unexpectedly: ${err instanceof Error ? err.message : String(err)}` }], code: 1 };
+  }
+  const o = r && typeof r === 'object' ? r : {};
+  return { result: summarize(o, verb), diagnostics: Array.isArray(o.diagnostics) ? o.diagnostics.slice() : [], code: configEditExitCode(o) };
+}
+
+/**
+ * The CLAUDE plugin-toggle path: `disable`/`enable --type plugin <name@marketplace>` flips the
+ * settings.json enabledPlugins boolean via setPluginEnabledClaude. Only --type plugin is
+ * supported for Claude this increment (mcp has no enabledMcpServers map; skills have no settings
+ * enable flag). Mirrors the codex path's two-factor gate + M2-safe dynamic paths import on --apply.
+ * @param {CommandContext} ctx
+ * @param {{loadPaths?:Function, setPluginEnabledFn?:Function, env?:Record<string,string|undefined>}} deps
+ * @param {boolean} desired @param {string} verb @param {{kind?:string, positional?:string, pathArg?:string}} parsed
+ * @returns {Promise<CommandOutput & {code:number}>}
+ */
+async function claudePluginCommand(ctx, deps, desired, verb, parsed) {
+  const { kind, positional, pathArg } = parsed;
+  const cli = (code, message, status, exit) => ({ result: { status }, diagnostics: [{ severity: 'error', code, phase: 'cli', message }], code: exit });
+  if (!kind) return cli(`${verb}-no-type`, `${verb} requires --type plugin and a name: ${verb} --type plugin <name@marketplace>`, 'no-type', 3);
+  if (kind !== 'plugin') return cli(`${verb}-claude-kind-unsupported`, `for the Claude target, ${verb} supports only --type plugin (got --type ${kind}); mcp/skill toggling is not available for Claude`, 'kind-unsupported', 3);
+  if (pathArg !== undefined) return cli(`${verb}-path-not-allowed`, '--path is not valid for --type plugin', 'path-not-allowed', 3);
+  const name = positional;
+  if (typeof name !== 'string' || name.length === 0) return cli(`${verb}-no-name`, `${verb} requires a plugin name: ${verb} --type plugin <name@marketplace>`, 'no-name', 3);
+
+  const apply = !!(ctx.args && ctx.args.apply);
+  const env = deps.env ?? process.env;
+  const intent = resolveWriteIntent({ apply, env });
+  if (intent.refusal) return { result: { status: 'refused', mode: 'apply-requested' }, diagnostics: [intent.refusal], code: intent.code };
+
+  let assertWritable;
+  if (intent.enableWrites) {
+    try {
+      const paths = await (deps.loadPaths ?? (() => import('../paths.mjs')))();
+      assertWritable = resolveAssertWritable(paths, ctx); // claude → bare assertWritable (settings.json apply-writable)
+    } catch (err) {
+      return { result: { status: 'write-unavailable' }, diagnostics: [{ severity: 'warn', code: `${verb}-write-unavailable`, phase: 'cli',
+        message: `the write gate is unloadable; ${verb} --apply needs it: ${err instanceof Error ? err.message : String(err)}` }], code: 1 };
+    }
+  }
+
+  const fn = deps.setPluginEnabledFn ?? setPluginEnabledClaude;
+  let r;
+  try {
+    r = await fn({
+      key: name, desired,
+      targetClaudeDir: ctx.configDir, mgrStateDir: ctx.mgrStateDir,
+      assertWritable, enableWrites: intent.enableWrites,
+      scope: ctx.descriptor && ctx.descriptor.snapshotScope, pid: process.pid,
     });
   } catch (err) {
     return { result: { status: 'error' }, diagnostics: [{ severity: 'error', code: `${verb}-unexpected-error`, phase: 'cli',
