@@ -32,6 +32,8 @@ import { emptyPlan, addOp } from '../lib/plan.mjs';
 import { applyPlan } from './apply.mjs';
 import { findEnableSpan } from '../lib/toml-edit-locate.mjs';
 import { setEnabled } from '../lib/toml-edit.mjs';
+import { parseToml } from '../lib/toml-parser.mjs';
+import { spanMask } from '../lib/toml-edit-mask.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -80,6 +82,103 @@ function validValue(kind, field, value) {
   if (kind === 'mcp') return MCP_NAME_RE.test(value);
   if (kind === 'plugin') return PLUGIN_NAME_RE.test(value);
   return field === 'path' ? SKILL_PATH_RE.test(value) : SKILL_NAME_RE.test(value); // skill
+}
+
+/** Escape a string so it can be matched as a LITERAL inside a RegExp. The selector value is
+ *  already charset-validated, but real plugin names carry '.'/'-' (regex-significant). */
+function reEscape(s) { return s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&'); }
+
+/** Heuristic: is `selector`'s component DEFINED as an inline table/array — a TOML shape the
+ *  header-based locator can't flip, so `findEnableSpan` reports it `absent` even though it IS
+ *  present? plugin/mcp → a `<table>.<name> = {` dotted inline-table line; skill → a
+ *  `skills.config = [` inline array (individual entries are unreachable inside it). Scans
+ *  physical lines, skipping comments and masked (multi-line-string / inline-table interior)
+ *  regions so a `plugins.x = {` that is really string content never false-matches. Pure;
+ *  never throws. @param {string} text @param {import('../lib/toml-edit-locate.mjs').EnableSelector} selector */
+function definedInline(text, selector) {
+  if (typeof text !== 'string' || !selector) return false;
+  let pattern;
+  if (selector.kind === 'plugin' || selector.kind === 'mcp') {
+    const table = selector.kind === 'plugin' ? 'plugins' : 'mcp_servers';
+    const n = reEscape(typeof selector.name === 'string' ? selector.name : '');
+    pattern = new RegExp(`^\\s*${table}\\.(?:${n}|"${n}"|'${n}')\\s*=\\s*\\{`);
+  } else if (selector.kind === 'skill') {
+    pattern = /^\s*skills\.config\s*=\s*\[/;
+  } else {
+    return false;
+  }
+  let mask;
+  try { mask = spanMask(text); } catch { mask = { skip: () => false, malformed: false }; }
+  let i = 0;
+  const len = text.length;
+  while (i < len) {
+    const nl = text.indexOf('\n', i);
+    const end = nl === -1 ? len : nl;
+    if (!mask.skip(i)) {
+      const line = text.slice(i, end);
+      if (line.replace(/^[ \t]+/, '')[0] !== '#' && pattern.test(line)) return true;
+    }
+    i = end + 1;
+  }
+  return false;
+}
+
+/** Build the shared "unsupported config shape" refusal message: a specific `reason` clause +
+ *  the actionable hand-edit guidance + the dry-run-default reassurance (nothing was written).
+ *  @param {{kind:string,name:string,field:'name'|'path'|null,target:string}} id @param {string} reason */
+function unsupportedShapeMessage(id, reason) {
+  const sel = `${id.kind} ${id.field === 'path' ? 'path ' : ''}'${id.name}'`;
+  return `${sel}: ${reason}. This in-place editor only flips a bare \`enabled = true|false\` token in a \`[header]\` region — edit ${id.target} by hand to change it. (dry-run default: nothing was written.)`;
+}
+
+/** Classify a findEnableSpan result into a refusal `{code,message}` or null (clean → proceed).
+ *  Covers ambiguity, the unsupported multi-line/unterminated shape, a generic locate error, an
+ *  inline-defined component (present but unreachable → unsupported-shape, not the misleading
+ *  not-found), and a genuinely-absent component. Pure; never throws.
+ *  @param {object} span @param {string} text @param {import('../lib/toml-edit-locate.mjs').EnableSelector} selector
+ *  @param {{kind:string,name:string,field:'name'|'path'|null,target:string}} id */
+function classifySpan(span, text, selector, id) {
+  if (span.error) {
+    if (span.ambiguous) {
+      const hint = id.kind === 'skill' && id.field === 'name'
+        ? ` — more than one [[skills.config]] entry is named '${id.name}'; re-run with --path "<path>" to pick exactly one`
+        : '';
+      return { code: 'config-edit-ambiguous', message: `${id.kind} selector '${id.name}' is ambiguous in ${id.target}${hint}` };
+    }
+    if (span.error.code === 'unparseable-multiline') {
+      return { code: 'config-edit-unsupported-shape', message: unsupportedShapeMessage(id,
+        'config.toml has an unterminated or multi-line TOML construct (a """/\'\'\' string or an inline table) the editor cannot safely navigate') };
+    }
+    return { code: 'config-edit-locate-error', message: `cannot locate ${id.kind} '${id.name}' in ${id.target}: ${span.error.message}` };
+  }
+  if (span.absent) {
+    if (definedInline(text, selector)) {
+      return { code: 'config-edit-unsupported-shape', message: unsupportedShapeMessage(id,
+        'it appears to be defined as an inline table/array, a shape the in-place editor cannot reach') };
+    }
+    return { code: 'config-edit-target-not-found', message: `${id.kind} ${id.field === 'path' ? 'path' : ''}'${id.name}' not found in ${id.target}` };
+  }
+  return null;
+}
+
+/** Classify a setEnabled preview into a refusal `{code,message}` or null (clean → proceed).
+ *  Covers a non-boolean `enabled`, a generic edit error, and a flip/insert that would yield TOML
+ *  apply's V1 reparse rejects — caught NOW so dry-run predicts --apply instead of letting it fail
+ *  later with a cryptic verify-reparse-failed. Pure; never throws.
+ *  @param {object} preview @param {{kind:string,name:string,field:'name'|'path'|null,target:string}} id */
+function classifyPreview(preview, id) {
+  if (preview.error) {
+    if (preview.error.code === 'enabled-not-boolean') {
+      return { code: 'config-edit-unsupported-shape', message: unsupportedShapeMessage(id,
+        `its 'enabled' value is not a bare boolean (${preview.error.message})`) };
+    }
+    return { code: 'config-edit-locate-error', message: `cannot edit ${id.kind} '${id.name}': ${preview.error.message}` };
+  }
+  if (preview.changed === true && parseToml(preview.text).errors.length > 0) {
+    return { code: 'config-edit-unsupported-shape', message: unsupportedShapeMessage(id,
+      "editing it would produce TOML this tool's verifier rejects (the file uses a multi-line string or inline table)") };
+  }
+  return null;
 }
 
 /** Full-shape result builder (every field defaulted). `field` is the skill selector mode
@@ -146,23 +245,17 @@ export async function setComponentEnabled(opts) {
     try { text = readFn(target); } catch { return refuse('config-edit-config-not-found', `cannot read ${target} (in-place config-edit needs the config file)`, { kind, name, field, target }); }
     if (typeof text !== 'string') return refuse('config-edit-config-not-found', `read of ${target} did not return text`, { kind, name, field, target });
 
+    // Identity bundle shared by every post-locate refusal (keeps helpers ≤5 params).
+    const id = { kind, name, field, target };
     const span = findEnableSpan(text, selector);
-    if (span.error) {
-      if (span.ambiguous) {
-        // A bare skill NAME that matches >1 [[skills.config]] entry is the exact case --path exists for.
-        const hint = kind === 'skill' && field === 'name'
-          ? ` — more than one [[skills.config]] entry is named '${name}'; re-run with --path "<path>" to pick exactly one`
-          : '';
-        return refuse('config-edit-ambiguous', `${kind} selector '${name}' is ambiguous in ${target}${hint}`, { kind, name, field, target });
-      }
-      return refuse('config-edit-locate-error', `cannot locate ${kind} '${name}' in ${target}: ${span.error.message}`, { kind, name, field, target });
-    }
-    if (span.absent) return refuse('config-edit-target-not-found', `${kind} ${field === 'path' ? 'path' : ''}'${name}' not found in ${target}`, { kind, name, field, target });
+    const spanRefusal = classifySpan(span, text, selector, id);
+    if (spanRefusal) return refuse(spanRefusal.code, spanRefusal.message, id);
     // An absent `enabled` key: insert is allowed ONLY for INSERT_KINDS (mcp); for other kinds it's a refusal.
-    if (span.mode === 'insert' && !INSERT_KINDS.includes(kind)) return refuse('config-edit-no-enabled-key', `${kind} '${name}' has no 'enabled' key to flip (key-insert is not supported for ${kind})`, { kind, name, field, target });
+    if (span.mode === 'insert' && !INSERT_KINDS.includes(kind)) return refuse('config-edit-no-enabled-key', `${kind} '${name}' has no 'enabled' key to flip (key-insert is not supported for ${kind})`, id);
 
     const preview = setEnabled(text, selector, desired);
-    if (preview.error) return refuse('config-edit-locate-error', `cannot edit ${kind} '${name}': ${preview.error.message}`, { kind, name, field, target });
+    const previewRefusal = classifyPreview(preview, id);
+    if (previewRefusal) return refuse(previewRefusal.code, previewRefusal.message, id);
     // alreadyInState covers an explicit same-value (noop-already) AND an mcp enable on a
     // default-enabled (key-absent) server (noop-default-enabled) — both are safe no-ops.
     const alreadyInState = !preview.changed && (preview.reason === 'noop-already' || preview.reason === 'noop-default-enabled');
