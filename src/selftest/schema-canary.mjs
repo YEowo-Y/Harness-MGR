@@ -91,6 +91,10 @@ const EPHEMERAL_APP_KEYS = new Set([
   'claudeAiMcpEverConnected', 'officialMarketplaceAutoInstallAttempted',
   'officialMarketplaceAutoInstalled', 'opusProMigrationComplete', 'migrationVersion',
   'pluginUsage', 'unpinFable5LaunchEffort', 'opus48LaunchSeenCount', 'tipLifetimeShownCounts',
+  // Observed on the live surface 2026-06-21: a tip-display state marker, same family as
+  // tipLifetimeShownCounts / lastReleaseNotesSeen. (`machineID`, also new that day, is a
+  // DURABLE identity key — sibling of userID — and is deliberately KEPT, not denylisted.)
+  'lastShownEmergencyTip',
 ]);
 
 /**
