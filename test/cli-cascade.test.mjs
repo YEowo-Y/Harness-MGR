@@ -16,14 +16,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cascadeCommand } from '../src/cli/cascade-command.mjs';
 
-/** A ctx with the given positionals + flag bag. */
-function makeCtx(positionals, flags = {}) {
+/** A ctx with the given positionals + flag bag, plus an optional target descriptor. */
+function makeCtx(positionals, flags = {}, descriptor) {
   return {
     configDir: '/fake/.claude',
     mgrStateDir: '/fake/.claude/.mgr-state',
+    descriptor,
     args: { positionals, ...flags },
   };
 }
+
+/** Minimal codex descriptor stub — the guard only reads `.id`. */
+const CODEX_DESCRIPTOR = { id: 'codex', label: 'OpenAI Codex' };
+/** Minimal claude descriptor stub — proves the guard is codex-specific. */
+const CLAUDE_DESCRIPTOR = { id: 'claude', label: 'Claude Code' };
 
 /** A cascadeFn recorder that returns a crafted CascadeResult and records its opts. */
 function recorder(result) {
@@ -49,6 +55,62 @@ test('cascadeCommand: missing spec → code 3, cascade-no-spec, engine NOT calle
   assert.equal(out.result.status, 'no-spec');
   assert.equal(out.diagnostics[0].code, 'cascade-no-spec');
   assert.equal(cas.calls.length, 0, 'engine must not run without a spec');
+});
+
+// ── codex guard ─────────────────────────────────────────────────────────────────
+// --cascade is a Claude-only feature (its edge model reads Claude skill frontmatter).
+// A codex target must refuse cleanly BEFORE any discovery / write, never run the
+// Claude cascade machinery against ~/.codex.
+
+test('cascadeCommand: --target codex → refused cascade-unsupported-for-codex, code 3, engine NOT called', async () => {
+  const cas = recorder({ ok: true });
+  const lp = loadPathsRecorder();
+  const out = await cascadeCommand(
+    makeCtx(['skill:foo'], { apply: false }, CODEX_DESCRIPTOR),
+    { cascadeFn: cas.fn, loadPaths: lp.fn, env: {} },
+  );
+  assert.equal(out.code, 3);
+  assert.equal(out.result.status, 'unsupported-target');
+  assert.equal(out.diagnostics[0].code, 'cascade-unsupported-for-codex');
+  assert.match(out.diagnostics[0].message, /--prune-config/, 'must route the user to the codex paths that work');
+  assert.equal(cas.calls.length, 0, 'codex must never reach the cascade engine');
+  assert.equal(lp.calls.length, 0, 'codex must never load the write gate');
+});
+
+test('cascadeCommand: --target codex with NO spec → codex refusal wins over no-spec (checked first)', async () => {
+  const cas = recorder({ ok: true });
+  const out = await cascadeCommand(
+    makeCtx([], {}, CODEX_DESCRIPTOR),
+    { cascadeFn: cas.fn, env: {} },
+  );
+  assert.equal(out.code, 3);
+  assert.equal(out.diagnostics[0].code, 'cascade-unsupported-for-codex',
+    'the codex guard must precede the no-spec check (a spec would not help on codex)');
+  assert.equal(cas.calls.length, 0);
+});
+
+test('cascadeCommand: --target codex with --apply --force → STILL refused before the write gate (no codex write)', async () => {
+  const cas = recorder({ ok: true });
+  const lp = loadPathsRecorder();
+  const out = await cascadeCommand(
+    makeCtx(['skill:foo'], { apply: true, force: true }, CODEX_DESCRIPTOR),
+    { cascadeFn: cas.fn, loadPaths: lp.fn, env: {} },
+  );
+  assert.equal(out.code, 3);
+  assert.equal(out.diagnostics[0].code, 'cascade-unsupported-for-codex');
+  assert.equal(cas.calls.length, 0, 'the guard must fire before the engine even on the --apply path');
+  assert.equal(lp.calls.length, 0, 'the guard must fire before paths.mjs loads — the dangerous codex write path is sealed');
+});
+
+test('cascadeCommand: claude descriptor (id "claude") → guard does NOT fire, engine runs (codex-specific guard)', async () => {
+  const cas = recorder({ ok: true, dryRun: true, target: 'agent:foo', dependents: [] });
+  const out = await cascadeCommand(
+    makeCtx(['agent:foo'], {}, CLAUDE_DESCRIPTOR),
+    { cascadeFn: cas.fn, env: {} },
+  );
+  assert.equal(out.code, 0);
+  assert.equal(cas.calls.length, 1, 'a claude target must reach the engine — the guard is codex-only');
+  assert.equal(out.result.status, 'dry-run');
 });
 
 // ── RELAXED write gate ────────────────────────────────────────────────────────────
