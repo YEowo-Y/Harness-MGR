@@ -24,7 +24,7 @@ func isSectionView(v viewID) bool {
 		v == viewConfig || v == viewHooks || v == viewSelftest ||
 		v == viewDoctor || v == viewPermissions ||
 		v == viewDrift || v == viewAudit || v == viewHealth ||
-		v == viewDispositions
+		v == viewDispositions || v == viewSnapshots
 }
 
 // ── Conflicts ────────────────────────────────────────────────────────────────
@@ -255,6 +255,8 @@ func sectionEmptyLabel(v viewID) string {
 		return tr("empty.health")
 	case viewDispositions:
 		return tr("empty.dispositions")
+	case viewSnapshots:
+		return tr("empty.snapshots")
 	default:
 		return tr("empty.items")
 	}
@@ -900,6 +902,63 @@ func auditDetail(e AuditEntry, width int) string {
 	return b.String()
 }
 
+// ── Snapshots ──────────────────────────────────────────────────────────────────
+
+// snapshotItems converts a Snapshot slice into sectionItems for the Snapshots
+// list, one row per snapshot in the engine's newest-first order. The title is a
+// diamond glyph plus the reason (the id is the fallback when reason is empty);
+// the full createdAt timestamp lives in the detail pane, so the row stays short
+// enough to read in a narrow list. Color is the teal accent (read-only — no
+// severity to encode).
+func snapshotItems(snaps []Snapshot) []sectionItem {
+	items := make([]sectionItem, 0, len(snaps))
+	for _, s := range snaps {
+		s := s // shadow for closure capture
+		label := s.Reason
+		if label == "" {
+			label = s.Id
+		}
+		items = append(items, sectionItem{
+			title:  glyph("◆", "*") + " " + label,
+			color:  accent,
+			detail: func(w int) string { return snapshotDetail(s, w) },
+			id:     s.Id, // lets the rollback action map the selected row back to its snapshot
+		})
+	}
+	return items
+}
+
+// snapshotPinnedText renders a Snapshot's pinned flag as a localised yes/no.
+func snapshotPinnedText(pinned bool) string {
+	if pinned {
+		return tr("snapshot.pinnedYes")
+	}
+	return tr("snapshot.pinnedNo")
+}
+
+// snapshotDetail builds the detail body for one snapshot. Section/field labels go
+// through tr(); engine data (id, createdAt, reason) stays English. Uses the same
+// detailTitle / detailSection / detailField helpers as the other detail panes.
+func snapshotDetail(s Snapshot, width int) string {
+	title := s.Reason
+	if title == "" {
+		title = s.Id
+	}
+
+	var b strings.Builder
+	b.WriteString(detailTitle(title, accent, "", width))
+	b.WriteString("\n\n")
+
+	b.WriteString(detailSection(tr("detail.fields"), accent, width))
+	b.WriteString(detailField(tr("detail.id"), s.Id, width))
+	b.WriteString(detailField(tr("detail.createdAt"), s.CreatedAt, width))
+	b.WriteString(detailField(tr("detail.reason"), s.Reason, width))
+	b.WriteString(detailField(tr("detail.fileCount"), fmt.Sprintf("%d", s.FileCount), width))
+	b.WriteString(detailField(tr("detail.pinned"), snapshotPinnedText(s.Pinned), width))
+
+	return b.String()
+}
+
 // tabActionHint returns the contextual action-key hint for a tab's special
 // action, or "" for tabs with none. Stateless (depends only on view) and shown
 // regardless of write mode so the action is always discoverable; pressing it
@@ -910,6 +969,10 @@ func tabActionHint(view viewID) string {
 	switch {
 	case view == viewDoctor:
 		return sep + keyStyle.Render("a") + dim.Render(" "+tr("write.activeProbe.hint"))
+	case view == viewSnapshots:
+		// The rollback action is item-based (not a writeActionFor entry), so its hint
+		// is wired here directly, like the Doctor active-probe hint.
+		return sep + keyStyle.Render("w") + dim.Render(" "+tr("write.rollback.hint"))
 	default:
 		if wa, ok := writeActionFor(view); ok {
 			return sep + keyStyle.Render("w") + dim.Render(" "+tr(wa.hintKey))
