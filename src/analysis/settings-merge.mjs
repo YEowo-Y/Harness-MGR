@@ -14,6 +14,9 @@
  *   hooks.<event>                      — per-event array CONCATENATION in layer
  *                                        order (no dedup in Phase 1).
  *   enabledPlugins                     — object merge, later layer wins per key.
+ *   skillOverrides                     — object merge, later layer wins per key (the
+ *                                        per-skill visibility map written by
+ *                                        `skill visibility`; modeled on enabledPlugins).
  *   env                                — object merge, later layer wins per key.
  *   model / outputStyle /
  *     cleanupPeriodDays /
@@ -78,6 +81,12 @@ const KNOWN_MERGE_RULES = Object.freeze({
   permissions: 'permissions-merge',
   hooks: 'hooks-concat',
   enabledPlugins: 'object-merge',
+  // skillOverrides — per-skill visibility map (name → on|name-only|user-invocable-only|off),
+  // written by `skill visibility`. Modeled as object-merge (higher layer wins per skill),
+  // identical to its structural twin enabledPlugins; CC object-merges top-level maps. Not
+  // independently re-verified against settingsMergeCustomizer for skillOverrides specifically
+  // (single-layer is identical under every strategy — the common case).
+  skillOverrides: 'object-merge',
   env: 'object-merge',
   model: 'scalar-highest',
   outputStyle: 'scalar-highest',
