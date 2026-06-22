@@ -24,3 +24,6 @@ WORKING-CONTEXT.md
 AGENTS.md
 .claude/
 .codex/
+
+# Internal design / handoff / review notes — kept locally, not shipped publicly.
+docs/internal/
