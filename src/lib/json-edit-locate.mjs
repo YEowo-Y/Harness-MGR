@@ -31,12 +31,12 @@
  *   | {found:true, mode:'flip', tokenStart:number, tokenEnd:number, literal:string, current:boolean}} EnabledPluginSpan */
 
 /** Whitespace char (JSON insignificant whitespace). @param {string|undefined} ch */
-function isWs(ch) { return ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n'; }
+export function isWs(ch) { return ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n'; }
 
 /** Skip whitespace + `//` line and `/* *​/` block comments (JSONC) from `i`.
  *  Returns the new index, or -1 on an UNTERMINATED block comment (→ malformed).
  *  @param {string} text @param {number} i */
-function skipTrivia(text, i) {
+export function skipTrivia(text, i) {
   const n = text.length;
   while (i < n) {
     const ch = text[i];
@@ -57,7 +57,7 @@ function skipTrivia(text, i) {
 /** Skip a JSON string starting at the opening quote (text[i] === '"'). Returns the index
  *  PAST the closing quote, or -1 if unterminated. Backslash escapes never mis-terminate.
  *  @param {string} text @param {number} i */
-function skipString(text, i) {
+export function skipString(text, i) {
   const n = text.length;
   i += 1; // consume opening "
   while (i < n) {
@@ -72,7 +72,7 @@ function skipString(text, i) {
 /** Decode a JSON string literal at text[i] (opening quote). Returns {value, next} (next =
  *  index past the closing quote) or null on malformed. Handles standard escapes + \uXXXX.
  *  @param {string} text @param {number} i */
-function decodeString(text, i) {
+export function decodeString(text, i) {
   const n = text.length;
   i += 1;
   let out = '';
@@ -100,7 +100,7 @@ function decodeString(text, i) {
  *  a string, an object/array (balanced, string+comment aware), or a primitive
  *  (number/true/false/null — consumed up to the next structural delimiter). Returns the
  *  index past the value, or -1 on malformed. @param {string} text @param {number} i */
-function skipValue(text, i) {
+export function skipValue(text, i) {
   const n = text.length;
   const ch = text[i];
   if (ch === '"') return skipString(text, i);
@@ -133,7 +133,7 @@ function skipValue(text, i) {
  * step. Never throws. @param {string} text @param {number} objStart @param {string} wantKey
  * @returns {{error:string} | {ok:true, matches:Array<{valueStart:number, valueEnd:number}>, bodyStart:number, firstKeyStart:number|null, memberCount:number}}
  */
-function walkObject(text, objStart, wantKey) {
+export function walkObject(text, objStart, wantKey) {
   const n = text.length;
   const bodyStart = objStart + 1;
   let i = bodyStart;
