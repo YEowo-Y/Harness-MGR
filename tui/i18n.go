@@ -167,6 +167,18 @@ var translations = map[string][2]string{
 	"write.plugin.done":          {"plugin updated — restart Claude Code", "插件已更新 —— 重启 Claude Code 生效"},
 	"write.plugin.hint":          {"toggle plugin", "切换插件"},
 	"write.plugin.selectHint":    {"select a plugin row, then press w to toggle it", "请先选中一个插件行,再按 w 切换启用/停用"},
+
+	// Snapshot rollback confirm-apply flow (Snapshots tab). The reason/id are engine
+	// DATA shown verbatim; only the surrounding prose is translated. A drifted
+	// rollback leads with driftWarn and the modal turns red.
+	"write.rollback.title":        {"Roll back to this snapshot?", "回滚到该快照?"},
+	"write.rollback.body":         {"Will restore your config to snapshot «%s» (about %d files).", "将把配置恢复到快照「%s」的状态(约 %d 个文件)。"},
+	"write.rollback.driftWarn":    {"⚠ Your live config has CHANGED since this snapshot. Rolling back will OVERWRITE those changes.", "⚠ 自该快照拍摄后,实时配置已发生变化。回滚会用快照【覆盖】这些变化。"},
+	"write.rollback.autoSnapshot": {"A snapshot of your CURRENT state is taken first, so this rollback can itself be undone.", "回滚前会先给【当前状态】自动拍一张快照,所以这次回滚也能再撤销。"},
+	"write.rollback.restart":      {"Restart Claude Code after the rollback for it to take effect.", "回滚后需重启 Claude Code 生效。"},
+	"write.rollback.done":         {"rolled back — restart Claude Code", "已回滚 —— 重启 Claude Code 生效"},
+	"write.rollback.hint":         {"roll back", "回滚"},
+	"write.rollback.selectHint":   {"select a snapshot row, then press w to roll back", "请先选中一个快照行,再按 w 回滚"},
 	"help.activeProbe":           {"run active doctor probes", "运行主动体检探针"},
 
 	"summary.drifted":         {"%d added · %d modified · %d removed", "%d 新增 · %d 修改 · %d 删除"},
@@ -237,6 +249,19 @@ var translations = map[string][2]string{
 	"detail.tier":                 {"Tier", "层级"},
 	"detail.plugin":               {"Plugin", "插件"},
 	"help.dispositions":           {"jump to Dispositions", "跳转到处置建议"},
+
+	// Snapshots tab — same bilingual principle as Dispositions: chrome/guidance
+	// translated, engine data (id, createdAt, reason) stays English.
+	"tab.snapshots":      {"Snapshots", "快照"},
+	"empty.snapshots":    {"no snapshots", "无快照"},
+	"summary.snapshots":  {"%d snapshots", "%d 个快照"},
+	"help.snapshots":     {"jump to Snapshots", "跳转到快照"},
+	"detail.id":          {"Id", "标识"},
+	"detail.createdAt":   {"Created at", "创建时间"},
+	"detail.fileCount":   {"File count", "文件数"},
+	"detail.pinned":      {"Pinned", "已固定"},
+	"snapshot.pinnedYes": {"yes", "是"},
+	"snapshot.pinnedNo":  {"no", "否"},
 
 	// Detail-pane section / field labels for the remaining tabs (Inventory,
 	// Conflicts, Orphans, Config, Selftest, Doctor, Permissions, Drift, Audit).
@@ -317,7 +342,7 @@ func tf(key string, args ...any) string {
 var tabKeys = []string{
 	"tab.inventory", "tab.conflicts", "tab.orphans", "tab.config", "tab.hooks",
 	"tab.selftest", "tab.doctor", "tab.permissions", "tab.drift", "tab.audit",
-	"tab.health", "tab.dispositions",
+	"tab.health", "tab.dispositions", "tab.snapshots",
 }
 
 // tabLabel returns the translated tab label for v (empty string if out of range).
