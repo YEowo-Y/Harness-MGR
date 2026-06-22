@@ -21,12 +21,12 @@ func TestRightArrowAdvancesTab(t *testing.T) {
 	}
 }
 
-func TestLeftArrowFromFirstWrapsToDispositions(t *testing.T) {
+func TestLeftArrowFromFirstWrapsToSnapshots(t *testing.T) {
 	m := loadedModel(120, 30)
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	m = mm.(model)
-	if m.currentView != viewDispositions {
-		t.Fatalf("left arrow from Inventory should wrap to the last tab (Dispositions), got %v", m.currentView)
+	if m.currentView != viewSnapshots {
+		t.Fatalf("left arrow from Inventory should wrap to the last tab (Snapshots), got %v", m.currentView)
 	}
 }
 
@@ -93,8 +93,8 @@ func TestMnemonicsAreCaseInsensitive(t *testing.T) {
 
 func TestStatusBarShowsArrowHint(t *testing.T) {
 	m := loadedModel(120, 30)
-	if out := m.View(); !strings.Contains(out, "1-0/H/D/←→") {
-		t.Fatalf("status bar should advertise the tab keys (1-0/H/D/←→):\n%s", out)
+	if out := m.View(); !strings.Contains(out, "1-0/H/D/S/←→") {
+		t.Fatalf("status bar should advertise the tab keys (1-0/H/D/S/←→):\n%s", out)
 	}
 }
 
@@ -128,6 +128,7 @@ func TestTabAcceleratorDigits(t *testing.T) {
 		{viewAudit, "0"},        // 10th tab → digit 0
 		{viewHealth, "H"},       // 11th tab → mnemonic
 		{viewDispositions, "D"}, // 12th tab → mnemonic
+		{viewSnapshots, "S"},    // 13th tab → mnemonic
 	}
 	for _, tc := range cases {
 		got := tabAccelerator(tc.v)
