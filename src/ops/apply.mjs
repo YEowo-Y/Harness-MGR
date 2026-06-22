@@ -93,9 +93,10 @@ import { atomicApplyDelete } from './atomic-delete.mjs';
 import { atomicApplyDirDelete } from './atomic-dir-delete.mjs';
 import { atomicConfigEdit, atomicConfigBlockDelete } from './atomic-toml-edit.mjs';
 import { atomicJsonEdit } from './atomic-json-edit.mjs';
+import { atomicJsonMapEdit } from './atomic-json-map-edit.mjs';
 import { paranoidVerify } from './apply-paranoid.mjs';
 import { checkOpTargetsInManifest } from './apply-manifest-check.mjs';
-import { DELETABLE_KINDS, DIR_DELETABLE_KINDS, CONFIG_EDIT_KINDS, CONFIG_BLOCK_DELETE_KINDS, JSON_EDIT_KINDS, invalidOpReason } from './apply-op-kinds.mjs';
+import { DELETABLE_KINDS, DIR_DELETABLE_KINDS, CONFIG_EDIT_KINDS, CONFIG_BLOCK_DELETE_KINDS, JSON_EDIT_KINDS, JSON_MAP_SET_KINDS, invalidOpReason } from './apply-op-kinds.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('../lib/plan.mjs').Plan} Plan */
@@ -256,9 +257,11 @@ async function performApply(a) {
     const isDirDelete = DIR_DELETABLE_KINDS.includes(op.kind);
     const isConfigEdit = CONFIG_EDIT_KINDS.includes(op.kind);
     const isConfigBlockDelete = CONFIG_BLOCK_DELETE_KINDS.includes(op.kind);
-    const isJsonEdit = JSON_EDIT_KINDS.includes(op.kind);
+    const isJsonEdit = JSON_EDIT_KINDS.includes(op.kind), isJsonMapSet = JSON_MAP_SET_KINDS.includes(op.kind);
     let res;
-    if (isJsonEdit) {
+    if (isJsonMapSet) {
+      res = await fns.atomicJsonMapEditFn({ target: op.target, selector: op.selector, value: op.value, assertWritable, retry: a.retry });
+    } else if (isJsonEdit) {
       res = await fns.atomicJsonEditFn({ target: op.target, selector: op.selector, desired: op.desired, assertWritable, retry: a.retry });
     } else if (isConfigBlockDelete) {
       res = await fns.atomicConfigBlockDeleteFn({ target: op.target, selector: op.selector, assertWritable, retry: a.retry });
@@ -273,8 +276,8 @@ async function performApply(a) {
     }
     for (const d of res.diagnostics ?? []) bag.add(d);
     if (!res.ok) {
-      const kindLabel = isJsonEdit ? 'json-edit' : (isConfigBlockDelete ? 'config-block-delete' : (isConfigEdit ? 'config-edit' : (isDirDelete ? 'dir-delete' : (isDelete ? 'delete' : 'write'))));
-      const failCode = isJsonEdit ? 'apply-op-json-edit-failed' : (isConfigBlockDelete ? 'apply-op-config-block-delete-failed' : (isConfigEdit ? 'apply-op-config-edit-failed' : (isDirDelete ? 'apply-op-dir-delete-failed' : (isDelete ? 'apply-op-delete-failed' : 'apply-op-failed'))));
+      const kindLabel = isJsonMapSet ? 'json-map-set' : (isJsonEdit ? 'json-edit' : (isConfigBlockDelete ? 'config-block-delete' : (isConfigEdit ? 'config-edit' : (isDirDelete ? 'dir-delete' : (isDelete ? 'delete' : 'write')))));
+      const failCode = isJsonMapSet ? 'apply-op-json-map-edit-failed' : (isJsonEdit ? 'apply-op-json-edit-failed' : (isConfigBlockDelete ? 'apply-op-config-block-delete-failed' : (isConfigEdit ? 'apply-op-config-edit-failed' : (isDirDelete ? 'apply-op-dir-delete-failed' : (isDelete ? 'apply-op-delete-failed' : 'apply-op-failed')))));
       return toFailed(a, journal, failCode,
         `the governed ${kindLabel} failed at op ${opsWritten + 1} of ${ops.length}; the journal is marked failed ` +
           '(snapshot intact — run recover --rollback to restore)',
@@ -282,10 +285,10 @@ async function performApply(a) {
     }
     opsWritten += 1;
     // paranoid re-parse applies ONLY to written *.json files via the generic write path —
-    // deletes/config-edits/block-deletes/json-edits have nothing to re-read here (config-edit,
-    // config-block-delete, AND json-edit do their OWN re-parse inside their editor before any
-    // byte is written).
-    if (!isDelete && !isDirDelete && !isConfigEdit && !isConfigBlockDelete && !isJsonEdit && a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
+    // deletes/config-edits/block-deletes/json-edits/json-map-sets have nothing to re-read here
+    // (config-edit, config-block-delete, json-edit, AND json-map-set do their OWN re-parse inside
+    // their editor before any byte is written).
+    if (!isDelete && !isDirDelete && !isConfigEdit && !isConfigBlockDelete && !isJsonEdit && !isJsonMapSet && a.paranoid && !paranoidVerify(op.target, fns.readFileFn, bag).ok) {
       return toFailed(a, journal, 'apply-paranoid-failed',
         `op ${opsWritten} of ${ops.length} wrote an unparseable file (paranoid re-parse failed); ` +
           'the journal is marked failed (snapshot intact — run recover --rollback to restore)',
@@ -377,7 +380,7 @@ function persistAt(a, journal) {
  *                                                  it; a parse failure aborts → failed
  * @param {object}  [opts.retry]                    retry schedule forwarded to the atomic write
  * @param {() => Date} [opts.now]                   clock injection (defaults to Date)
- * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, atomicDeleteFn, atomicDirDeleteFn, atomicConfigEditFn, atomicConfigBlockDeleteFn, atomicJsonEditFn, readFileFn }
+ * @param {object}  [opts.seams]                    { acquireFn, releaseFn, createSnapshotFn, createJournalFn, transitionFn, writeJournalFn, atomicWriteFn, atomicDeleteFn, atomicDirDeleteFn, atomicConfigEditFn, atomicConfigBlockDeleteFn, atomicJsonEditFn, atomicJsonMapEditFn, readFileFn }
  * @returns {Promise<ApplyResult>}
  */
 export async function applyPlan(opts) {
@@ -401,6 +404,7 @@ export async function applyPlan(opts) {
     atomicConfigEditFn: seams.atomicConfigEditFn ?? atomicConfigEdit,
     atomicConfigBlockDeleteFn: seams.atomicConfigBlockDeleteFn ?? atomicConfigBlockDelete,
     atomicJsonEditFn: seams.atomicJsonEditFn ?? atomicJsonEdit,
+    atomicJsonMapEditFn: seams.atomicJsonMapEditFn ?? atomicJsonMapEdit,
     readFileFn: seams.readFileFn ?? ((p) => readFileSync(p, 'utf8')),
     manifestReadFileFn: seams.manifestReadFileFn ?? ((p) => readFileSync(p, 'utf8')),
   };
