@@ -102,7 +102,18 @@ export function inventoryCommand(ctx) {
   const s = scan({ targetClaudeDir: ctx.configDir, descriptor: ctx.descriptor });
 
   const narrowed = narrowInventory(s, ctx.args && ctx.args.type);
-  if (narrowed) return { result: narrowed, diagnostics: s.diagnostics.slice() };
+  if (narrowed) {
+    // `inventory --type skill` on the Claude target: surface each skill's visibility override
+    // (effective.skillOverrides[name] ?? 'default') so the read side mirrors `skill visibility`'s
+    // write side. Claude-only (codex governs skills via config.toml); an absent descriptor is the
+    // claude default (drift-guarded). The field rides the structured json/ndjson output (the
+    // consumed surface — the table view shows counts only).
+    if (narrowed.type === 'skill' && !(ctx.descriptor && ctx.descriptor.id === 'codex')) {
+      const overrides = skillOverridesEffective(ctx.configDir);
+      narrowed.items = narrowed.items.map((c) => ({ ...c, visibility: visibilityOf(overrides, c && c.name) }));
+    }
+    return { result: narrowed, diagnostics: s.diagnostics.slice() };
+  }
 
   const result = {
     counts: {
@@ -218,6 +229,32 @@ function narrowInventory(s, type) {
     case 'mcp': return { type, items: s.mcpServers.map(trimMcpServer) };
     default: return null;
   }
+}
+
+/**
+ * The merged effective skillOverrides map for the Claude target (the U1 single read point):
+ * mergeSettings(readSettingsLayers(configDir)).effective.skillOverrides. A missing/malformed
+ * value degrades to {} (never throws). Reused by `inventory --type skill` for the visibility field.
+ * @param {string} configDir
+ * @returns {Record<string, unknown>}
+ */
+function skillOverridesEffective(configDir) {
+  try {
+    const eff = mergeSettings(readSettingsLayers(configDir).layers).effective || {};
+    const so = eff.skillOverrides;
+    return so && typeof so === 'object' && !Array.isArray(so) ? so : {};
+  } catch { return {}; }
+}
+
+/**
+ * A skill's visibility from the overrides map: the override state, or 'default' when no override
+ * exists. Prototype-safe (hasOwnProperty). @param {Record<string, unknown>} overrides @param {unknown} name
+ * @returns {string}
+ */
+function visibilityOf(overrides, name) {
+  if (typeof name !== 'string' || !Object.prototype.hasOwnProperty.call(overrides, name)) return 'default';
+  const v = overrides[name];
+  return typeof v === 'string' ? v : 'default';
 }
 
 /**
