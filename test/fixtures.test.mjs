@@ -11,9 +11,12 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { userInfo } from 'node:os';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fix = (rel) => join(here, 'fixtures', rel);
+/** The current machine's username — redaction guards assert it never leaked into a committed fixture. */
+const REAL_USER = userInfo().username || '';
 
 // ── minimal/ ──────────────────────────────────────────────────────────────────
 
@@ -178,14 +181,14 @@ test('real-snapshot: agent count ≥ 10 (sanity check against known 19)', () => 
   assert.ok(snap.agents.count >= 10, `expected ≥10 agents, got ${snap.agents.count}`);
 });
 
-test('real-snapshot REDACTION: no real username (alice)', () => {
+test('real-snapshot REDACTION: no real username (current machine user)', () => {
   const raw = readFileSync(fix('real-snapshot/snapshot.json'), 'utf-8');
-  assert.ok(!raw.includes('alice'), 'username alice must not appear in snapshot');
+  if (REAL_USER.length >= 3) assert.ok(!raw.includes(REAL_USER), `username ${REAL_USER} must not appear in snapshot`);
 });
 
-test('real-snapshot REDACTION: no real email prefix (exampleuser)', () => {
+test('real-snapshot REDACTION: no email address', () => {
   const raw = readFileSync(fix('real-snapshot/snapshot.json'), 'utf-8');
-  assert.ok(!raw.includes('exampleuser'), 'email prefix must not appear in snapshot');
+  assert.ok(!/[\w.+-]+@[\w.-]+\.\w{2,}/.test(raw), 'no email address may appear in snapshot');
 });
 
 test('real-snapshot REDACTION: no Windows absolute path (C:\\Users)', () => {
@@ -258,12 +261,12 @@ test('real-snapshot REDACTION (whole tree): no real username, email, home path, 
   assert.ok(files.length > 0, 'should find files in the tree');
 
   const forbidden = [
-    { re: /alice/, label: 'username alice' },
-    { re: /exampleuser/, label: 'email prefix exampleuser' },
+    { re: /[\w.+-]+@[\w.-]+\.\w{2,}/, label: 'email address' },
     { re: /[A-Za-z]:[/\\]Users/, label: 'Windows absolute home path' },
     { re: /\/[cC]\/Users\//, label: 'POSIX absolute home path' },
     { re: /[0-9a-fA-F]{20,}/, label: 'hex token ≥20 chars' },
   ];
+  if (REAL_USER.length >= 3) forbidden.push({ re: new RegExp(REAL_USER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), label: 'current username' });
 
   for (const file of files) {
     const content = readFileSync(file, 'utf-8');
