@@ -112,6 +112,7 @@ function buildArgvTable(sandbox) {
     'mcp:remove': ['mcp', 'remove', 'nonexistent-xyz'], // dry-run → advisory
     'skill:propose': ['skill', 'propose'], // no name → clean exit 3 (not an internal crash)
     'skill:accept': ['skill', 'accept'], // no name → clean exit 3 (not an internal crash)
+    'skill:visibility': ['skill', 'visibility', 's', 'off'], // claude target → dry-run preview (no --apply)
     'completion': ['completion', 'bash'],
   };
 }
