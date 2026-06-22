@@ -563,6 +563,7 @@ func tabBadge(m model, v viewID) (lipgloss.Color, bool) {
 var tabMnemonics = map[viewID]string{
 	viewHealth:       "H",
 	viewDispositions: "D",
+	viewSnapshots:    "S",
 }
 
 // tabAccelerator returns the prefix shown before a tab label: the digit (1-9
@@ -663,7 +664,7 @@ func statusBarView(m model) string {
 		sep +
 		keyStyle.Render("Tab") + dim.Render(" "+tr("status.focus")) +
 		sep +
-		keyStyle.Render("1-0/H/D/←→") + dim.Render(" "+tr("status.section")) +
+		keyStyle.Render("1-0/H/D/S/←→") + dim.Render(" "+tr("status.section")) +
 		sep +
 		keyStyle.Render("/") + dim.Render(" "+tr("status.filter"))
 	// Write-mode indicator (always shown): the W toggle + its current state. Only
@@ -1092,6 +1093,7 @@ func helpView(width, height int) string {
 		{"[ / ]  ← / →", tr("help.tabs")},
 		{"H", tr("help.health")},
 		{"D", tr("help.dispositions")},
+		{"S", tr("help.snapshots")},
 		{"/", tr("help.filter")},
 		{"r", tr("help.refresh")},
 		{"w", tr("help.write")},
