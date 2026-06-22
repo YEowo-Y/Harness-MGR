@@ -1,8 +1,23 @@
 {
   "name": "claude-mgr",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "A read-mostly governance CLI for your Claude Code (and Codex) harness — inventory, conflicts, effective-config, doctor, snapshot/rollback, and cross-target compare. Dry-run by default.",
   "type": "module",
   "private": true,
+  "license": "MIT",
+  "author": "YEowo-Y",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YEowo-Y/claude-mgr.git"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "codex",
+    "cli",
+    "governance",
+    "configuration"
+  ],
   "bin": {
     "claude-mgr": "bin/claude-mgr.mjs"
   },
