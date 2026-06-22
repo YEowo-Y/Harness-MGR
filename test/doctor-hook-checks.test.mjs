@@ -120,7 +120,7 @@ test('integration: mixed file+external missing facts → both checks fire; regis
     ],
   });
 
-  assert.deepEqual(r.checks.map((c) => c.id), [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 26, 27, 28, 4, 15, 19]);
+  assert.deepEqual(r.checks.map((c) => c.id), [1, 2, 3, 5, 18, 6, 7, 8, 9, 10, 11, 12, 22, 23, 13, 14, 16, 20, 21, 25, 17, 24, 26, 27, 28, 29, 4, 15, 19]);
   assert.equal(r.probeLevel, 'passive');
 
   const s3 = r.checks.find((c) => c.id === 3);
