@@ -50,6 +50,7 @@ import { skillVisibilityCommand } from './skill-visibility-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
 import { completionCommand } from './completion.mjs';
 import { conflictsCommand } from './conflicts-command.mjs';
+import { compareCommand } from './compare-command.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -358,6 +359,9 @@ export async function doctorCommand(ctx) {
 export const COMMANDS = Object.freeze({
   'inventory': inventoryCommand,
   'conflicts': conflictsCommand,
+  // compare (mainline post-v5): cross-target presence report. Scans BOTH targets
+  // (active + each sibling) and diffs by (kind, name). Analysis-only, never writes.
+  'compare': (ctx) => compareCommand(ctx),
   'orphans': orphansCommand,
   'config:show-effective': configShowEffectiveCommand,
   // config diff (P4b.U7b): READ-ONLY Myers line-diff of two files. Two-word command.
@@ -402,4 +406,4 @@ export const COMMANDS = Object.freeze({
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, disableCommand, enableCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand, skillVisibilityCommand, conflictsCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, disableCommand, enableCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand, skillVisibilityCommand, conflictsCommand, compareCommand };
