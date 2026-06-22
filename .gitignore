@@ -27,3 +27,6 @@ AGENTS.md
 
 # Internal design / handoff / review notes — kept locally, not shipped publicly.
 docs/internal/
+
+# Personal, per-machine Claude Code session prefs (not team-shared).
+CLAUDE.local.md
