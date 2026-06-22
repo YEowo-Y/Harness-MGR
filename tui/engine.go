@@ -378,6 +378,117 @@ func fetchDispositions(cliPath string) ([]Disposition, error) {
 	return parseDispositions(data)
 }
 
+// ── Snapshots ──────────────────────────────────────────────────────────────────
+
+// Snapshot is one entry from result.snapshots in the `snapshot list --format
+// json` envelope (newest-first). Id is the timestamp-derived snapshot id;
+// CreatedAt is the ISO-8601 capture time; Reason is the engine-recorded cause;
+// FileCount is the number of captured files; Complete/Pinned are the snapshot
+// flags. All fields are engine data and stay English.
+type Snapshot struct {
+	Id        string `json:"id"`
+	CreatedAt string `json:"createdAt"`
+	Reason    string `json:"reason"`
+	FileCount int    `json:"fileCount"`
+	Complete  bool   `json:"complete"`
+	Pinned    bool   `json:"pinned"`
+}
+
+// snapshotsEnvelope is a narrow struct used only to decode the snapshots array
+// from the `snapshot list --format json` response.
+type snapshotsEnvelope struct {
+	Result struct {
+		Snapshots []Snapshot `json:"snapshots"`
+	} `json:"result"`
+}
+
+// parseSnapshots unmarshals a raw `snapshot list --format json` envelope into a
+// Snapshot slice. Pure function — no exec, never panics.
+func parseSnapshots(data []byte) ([]Snapshot, error) {
+	var env snapshotsEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("parsing snapshots JSON: %w", err)
+	}
+	return env.Result.Snapshots, nil
+}
+
+// fetchSnapshots shells out to `node <cliPath> snapshot list --format json`,
+// captures stdout, and unmarshals the snapshots array. READ-ONLY — `snapshot
+// list` only enumerates existing snapshots, never writes. It never panics.
+func fetchSnapshots(cliPath string) ([]Snapshot, error) {
+	data, err := runJSON(cliPath, "snapshot", "list", "--format", "json")
+	if err != nil {
+		return nil, err
+	}
+	return parseSnapshots(data)
+}
+
+// RollbackResult mirrors the flat `result` object of a `rollback <id> --format
+// json` run. Status is the engine's outcome: "dry-run" (preflight passed, would
+// restore cleanly), "refused-drift" (the live tree changed since capture — needs
+// --force), "archive-corrupt" (the snapshot failed verification — un-rollbackable),
+// or another error status. DriftClean reports whether the live tree still matches
+// the snapshot. SnapshotId echoes the target id.
+type RollbackResult struct {
+	Status     string `json:"status"`
+	Ok         bool   `json:"ok"`
+	DryRun     bool   `json:"dryRun"`
+	DriftClean bool   `json:"driftClean"`
+	SnapshotId string `json:"snapshotId"`
+}
+
+// rollbackEnvelope decodes result + the top-level diagnostics from a rollback
+// JSON envelope.
+type rollbackEnvelope struct {
+	Result      RollbackResult `json:"result"`
+	Diagnostics []Diagnostic   `json:"diagnostics"`
+}
+
+// parseRollback unmarshals a raw `rollback --format json` envelope into its result
+// plus the top-level diagnostics. Pure function — no exec, never panics.
+func parseRollback(data []byte) (RollbackResult, []Diagnostic, error) {
+	var env rollbackEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return RollbackResult{}, nil, fmt.Errorf("parsing rollback JSON: %w", err)
+	}
+	return env.Result, env.Diagnostics, nil
+}
+
+// fetchRollbackDry runs a DRY-RUN `rollback <id> --format json` (NO --apply, so it
+// writes NOTHING) and returns the parsed preflight result plus the top-level
+// diagnostics. It uses runJSONCapture because a refused-drift (exit 3) or
+// archive-corrupt (exit 4) preflight exits non-zero while still printing the
+// envelope — the result's status, not the exit code, is the signal. Never panics.
+func fetchRollbackDry(cliPath, id string) (RollbackResult, []Diagnostic, error) {
+	data, err := runJSONCapture(cliPath, "rollback", id, "--format", "json")
+	if err != nil {
+		return RollbackResult{}, nil, err
+	}
+	return parseRollback(data)
+}
+
+// snapshotApplyEnvelope decodes the ok flag + snapshotId from a `snapshot --apply
+// --format json` result.
+type snapshotApplyEnvelope struct {
+	Result struct {
+		Ok         bool   `json:"ok"`
+		SnapshotId string `json:"snapshotId"`
+	} `json:"result"`
+}
+
+// snapshotApplied reports whether a `snapshot --apply` envelope shows a REAL
+// capture (ok AND a snapshot id). It exists because a write-gate-unavailable run
+// can exit 0 with ok:false and NOTHING written — the rollback's safety-snapshot
+// step asserts this instead of trusting the exit code, so it never rolls back
+// without a genuine undo point. Pure; a parse failure reads as not-applied.
+func snapshotApplied(data []byte) bool {
+	var env snapshotApplyEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return false
+	}
+	return env.Result.Ok && env.Result.SnapshotId != ""
+}
+
 type orphansEnvelope struct {
 	Result struct {
 		Orphans []Orphan      `json:"orphans"`
