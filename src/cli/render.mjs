@@ -20,6 +20,7 @@
 
 import { formatTable } from '../output/table.mjs';
 import { conflictsTable } from './conflicts-render.mjs';
+import { compareTable } from './compare-render.mjs';
 import { effectiveSummary } from './config-effective-render.mjs';
 import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
 import { hooksTable } from './hooks-render.mjs';
@@ -65,6 +66,7 @@ function renderBody(canonical, result) {
   switch (canonical) {
     case 'inventory': return inventoryTable(r);
     case 'conflicts': return conflictsTable(r);
+    case 'compare': return compareTable(r);
     case 'orphans': return orphansTable(r);
     case 'config:show-effective': return effectiveTable(r);
     // config diff: mode-aware rendering.
