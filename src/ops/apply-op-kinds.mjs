@@ -30,6 +30,13 @@ export const CONFIG_BLOCK_DELETE_KINDS = Object.freeze(['config-block-delete']);
  *  context); carries {selector:{key}, desired}, never whole-file `content`. */
 export const JSON_EDIT_KINDS = Object.freeze(['json-edit']);
 
+/** Op kinds this unit edits IN PLACE via a surgical JSON STRING flip/insert/create (the Claude
+ *  skill-visibility primitive: flips/inserts one `skillOverrides[memberKey]` string in
+ *  settings.json, CREATING the map when absent). Routes through the SAME 'apply' gate context
+ *  (settings.json IS whole-file apply-writable — no new context); carries
+ *  {selector:{mapKey,memberKey}, value:string}, never whole-file `content` or `desired`. */
+export const JSON_MAP_SET_KINDS = Object.freeze(['json-map-set']);
+
 /** True for a non-empty string. */
 function isNonEmptyStr(v) { return typeof v === 'string' && v.length > 0; }
 
@@ -53,9 +60,10 @@ export function invalidOpReason(op) {
   const isConfigEdit = obj && CONFIG_EDIT_KINDS.includes(op.kind);
   const isConfigBlockDelete = obj && CONFIG_BLOCK_DELETE_KINDS.includes(op.kind);
   const isJsonEdit = obj && JSON_EDIT_KINDS.includes(op.kind);
-  if (!isWrite && !isDelete && !isDirDelete && !isConfigEdit && !isConfigBlockDelete && !isJsonEdit) {
+  const isJsonMapSet = obj && JSON_MAP_SET_KINDS.includes(op.kind);
+  if (!isWrite && !isDelete && !isDirDelete && !isConfigEdit && !isConfigBlockDelete && !isJsonEdit && !isJsonMapSet) {
     return { code: 'apply-op-kind-unsupported',
-      message: `apply supports only ${[...WRITABLE_KINDS, ...DELETABLE_KINDS, ...DIR_DELETABLE_KINDS, ...CONFIG_EDIT_KINDS, ...CONFIG_BLOCK_DELETE_KINDS, ...JSON_EDIT_KINDS].join('/')} ops` };
+      message: `apply supports only ${[...WRITABLE_KINDS, ...DELETABLE_KINDS, ...DIR_DELETABLE_KINDS, ...CONFIG_EDIT_KINDS, ...CONFIG_BLOCK_DELETE_KINDS, ...JSON_EDIT_KINDS, ...JSON_MAP_SET_KINDS].join('/')} ops` };
   }
   if (!isNonEmptyStr(op.target)) {
     return { code: 'apply-op-invalid', message: 'op must have a non-empty string target' };
@@ -77,6 +85,13 @@ export function invalidOpReason(op) {
     if (typeof op.desired !== 'boolean') return { code: 'apply-op-invalid', message: 'json-edit op must have a boolean desired' };
     if (!op.selector || typeof op.selector !== 'object') return { code: 'apply-op-invalid', message: 'json-edit op must have a selector object' };
     if (op.content !== undefined) return { code: 'apply-op-invalid', message: 'json-edit op must not carry content' };
+  }
+  if (isJsonMapSet) {
+    if (!op.selector || typeof op.selector !== 'object') return { code: 'apply-op-invalid', message: 'json-map-set op must have a selector object' };
+    if (!isNonEmptyStr(op.selector.mapKey) || !isNonEmptyStr(op.selector.memberKey)) return { code: 'apply-op-invalid', message: 'json-map-set selector must have non-empty mapKey and memberKey' };
+    if (typeof op.value !== 'string') return { code: 'apply-op-invalid', message: 'json-map-set op must have a string value' };
+    if (op.content !== undefined) return { code: 'apply-op-invalid', message: 'json-map-set op must not carry content' };
+    if (op.desired !== undefined) return { code: 'apply-op-invalid', message: 'json-map-set op must not carry desired' };
   }
   return null;
 }
