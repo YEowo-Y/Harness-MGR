@@ -46,6 +46,7 @@
  *   #26 config-toml-valid             codex config.toml failed to parse/read → error (codex target only)
  *   #27 trust-overbroad               codex [projects."P"] trusts the home dir / a drive root → warn (codex target only)
  *   #28 codex-state-tmp-bloat         too many leftover ..codex-global-state.json.tmp-* files → info (codex target only)
+ *   #29 skill-overrides-orphaned      a skillOverrides[name] entry points to no directory-backed skill → warn (Claude target only)
  *
  * --- Facts gathered by the discovery probe, judged here ---
  * #1 and #2 consume facts from src/discovery/probe-mcp.mjs (McpAuthFact[],
@@ -72,6 +73,7 @@ import { CONFIG_CHECKS } from './config-checks.mjs';
 import { FS_CHECKS } from './fs-checks.mjs';
 import { ACCESS_CHECKS } from './access-checks.mjs';
 import { CODEX_CHECKS } from './codex-checks.mjs';
+import { SKILL_CHECKS } from './skill-checks.mjs';
 import { ACTIVE_CHECKS } from './active-checks.mjs';
 import { strOr, numOr } from './util.mjs';
 
@@ -122,6 +124,8 @@ import { strOr, numOr } from './util.mjs';
  * @property {import('../../discovery/probe-cli.mjs').CliFact} [cli]  claude CLI resolution/liveness fact (probe-cli, active tier); judged by #15
  * @property {import('../../discovery/probe-loader.mjs').LoaderProbeFact} [loader]  loader-probe fact (probe-loader, active tier); judged by #19
  * @property {{tomlError: string|null, trustedProjects: string[], homeDir: string, leftoverStateTmp: {count: number, sample: string[]}}} [codexConfig]  codex facts (probe-codex-config); judged by #26/#27/#28. Only gathered for a codex target.
+ * @property {Record<string, unknown>} [skillOverrides]  the merged Claude skillOverrides map (name → visibility state); judged by #29. Codex → {} (no skillOverrides concept).
+ * @property {string[]} [skillDirs]  directory-backed skill names from the scan (the set skillOverrides governs); #29 flags an override key absent here.
  */
 
 /**
@@ -367,6 +371,7 @@ export const CHECKS = Object.freeze([
   ...FS_CHECKS,
   ...ACCESS_CHECKS,
   ...CODEX_CHECKS,
+  ...SKILL_CHECKS,
   ...ACTIVE_CHECKS,
 ]);
 
