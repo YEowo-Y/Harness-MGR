@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverMarketplaces } from '../src/discovery/marketplaces.mjs';
@@ -53,11 +53,12 @@ test('plugins-groundtruth: output is sorted deterministically by name', () => {
 });
 
 test('REDACTION: no marketplace installLocation leaks a real user path', () => {
+  const REAL_USER = userInfo().username || '';
   const { marketplaces } = discoverMarketplaces(fix('plugins-groundtruth'));
   for (const m of marketplaces) {
     const loc = m.installLocation || '';
     assert.ok(!/[A-Za-z]:[\\/]Users/.test(loc), `no Windows user path in ${m.name}`);
-    assert.ok(!loc.includes('alice'), `no real username in ${m.name}`);
+    if (REAL_USER.length >= 3) assert.ok(!loc.includes(REAL_USER), `no real username in ${m.name}`);
   }
 });
 
