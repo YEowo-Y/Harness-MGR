@@ -1,11 +1,28 @@
 # claude-mgr — project context for Claude Code sessions
 
-A **read-mostly governance CLI** for the user's large Claude Code harness (inventory / conflicts / `config show-effective` / doctor / snapshot-rollback / remove-update). Zero-runtime-dependency Node ESM, Windows-hardened, **dry-run-by-default**, lives OUTSIDE Claude Code's loader. The user is a non-coder ("vibe coding") — reply in Chinese.
+A **read-mostly governance CLI** for a Claude Code (and Codex) harness at `~/.claude` / `~/.codex`:
+inventory, conflicts, `config show-effective`, doctor, snapshot/rollback, remove/update, and
+cross-target `compare`. The CLI core is zero-runtime-dependency Node ESM, Windows-hardened,
+**dry-run-by-default**, and lives OUTSIDE the agent's own loader (it never participates in loading).
 
-## Authoritative references (read these before building)
-- **Full plan (1624 lines):** `C:\Users\alice\.claude\plans\claude-mgr-v5.md` — the single source of truth (decided-items table + verified loader rules + 67-unit schedule + test catalog).
-- **Session memory / decisions / learnings:** `C:\Users\alice\.claude\projects\C--Users-alice\memory\MEMORY.md`.
+## Conventions
+- `src/discovery/` (scanners) and `src/analysis/` (pure analysis) **never throw** — failures surface
+  as structured `Diagnostic`s collected in a `DiagnosticBag`.
+- Every command handler is `(ctx) => { result, diagnostics }`; argv parsing and output formatting
+  (table / json / ndjson) are the CLI shell's job (`src/cli.mjs`).
+- **Dry-run by default**; writes require `--apply` and route through a gated, snapshot-backed
+  (reversible) op path. NEVER `--apply` against a real `~/.claude` / `~/.codex` in a test — use a
+  temp sandbox.
+- Keep `src/analysis/**` pure (no I/O); gather facts in `src/discovery/**`.
 
-## Build cursor (as of 2026-05-25)
+## Build & verify
+- Tests: `node --test` (Node >= 24).
+- Lint / import-boundary self-checks: `node src/cli.mjs selftest --lint` and `node src/cli.mjs selftest --boundary`.
 
-See [WORKING-CONTEXT.md](WORKING-CONTEXT.md) for live build cursor and Phase 4b/5/6 completion state.
+## Layout
+- `src/cli/` — command handlers + render adapters
+- `src/analysis/` — pure analysis (conflicts, compare, doctor checks, redaction)
+- `src/discovery/` — never-throws scanners (components, plugins, mcp, settings)
+- `src/ops/` — gated write operations (snapshot, rollback, config-edit)
+- `src/lib/` — shared primitives (Diagnostic, paths, TOML/JSON editors)
+- `docs/` — user-facing reference (effective-config rules, threat model)
