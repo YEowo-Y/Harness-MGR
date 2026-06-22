@@ -153,6 +153,20 @@ var translations = map[string][2]string{
 	"write.activeProbe.disabled": {"active probes need write mode — press W", "主动探针需要写入模式 — 按 W 开启"},
 	"write.activeProbe.hint":     {"active probes", "主动探针"},
 	"write.activeProbe.done":     {"active probes complete", "主动探针已完成"},
+
+	// Plugin enable/disable confirm-apply flow (Inventory tab). The plugin key and
+	// the before→after diff fragments are engine DATA shown verbatim; only the
+	// surrounding prose is translated.
+	"write.plugin.enableTitle":    {"Enable plugin?", "启用插件?"},
+	"write.plugin.disableTitle":   {"Disable plugin?", "停用插件?"},
+	"write.plugin.willEnable":     {"Will ENABLE plugin «%s» — writes settings.json enabledPlugins.", "将【启用】插件「%s」—— 写入 settings.json 的 enabledPlugins。"},
+	"write.plugin.willDisable":    {"Will DISABLE plugin «%s» — writes settings.json enabledPlugins.", "将【停用】插件「%s」—— 写入 settings.json 的 enabledPlugins。"},
+	"write.plugin.change":         {"Change in %s (line %d):", "改动(%s 第 %d 行):"},
+	"write.plugin.reversible":     {"An auto-snapshot is taken first, so rollback can undo it. Restart Claude Code for it to take effect.", "落盘前会自动快照,可用 rollback 撤销。改动需重启 Claude Code 生效。"},
+	"write.plugin.overrideCaveat": {"Note: settings.local.json also sets this plugin and takes precedence — the effective state may not change.", "注意:settings.local.json 也设置了该插件且优先级更高 —— 实际生效状态可能不变。"},
+	"write.plugin.done":          {"plugin updated — restart Claude Code", "插件已更新 —— 重启 Claude Code 生效"},
+	"write.plugin.hint":          {"toggle plugin", "切换插件"},
+	"write.plugin.selectHint":    {"select a plugin row, then press w to toggle it", "请先选中一个插件行,再按 w 切换启用/停用"},
 	"help.activeProbe":           {"run active doctor probes", "运行主动体检探针"},
 
 	"summary.drifted":         {"%d added · %d modified · %d removed", "%d 新增 · %d 修改 · %d 删除"},
