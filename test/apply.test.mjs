@@ -231,6 +231,7 @@ function happySeams(over = {}) {
     atomicConfigEditFn: over.atomicConfigEditFn ?? makeAtomicConfigEdit(),
     atomicConfigBlockDeleteFn: over.atomicConfigBlockDeleteFn ?? makeAtomicConfigBlockDelete(),
     atomicJsonEditFn: over.atomicJsonEditFn ?? makeAtomicJsonEdit(),
+    atomicJsonMapEditFn: over.atomicJsonMapEditFn ?? makeAtomicJsonMapEdit(),
     manifestReadFileFn: over.manifestReadFileFn ?? makeManifestReadFile(),
   };
 }
@@ -1264,6 +1265,83 @@ function makeAtomicJsonEdit(result = { ok: true, wrote: true }) {
   fn.calls = calls;
   return fn;
 }
+
+// ── json-map-set op (Claude skill-visibility: settings.json skillOverrides flip/insert/create) ──
+
+/** A json-map-set op targeting settings.json (selector.mapKey+memberKey + value, NO content/desired). */
+function jsonMapSetOp(over = {}) {
+  return { kind: 'json-map-set', target: `${TARGET}\\settings.json`, summary: 'skill visibility tdd off', selector: { mapKey: 'skillOverrides', memberKey: 'tdd' }, value: 'off', ...over };
+}
+
+/** A recording atomicJsonMapEdit seam (default: a successful set that wrote). */
+function makeAtomicJsonMapEdit(result = { ok: true, wrote: true }) {
+  const calls = [];
+  const fn = (opts) => { calls.push(opts); return { diagnostics: [], leftovers: { newPath: null, oldPath: null }, ...result }; };
+  fn.calls = calls;
+  return fn;
+}
+
+test('json-map-set op: dispatches to atomicJsonMapEditFn (selector+value, NO content/desired) and reaches committed', async () => {
+  const atomicJsonMapEditFn = makeAtomicJsonMapEdit();
+  const seams = happySeams({ atomicJsonMapEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonMapSetOp()]), enableWrites: true }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(res.state, 'committed');
+  assert.equal(res.opsWritten, 1);
+  assert.equal(atomicJsonMapEditFn.calls.length, 1);
+  assert.equal(atomicJsonMapEditFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.deepEqual(atomicJsonMapEditFn.calls[0].selector, { mapKey: 'skillOverrides', memberKey: 'tdd' });
+  assert.equal(atomicJsonMapEditFn.calls[0].value, 'off');
+  assert.equal(atomicJsonMapEditFn.calls[0].content, undefined);
+  assert.equal(atomicJsonMapEditFn.calls[0].desired, undefined);
+});
+
+test('json-map-set op: an invalid op (carries content) is refused BEFORE any write', async () => {
+  const atomicJsonMapEditFn = makeAtomicJsonMapEdit();
+  const seams = happySeams({ atomicJsonMapEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonMapSetOp({ content: 'x' })]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicJsonMapEditFn.calls.length, 0);
+});
+
+test('json-map-set op: an invalid op (non-string value) is refused BEFORE any write', async () => {
+  const atomicJsonMapEditFn = makeAtomicJsonMapEdit();
+  const seams = happySeams({ atomicJsonMapEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonMapSetOp({ value: 5 })]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-invalid'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicJsonMapEditFn.calls.length, 0);
+});
+
+test('json-map-set op: a primitive failure → apply-op-json-map-edit-failed, journal failed', async () => {
+  const atomicJsonMapEditFn = makeAtomicJsonMapEdit({ ok: false, wrote: false });
+  const seams = happySeams({ atomicJsonMapEditFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonMapSetOp()]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.equal(res.state, 'failed');
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-op-json-map-edit-failed'), JSON.stringify(res.diagnostics));
+});
+
+test('json-map-set op: does its OWN reparse → the paranoid *.json re-read seam is never invoked', async () => {
+  const atomicJsonMapEditFn = makeAtomicJsonMapEdit();
+  const readFileFn = (() => { const f = (p) => { f.calls.push(p); return '{}'; }; f.calls = []; return f; })();
+  const seams = happySeams({ atomicJsonMapEditFn, readFileFn });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([jsonMapSetOp()]), enableWrites: true, paranoid: true }));
+  assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+  assert.equal(readFileFn.calls.length, 0, 'readFileFn must NEVER be called for a json-map-set op under paranoid');
+  assert.ok(!res.diagnostics.some((d) => d.code === 'apply-paranoid-failed'));
+});
+
+test('json-map-set op NOT in the snapshot manifest → refused (apply-target-not-snapshotted), no write', async () => {
+  const atomicJsonMapEditFn = makeAtomicJsonMapEdit();
+  const seams = happySeams({ atomicJsonMapEditFn });
+  const op = jsonMapSetOp({ target: `${TARGET}\\settings.local.json` });
+  const res = await applyPlan(baseOpts(seams, { plan: planWith([op]), enableWrites: true }));
+  assert.equal(res.ok, false);
+  assert.ok(res.diagnostics.some((d) => d.code === 'apply-target-not-snapshotted'), JSON.stringify(res.diagnostics));
+  assert.equal(atomicJsonMapEditFn.calls.length, 0, 'no write attempted when the target is not snapshotted (irreversible)');
+});
 
 test('json-edit op: dispatches to atomicJsonEditFn (selector.key+desired, NO content) and reaches committed', async () => {
   // settings.json IS in the default manifest → the membership check passes for free (reversible).
