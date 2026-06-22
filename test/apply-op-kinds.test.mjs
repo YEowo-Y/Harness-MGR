@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  WRITABLE_KINDS, DELETABLE_KINDS, DIR_DELETABLE_KINDS, CONFIG_EDIT_KINDS, CONFIG_BLOCK_DELETE_KINDS, JSON_EDIT_KINDS, invalidOpReason,
+  WRITABLE_KINDS, DELETABLE_KINDS, DIR_DELETABLE_KINDS, CONFIG_EDIT_KINDS, CONFIG_BLOCK_DELETE_KINDS, JSON_EDIT_KINDS, JSON_MAP_SET_KINDS, invalidOpReason,
 } from '../src/ops/apply-op-kinds.mjs';
 
 /** A skill-block selector (the only shape config-block-delete accepts). */
@@ -22,6 +22,7 @@ test('kind tables are the expected frozen values', () => {
   assert.deepEqual([...CONFIG_EDIT_KINDS], ['config-edit']);
   assert.deepEqual([...CONFIG_BLOCK_DELETE_KINDS], ['config-block-delete']);
   assert.deepEqual([...JSON_EDIT_KINDS], ['json-edit']);
+  assert.deepEqual([...JSON_MAP_SET_KINDS], ['json-map-set']);
 });
 
 test('valid ops of every kind return null', () => {
@@ -32,6 +33,7 @@ test('valid ops of every kind return null', () => {
   assert.equal(invalidOpReason({ kind: 'config-edit', target: '/x', selector: { kind: 'plugin', name: 'a@b' }, desired: false }), null);
   assert.equal(invalidOpReason({ kind: 'config-block-delete', target: '/x', selector: SKILL_SEL }), null);
   assert.equal(invalidOpReason({ kind: 'json-edit', target: '/x', selector: { key: 'a@b' }, desired: true }), null);
+  assert.equal(invalidOpReason({ kind: 'json-map-set', target: '/x', selector: { mapKey: 'skillOverrides', memberKey: 'tdd' }, value: 'off' }), null);
 });
 
 test('an unsupported kind → apply-op-kind-unsupported, message lists config-edit + config-block-delete', () => {
@@ -40,6 +42,7 @@ test('an unsupported kind → apply-op-kind-unsupported, message lists config-ed
   assert.match(r.message, /config-edit/);
   assert.match(r.message, /config-block-delete/);
   assert.match(r.message, /json-edit/);
+  assert.match(r.message, /json-map-set/);
 });
 
 test('every kind needs a non-empty target', () => {
@@ -79,6 +82,20 @@ test('json-edit op: desired must be boolean, selector must be an object, content
   assert.match(invalidOpReason({ ...base, selector: 'x' }).message, /selector object/);
   assert.match(invalidOpReason({ ...base, content: 'x' }).message, /must not carry content/);
   assert.match(invalidOpReason({ ...base, content: '' }).message, /must not carry content/);
+});
+
+test('json-map-set op: selector needs mapKey+memberKey, value must be string, content+desired forbidden', () => {
+  const base = { kind: 'json-map-set', target: '/x', selector: { mapKey: 'skillOverrides', memberKey: 'tdd' }, value: 'off' };
+  assert.equal(invalidOpReason(base), null); // the clean shape passes
+  assert.match(invalidOpReason({ ...base, selector: null }).message, /selector object/);
+  assert.match(invalidOpReason({ ...base, selector: { mapKey: 'skillOverrides' } }).message, /mapKey and memberKey/);
+  assert.match(invalidOpReason({ ...base, selector: { memberKey: 'tdd' } }).message, /mapKey and memberKey/);
+  assert.match(invalidOpReason({ ...base, selector: { mapKey: '', memberKey: 'tdd' } }).message, /mapKey and memberKey/);
+  assert.match(invalidOpReason({ ...base, value: undefined }).message, /string value/);
+  assert.match(invalidOpReason({ ...base, value: 5 }).message, /string value/);
+  assert.match(invalidOpReason({ ...base, content: 'x' }).message, /must not carry content/);
+  // desired is meaningless for a string-map set — carrying it is an error, even `false`.
+  assert.match(invalidOpReason({ ...base, desired: false }).message, /must not carry desired/);
 });
 
 test('create/overwrite needs string content', () => {
