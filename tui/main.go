@@ -98,6 +98,16 @@ type dispositionsMsg struct {
 	err  error
 }
 
+// pluginToggleMsg carries the resolved plugin enable/disable action ready for the
+// confirm modal — built by preparePluginToggleCmd AFTER a dry-run probe of the
+// authoritative settings.json state. err set ⇒ a probe/refusal failure (shown in
+// the status bar, no modal); otherwise action holds the real --apply command plus
+// the preview confirmView renders.
+type pluginToggleMsg struct {
+	action writeAction
+	err    error
+}
+
 // previewTickMsg is the debounced signal to load the file-body preview for the
 // currently selected Inventory tree node. gen must match model.previewGen at
 // delivery time; stale ticks (from a still-scrolling cursor) are discarded.
@@ -689,6 +699,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tallies := dispositionTallies(msg.data)
 		m.applySectionResult(viewDispositions, msg.err, func() []sectionItem { return dispositionItems(msg.data) }, "summary.dispositions", []any{tallies[0], tallies[1], tallies[2]}, true)
 		return m, nil
+	case pluginToggleMsg:
+		// The dry-run probe finished. writeRunning was set when "w" launched it.
+		m.writeRunning = false
+		if msg.err != nil {
+			// Refusal / exec failure: surface it in the status bar, open no modal.
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		a := msg.action
+		m.pending = &a // open the confirm modal with the resolved preview
+		return m, nil
 	case writeResultMsg:
 		m.writeRunning = false
 		if msg.err != nil {
@@ -896,6 +918,20 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.writesEnabled {
 			// Writes are opt-in and currently off — tell the user how to enable.
 			m.writeStatus = tr("write.disabledHint")
+			m.writeOK = false
+			return m, nil
+		}
+		// Inventory tab: the write is the per-plugin enable/disable toggle on the
+		// SELECTED plugin row. It launches an off-thread dry-run probe (to learn the
+		// authoritative settings.json state) and opens the confirm modal only when
+		// the resulting pluginToggleMsg arrives. A non-plugin row gets a hint.
+		if m.currentView == viewInventory {
+			if node, ok := m.tree.selectedNode(); ok && node.kind == kindPlugin && node.plug != nil {
+				m.writeRunning = true
+				m.writeStatus = ""
+				return m, preparePluginToggleCmd(m.cliPath, node.plug.Key)
+			}
+			m.writeStatus = tr("write.plugin.selectHint")
 			m.writeOK = false
 			return m, nil
 		}
