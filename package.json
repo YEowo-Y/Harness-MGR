@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "type": "module",
   "private": true,
+  "bin": {
+    "claude-mgr": "bin/claude-mgr.mjs"
+  },
   "engines": {
     "node": ">=24"
   },
