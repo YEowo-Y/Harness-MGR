@@ -24,7 +24,7 @@ import { effectiveSummary } from './config-effective-render.mjs';
 import { snapshotListTable, snapshotGcTable } from './snapshot-store-render.mjs';
 import { hooksTable } from './hooks-render.mjs';
 import { healthTable } from './health-render.mjs';
-import { skillProposeTable, skillAcceptTable } from './skill-render.mjs';
+import { skillProposeTable, skillAcceptTable, skillVisibilityTable } from './skill-render.mjs';
 
 /**
  * @typedef {import('./commands.mjs').CommandOutput} CommandOutput
@@ -87,6 +87,8 @@ function renderBody(canonical, result) {
     case 'skill:propose': return skillProposeTable(r);
     // skill accept (P5.U9): flat overwrite summary (skill-render.mjs).
     case 'skill:accept': return skillAcceptTable(r);
+    // skill visibility (Claude): flat skillOverrides set summary (skill-render.mjs).
+    case 'skill:visibility': return skillVisibilityTable(r);
     default: return kvTable(r);
   }
 }
