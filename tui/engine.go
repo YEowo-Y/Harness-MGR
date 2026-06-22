@@ -407,6 +407,97 @@ func runJSON(cliPath string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
+// ── Config-edit (plugin toggle) structs ─────────────────────────────────────
+//
+// The write half of the Inventory tab's confirm-apply flow toggles a plugin via
+// the engine's `disable`/`enable --type plugin <key> --format json` command. These
+// mirror that command's flat result envelope (the CLI summarize() shape) so the
+// TUI can show a dry-run preview before the user confirms the real --apply.
+
+// ConfigEditDiff is the before→after fragment from a config-edit dry-run's
+// result.diff. Before is "" for an INSERT (the key did not exist yet). Line is the
+// 1-based line in the target file. The fragments are engine DATA (raw JSON), shown
+// verbatim in the confirm modal.
+type ConfigEditDiff struct {
+	Before string `json:"before"`
+	After  string `json:"after"`
+	Line   int    `json:"line"`
+}
+
+// ConfigEditResult mirrors the flat `result` object of a `disable`/`enable
+// --type plugin <key> --format json` run. AlreadyInState is the authoritative
+// state probe (an `enable` dry-run with AlreadyInState true ⇒ the plugin is
+// already enabled in settings.json); Diff is nil for an already-in-state no-op.
+type ConfigEditResult struct {
+	Status         string          `json:"status"`
+	Ok             bool            `json:"ok"`
+	DryRun         bool            `json:"dryRun"`
+	Name           string          `json:"name"`
+	Target         string          `json:"target"`
+	Desired        bool            `json:"desired"`
+	AlreadyInState bool            `json:"alreadyInState"`
+	Diff           *ConfigEditDiff `json:"diff"`
+}
+
+// configEditEnvelope decodes result + the top-level diagnostics from a config-edit
+// JSON envelope (diagnostics sit beside result, mirroring doctorEnvelope).
+type configEditEnvelope struct {
+	Result      ConfigEditResult `json:"result"`
+	Diagnostics []Diagnostic     `json:"diagnostics"`
+}
+
+// parseConfigEdit unmarshals a raw config-edit envelope into its result plus the
+// top-level diagnostics. Pure function — no exec, never panics.
+func parseConfigEdit(data []byte) (ConfigEditResult, []Diagnostic, error) {
+	var env configEditEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return ConfigEditResult{}, nil, fmt.Errorf("parsing config-edit JSON: %w", err)
+	}
+	return env.Result, env.Diagnostics, nil
+}
+
+// runJSONCapture runs `node <cliPath> <args...>` and returns stdout EVEN when the
+// process exits non-zero. Config-edit commands print their full JSON envelope to
+// stdout AND set a non-zero exit code on a refusal (exit 2/3); the envelope's own
+// ok/status/diagnostics carry the real outcome, so for these commands the exit
+// code is redundant. A genuine failure with no stdout (e.g. node missing) still
+// returns an error. The 30-second timeout matches runJSON.
+func runJSONCapture(cliPath string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	allArgs := append([]string{cliPath}, args...)
+	cmd := exec.CommandContext(ctx, "node", allArgs...)
+	out, err := cmd.Output()
+	if err != nil {
+		if len(out) > 0 {
+			return out, nil // refusal: the JSON envelope is still on stdout
+		}
+		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("running node CLI (%s): %v: %s", cliPath, err, string(ee.Stderr))
+		}
+		return nil, fmt.Errorf("running node CLI (%s): %w", cliPath, err)
+	}
+	return out, nil
+}
+
+// fetchPluginToggleDry runs a DRY-RUN `enable|disable --type plugin <key>
+// --format json` (NO --apply, so it writes NOTHING) and returns the parsed result
+// plus the top-level diagnostics. It is the probe/preview half of the Inventory
+// confirm-apply flow: the result's AlreadyInState reveals the authoritative
+// settings.json state and Diff carries the before→after preview. Never panics.
+func fetchPluginToggleDry(cliPath, key string, desired bool) (ConfigEditResult, []Diagnostic, error) {
+	verb := "disable"
+	if desired {
+		verb = "enable"
+	}
+	data, err := runJSONCapture(cliPath, verb, "--type", "plugin", key, "--format", "json")
+	if err != nil {
+		return ConfigEditResult{}, nil, err
+	}
+	return parseConfigEdit(data)
+}
+
 // parseConflicts unmarshals a raw `conflicts --format json` envelope into a
 // ConflictCluster slice. Pure function — no exec, never panics.
 func parseConflicts(data []byte) ([]ConflictCluster, error) {
