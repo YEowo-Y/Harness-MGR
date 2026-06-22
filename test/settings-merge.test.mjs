@@ -99,6 +99,16 @@ test('enabledPlugins: object-merge, later layer overrides the same key', () => {
   assert.equal(keys.enabledPlugins.strategy, 'object-merge');
 });
 
+test('skillOverrides: object-merge, later layer wins per skill (now a known effective key)', () => {
+  const { effective, keys } = mergeSettings([
+    layer('user', { skillOverrides: { 'deep-research': 'off', tdd: 'name-only' } }),
+    layer('project', { skillOverrides: { tdd: 'on', seo: 'user-invocable-only' } }),
+  ]);
+  assert.deepEqual(effective.skillOverrides, { 'deep-research': 'off', tdd: 'on', seo: 'user-invocable-only' });
+  assert.equal(keys.skillOverrides.strategy, 'object-merge');
+  assert.equal(keys.skillOverrides.mergeConfidence, 'known');
+});
+
 // ── E. HOOKS PER-EVENT CONCAT ───────────────────────────────────────────────────
 
 test('hooks: per-event array concatenation in layer order (no dedup in Phase 1)', () => {
