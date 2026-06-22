@@ -98,6 +98,29 @@ type dispositionsMsg struct {
 	err  error
 }
 
+// snapshotsMsg carries the result of the async `snapshot list` fetch (read-only —
+// enumerates existing snapshots, no writes).
+type snapshotsMsg struct {
+	data []Snapshot
+	err  error
+}
+
+// rollbackPrepMsg carries the resolved rollback action ready for the confirm modal
+// — built by prepareRollbackCmd AFTER a dry-run preflight of the chosen snapshot.
+// err set ⇒ the snapshot is not rollbackable (archive-corrupt or another non-drift
+// refusal): shown in the status bar, no modal. Otherwise action holds the run
+// orchestration plus the preview confirmView renders.
+type rollbackPrepMsg struct {
+	action writeAction
+	err    error
+}
+
+// rollbackResultMsg carries the outcome of a confirmed rollback (the safety
+// snapshot + the restore). err set ⇒ the safety snapshot or the restore failed.
+type rollbackResultMsg struct {
+	err error
+}
+
 // pluginToggleMsg carries the resolved plugin enable/disable action ready for the
 // confirm modal — built by preparePluginToggleCmd AFTER a dry-run probe of the
 // authoritative settings.json state. err set ⇒ a probe/refusal failure (shown in
@@ -182,6 +205,7 @@ const (
 	viewAudit
 	viewHealth
 	viewDispositions
+	viewSnapshots
 )
 
 // tabLabels are the tab-bar captions, indexed by viewID. tabCount derives from
@@ -199,6 +223,7 @@ var tabLabels = []string{
 	"Audit",
 	"Health",
 	"Dispositions",
+	"Snapshots",
 }
 
 // tabCount is the number of tabs, derived from tabLabels. It is a var (not a
@@ -262,6 +287,12 @@ type model struct {
 	writeOK       bool
 	writesEnabled bool // opt-in: write actions (the "w" key) are live only when true
 
+	// snapshotData is the last-fetched snapshot list, kept so the rollback action can
+	// map the selected Snapshots-tab row (by its id) back to the full record for the
+	// confirm preview (reason + fileCount). Parallel to the section list, set on
+	// snapshotsMsg.
+	snapshotData []Snapshot
+
 	// previewGen is the debounce generation counter for the file-body preview on
 	// the Inventory tab. Each cursor move increments it; the matching previewTickMsg
 	// fires the full refresh only when its gen equals the current value (stale ticks
@@ -303,6 +334,7 @@ func initialModel(cliPath string) model {
 			viewAudit:        {loading: false, list: newSectionModel(nil)},
 			viewHealth:       {loading: false, list: newSectionModel(nil)},
 			viewDispositions: {loading: false, list: newSectionModel(nil)},
+			viewSnapshots:    {loading: false, list: newSectionModel(nil)},
 		},
 	}
 }
@@ -436,6 +468,15 @@ func fetchDispositionsCmd(cliPath string) tea.Cmd {
 	}
 }
 
+// fetchSnapshotsCmd returns a tea.Cmd that runs `snapshot list --format json`
+// (READ-ONLY) and parses the snapshot list from the result.
+func fetchSnapshotsCmd(cliPath string) tea.Cmd {
+	return func() tea.Msg {
+		data, err := fetchSnapshots(cliPath)
+		return snapshotsMsg{data: data, err: err}
+	}
+}
+
 // sectionFetchCmd returns the read-only fetch command that (re)loads section view
 // v's data, or nil for a non-section view. Same commands Init dispatches.
 func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
@@ -462,6 +503,8 @@ func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
 		return fetchHealthCmd(cliPath)
 	case viewDispositions:
 		return fetchDispositionsCmd(cliPath)
+	case viewSnapshots:
+		return fetchSnapshotsCmd(cliPath)
 	}
 	return nil
 }
@@ -517,7 +560,7 @@ func (m *model) refreshCurrent() tea.Cmd {
 // badge injects the healthMsg directly.)
 func (m *model) lazyLoadCurrent() tea.Cmd {
 	switch m.currentView {
-	case viewConfig, viewHooks, viewAudit, viewHealth, viewDispositions:
+	case viewConfig, viewHooks, viewAudit, viewHealth, viewDispositions, viewSnapshots:
 	default:
 		return nil
 	}
@@ -531,6 +574,27 @@ func (m *model) lazyLoadCurrent() tea.Cmd {
 	}
 	st.loading = true
 	return cmd
+}
+
+// selectedSnapshot returns the Snapshot under the Snapshots-tab cursor by mapping
+// the selected row's id back to the fetched list (filter-safe — selectedItem
+// honours the active filter). ok=false when the tab is absent, empty, or the
+// selected row has no resolvable id.
+func (m model) selectedSnapshot() (Snapshot, bool) {
+	st := m.sections[viewSnapshots]
+	if st == nil {
+		return Snapshot{}, false
+	}
+	item, ok := st.list.selectedItem()
+	if !ok || item.id == "" {
+		return Snapshot{}, false
+	}
+	for _, s := range m.snapshotData {
+		if s.Id == item.id {
+			return s, true
+		}
+	}
+	return Snapshot{}, false
 }
 
 // anyLoading reports whether any fetch is still in flight. The spinner keeps
@@ -699,6 +763,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		tallies := dispositionTallies(msg.data)
 		m.applySectionResult(viewDispositions, msg.err, func() []sectionItem { return dispositionItems(msg.data) }, "summary.dispositions", []any{tallies[0], tallies[1], tallies[2]}, true)
 		return m, nil
+	case snapshotsMsg:
+		// setsLoaded=true: Snapshots lazy-loads (same tab-badge logic as Dispositions).
+		// Keep the raw list so the rollback action can map a selected row id → record.
+		m.snapshotData = msg.data
+		m.applySectionResult(viewSnapshots, msg.err, func() []sectionItem { return snapshotItems(msg.data) }, "summary.snapshots", []any{len(msg.data)}, true)
+		return m, nil
 	case pluginToggleMsg:
 		// The dry-run probe finished. writeRunning was set when "w" launched it.
 		m.writeRunning = false
@@ -711,6 +781,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a := msg.action
 		m.pending = &a // open the confirm modal with the resolved preview
 		return m, nil
+	case rollbackPrepMsg:
+		// The rollback dry-run preflight finished (writeRunning set when "w" launched it).
+		m.writeRunning = false
+		if msg.err != nil {
+			// Not rollbackable (archive-corrupt / non-drift refusal): status bar, no modal.
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		ra := msg.action
+		m.pending = &ra // open the confirm modal (red when drifted)
+		return m, nil
+	case rollbackResultMsg:
+		// The safety-snapshot + restore finished.
+		m.writeRunning = false
+		if msg.err != nil {
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		m.writeStatus = tr("write.rollback.done")
+		m.writeOK = true
+		// Re-read the counts (the live tree changed) and the snapshot list (the safety
+		// snapshot added one). Both are pure reads.
+		return m, tea.Batch(fetchCmd(m.cliPath), fetchSnapshotsCmd(m.cliPath))
 	case writeResultMsg:
 		m.writeRunning = false
 		if msg.err != nil {
@@ -903,6 +998,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.currentView = viewDispositions
 		m.refreshDetail()
 		return m, m.lazyLoadCurrent()
+	case "s", "S":
+		// Direct jump to the Snapshots tab — the 13th tab, beyond the digit range.
+		// Case-insensitive: the tab bar shows "S" but users naturally press lowercase.
+		m.clearFilter()
+		m.currentView = viewSnapshots
+		m.refreshDetail()
+		return m, m.lazyLoadCurrent()
 	case "tab":
 		m.toggleFocus()
 		return m, nil
@@ -932,6 +1034,20 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, preparePluginToggleCmd(m.cliPath, node.plug.Key)
 			}
 			m.writeStatus = tr("write.plugin.selectHint")
+			m.writeOK = false
+			return m, nil
+		}
+		// Snapshots tab: the write is a rollback of the SELECTED snapshot row. It
+		// launches an off-thread dry-run preflight (drift + verify) and opens the
+		// confirm modal only when rollbackPrepMsg arrives. An empty / unresolvable
+		// selection gets a hint.
+		if m.currentView == viewSnapshots {
+			if snap, ok := m.selectedSnapshot(); ok {
+				m.writeRunning = true
+				m.writeStatus = ""
+				return m, prepareRollbackCmd(m.cliPath, snap)
+			}
+			m.writeStatus = tr("write.rollback.selectHint")
 			m.writeOK = false
 			return m, nil
 		}
@@ -1295,6 +1411,7 @@ func runSnapshot(cliPath string) int {
 			viewAudit:        {list: newSectionModel(nil)},
 			viewHealth:       {list: newSectionModel(nil)},
 			viewDispositions: {list: newSectionModel(nil)},
+			viewSnapshots:    {list: newSectionModel(nil)},
 		},
 		currentView: viewInventory,
 		width:       defaultWidth,
