@@ -22,6 +22,11 @@ type sectionItem struct {
 	title  string                 // row label
 	color  lipgloss.Color         // row color; zero value ("") renders in the default fg
 	detail func(width int) string // detail-pane body built at render time with the live pane width
+	// id is an OPTIONAL stable identifier for the row's underlying record (e.g. a
+	// snapshot id), used by an action handler to map the selected row back to its
+	// engine data in a filter-safe way (selectedItem honours the filter). Most tabs
+	// leave it "" — it carries no display meaning.
+	id string
 }
 
 // sectionModel is the flat list widget state: the items, the cursor position,
