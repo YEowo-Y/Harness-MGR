@@ -123,6 +123,10 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
       // so codex plugins/mcp are visible to the doctor — the #8 false-positive U6 warned
       // about is prevented HERE by the correct enable model, not by hiding the facts.
       enabledPlugins: enabledPluginsForTarget(descriptor, effective, s.plugins),
+      // skillOverrides audit facts (#29): the Claude-only merged visibility map + the
+      // directory-backed skill names it should point at. Codex → {} (no skillOverrides).
+      skillOverrides: skillOverridesForTarget(descriptor, effective),
+      skillDirs: skillNamesFromScan(s.components),
       installedPlugins: s.plugins,
       marketplaces: s.marketplaces,
       conflicts,
@@ -315,6 +319,34 @@ function enabledPluginsForTarget(descriptor, effective, plugins) {
     return map;
   }
   return effective.enabledPlugins;
+}
+
+/**
+ * Target-aware skillOverrides map (Claude-only). skillOverrides is a Claude settings.json
+ * concept (Codex governs skills via config.toml [[skills.config]]); a codex target gets {} so
+ * the orphan check (#29) contributes nothing. Claude/absent reads the merged effective map
+ * (the U1 single read point); a missing/malformed value degrades to {} (never throws).
+ * @param {import('../targets/descriptor.mjs').TargetDescriptor|undefined} descriptor
+ * @param {Record<string, unknown>} effective
+ * @returns {Record<string, unknown>}
+ */
+function skillOverridesForTarget(descriptor, effective) {
+  if (descriptor && descriptor.id === 'codex') return {};
+  const so = effective && effective.skillOverrides;
+  return so && typeof so === 'object' && !Array.isArray(so) ? so : {};
+}
+
+/**
+ * The directory-backed skill NAMES from the scan (the set skillOverrides governs). For a Claude
+ * scan s.components skills ARE the user-scope skills/<name> dirs (plugin skills come from a
+ * separate discovery, not s.components), so an override key absent here = a removed/renamed skill
+ * or a plugin skill the override can't affect. Pure; tolerates a non-array.
+ * @param {import('../discovery/components.mjs').ComponentRecord[]} components
+ * @returns {string[]}
+ */
+function skillNamesFromScan(components) {
+  const list = Array.isArray(components) ? components : [];
+  return list.filter((c) => c && c.kind === 'skill' && typeof c.name === 'string').map((c) => c.name);
 }
 
 /**
