@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -48,6 +49,24 @@ type writeAction struct {
 	// i18n runs in the off-thread prepare Cmd). args still hold the real --apply
 	// command run on confirm.
 	plugin *pluginToggleInfo
+	// rollback, when non-nil, marks a snapshot-rollback action: confirmView composes
+	// its title/body from this preview and renders the modal in danger (red) styling
+	// when the live tree drifted. The on-confirm work runs via the run field (a
+	// two-step safety-snapshot-then-rollback orchestration), not args.
+	rollback *rollbackInfo
+}
+
+// rollbackInfo carries what the confirm modal needs to describe a resolved
+// snapshot rollback, derived from the dry-run preflight + the selected snapshot.
+// drifted is true when the live tree changed since the snapshot was captured (the
+// engine would refuse without --force); the modal then warns in red and the apply
+// passes --force. fileCount/reason come from the snapshot list (the rollback
+// result carries neither).
+type rollbackInfo struct {
+	id        string
+	reason    string
+	fileCount int
+	drifted   bool
 }
 
 // pluginToggleInfo carries what the confirm modal needs to describe a resolved
@@ -191,6 +210,117 @@ func preparePluginToggleCmd(cliPath, key string) tea.Cmd {
 	}
 }
 
+// ── Snapshot rollback (Snapshots tab) ──────────────────────────────────────
+
+// buildRollbackAction builds the confirm-gated rollback action. On confirm the
+// run field orchestrates the two-step safety-snapshot-then-rollback (NOT the
+// default args path); rollback carries the preview confirmView renders.
+func buildRollbackAction(info rollbackInfo) writeAction {
+	return writeAction{
+		id:       "rollback",
+		rollback: &info,
+		run:      func(cli string) tea.Cmd { return runRollbackCmd(cli, info.id, info.drifted) },
+	}
+}
+
+// firstProblemMessage returns the first error- or warn-severity diagnostic
+// message, or "" when there is none.
+func firstProblemMessage(diags []Diagnostic) string {
+	for _, d := range diags {
+		if d.Severity == "error" || d.Severity == "warn" {
+			return d.Message
+		}
+	}
+	return ""
+}
+
+// rollbackRefusalError turns a non-rollbackable preflight (archive-corrupt / a
+// non-drift error status) into an error for the status bar — the first problem
+// message, or a status-based fallback.
+func rollbackRefusalError(diags []Diagnostic, status string) error {
+	if msg := firstProblemMessage(diags); msg != "" {
+		return errors.New(msg)
+	}
+	return fmt.Errorf("snapshot cannot be rolled back (%s)", status)
+}
+
+// prepareRollbackCmd is the off-thread PROBE half of the rollback confirm-apply
+// flow. It dry-runs the rollback to read the preflight (drift state + archive
+// verify) WITHOUT writing, classifies the outcome, and returns a rollbackPrepMsg
+// with a ready-to-confirm action — or an err the handler shows in the status bar
+// WITHOUT opening a modal (archive-corrupt or any non-drift refusal). A
+// refused-drift outcome is offerable: the action will pass --force, and the
+// confirm step takes a safety snapshot first.
+func prepareRollbackCmd(cliPath string, snap Snapshot) tea.Cmd {
+	return func() tea.Msg {
+		probe, diags, err := fetchRollbackDry(cliPath, snap.Id)
+		if err != nil {
+			return rollbackPrepMsg{err: err}
+		}
+		var drifted bool
+		switch probe.Status {
+		case "dry-run": // preflight clean — rollback would restore without --force
+			drifted = false
+		case "refused-drift": // live tree changed since capture — offerable with --force
+			drifted = true
+		default:
+			// archive-corrupt / drift-error / any other status: NOT rollbackable
+			// (--force bypasses only drift, not the archive verify). Refuse, no modal.
+			return rollbackPrepMsg{err: rollbackRefusalError(diags, probe.Status)}
+		}
+		info := rollbackInfo{id: snap.Id, reason: snap.Reason, fileCount: snap.FileCount, drifted: drifted}
+		return rollbackPrepMsg{action: buildRollbackAction(info)}
+	}
+}
+
+// runRollbackCmd is the on-confirm orchestration: it takes a SAFETY SNAPSHOT of
+// the current state first (so this rollback is itself undoable), then rolls the
+// chosen snapshot back onto the live tree, passing --force only when the tree
+// drifted (the safety snapshot already captured the changes --force overwrites).
+// A failed safety snapshot ABORTS before the rollback touches anything. Reports a
+// rollbackResultMsg. The real writes go through the engine's gate + auto-snapshot.
+func runRollbackCmd(cliPath, id string, drifted bool) tea.Cmd {
+	return func() tea.Msg {
+		// Capture the envelope and ASSERT a real snapshot was written — a
+		// write-gate-unavailable run can exit 0 with ok:false and nothing captured,
+		// which would silently make this rollback NON-undoable. Refuse in that case.
+		out, err := runJSON(cliPath, "snapshot", "--apply", "--format", "json")
+		if err != nil {
+			return rollbackResultMsg{err: fmt.Errorf("safety snapshot failed; rollback aborted: %w", err)}
+		}
+		if !snapshotApplied(out) {
+			return rollbackResultMsg{err: errors.New("safety snapshot did not capture (write gate unavailable?); rollback aborted")}
+		}
+		args := []string{"rollback", id, "--apply", "--format", "json"}
+		if drifted {
+			args = append(args, "--force")
+		}
+		if _, err := runJSON(cliPath, args...); err != nil {
+			return rollbackResultMsg{err: err}
+		}
+		return rollbackResultMsg{err: nil}
+	}
+}
+
+// rollbackConfirmText composes the confirm modal's title + body for a snapshot
+// rollback. A drifted rollback leads with a danger warning (the modal also turns
+// red). reason/id are engine DATA shown verbatim; the prose is translated. Called
+// at render time on the UI thread, so reading uiLang via tr/tf is race-free.
+func rollbackConfirmText(info rollbackInfo) (title, body string) {
+	title = tr("write.rollback.title")
+	reason := info.reason
+	if reason == "" {
+		reason = info.id
+	}
+	if info.drifted {
+		body = tr("write.rollback.driftWarn") + "\n\n"
+	}
+	body += tf("write.rollback.body", reason, info.fileCount)
+	body += "\n\n" + tr("write.rollback.autoSnapshot")
+	body += "\n\n" + tr("write.rollback.restart")
+	return title, body
+}
+
 // writeResultMsg carries the outcome of a confirm-gated write action.
 type writeResultMsg struct {
 	action writeAction
@@ -246,17 +376,25 @@ func confirmView(m model) string {
 	}
 	a := m.pending
 
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorOrange)
 	bodyStyle := lipgloss.NewStyle().Foreground(labelGray)
 	dim := lipgloss.NewStyle().Foreground(statusDim)
 	gap := lipgloss.NewStyle().Foreground(tabDim).Render("   ")
 
-	// A plugin-toggle action composes its title/body from the dry-run preview at
-	// render time; every other action uses its static i18n keys.
+	// Resolve the title/body. A plugin-toggle or rollback action composes them from
+	// its dry-run preview at render time; every other action uses its static i18n
+	// keys. A drifted rollback escalates the modal accent from amber to danger red.
 	titleText, bodyText := tr(a.titleKey), tr(a.bodyKey)
-	if a.plugin != nil {
+	accentCol := colorOrange
+	switch {
+	case a.plugin != nil:
 		titleText, bodyText = pluginConfirmText(*a.plugin)
+	case a.rollback != nil:
+		titleText, bodyText = rollbackConfirmText(*a.rollback)
+		if a.rollback.drifted {
+			accentCol = colorRed
+		}
 	}
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(accentCol)
 
 	const modalInner = 56
 	body := bodyStyle.Width(modalInner).Render(bodyText)
@@ -272,7 +410,7 @@ func confirmView(m model) string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorOrange).
+		BorderForeground(accentCol).
 		Padding(1, 3).
 		Render(b.String())
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
