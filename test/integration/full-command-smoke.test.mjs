@@ -87,6 +87,7 @@ function buildArgvTable(sandbox) {
   return {
     'inventory': ['inventory'],
     'conflicts': ['conflicts'],
+    'compare': ['compare'], // scans both targets; sandbox sibling .codex is absent (clean)
     'orphans': ['orphans'],
     'config:show-effective': ['config', 'show-effective'],
     'config:diff': ['config', 'diff', diffA, diffB],
