@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  node:
+    name: node / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Test suite
+        run: node --test
+      - name: Lint (SLOC ceiling)
+        run: node src/cli.mjs selftest --lint
+      - name: Import boundary (zero-network)
+        run: node src/cli.mjs selftest --boundary
+
+  tui:
+    name: tui (go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tui/go.mod
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test ./...
