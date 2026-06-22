@@ -46,6 +46,7 @@ import { hooksCommand } from './hooks-command.mjs';
 import { configShowEffectiveCommand } from './config-effective-command.mjs';
 import { healthCommand } from './health-command.mjs';
 import { skillProposeCommand, skillAcceptCommand } from './skill-command.mjs';
+import { skillVisibilityCommand } from './skill-visibility-command.mjs';
 import { configDiffCommand } from './config-diff-command.mjs';
 import { completionCommand } from './completion.mjs';
 import { conflictsCommand } from './conflicts-command.mjs';
@@ -359,7 +360,9 @@ export const COMMANDS = Object.freeze({
   'skill:propose': (ctx) => skillProposeCommand(ctx),
   // skill accept (P5.U9): overwrite skills/<name>/SKILL.md from a proposal, snapshot-first (dry-run default; 'accept' gate).
   'skill:accept': (ctx) => skillAcceptCommand(ctx),
+  // skill visibility (Claude): set settings.json skillOverrides[<name>] = <state> (dry-run default; 'apply' gate).
+  'skill:visibility': (ctx) => skillVisibilityCommand(ctx),
 });
 
 // Re-export commands so tests can import them directly from this module.
-export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, disableCommand, enableCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand, conflictsCommand };
+export { auditCommand, driftCommand, snapshotCommand, selftestCommand, snapshotListCommand, snapshotGcCommand, snapshotPinCommand, snapshotUnpinCommand, rollbackCommand, recoverCommand, lockCommand, removeCommand, disableCommand, enableCommand, updateCommand, mcpCommand, hooksCommand, configShowEffectiveCommand, healthCommand, configDiffCommand, completionCommand, skillProposeCommand, skillAcceptCommand, skillVisibilityCommand, conflictsCommand };
