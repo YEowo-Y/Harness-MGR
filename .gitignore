@@ -17,3 +17,10 @@ coverage/
 # Go TUI build artifacts (tui/)
 *.exe
 *.exe~
+
+# Local dev artifacts — kept on disk for AI sessions, not repo content.
+# (build journal, generated agent context, per-machine IDE/tool config)
+WORKING-CONTEXT.md
+AGENTS.md
+.claude/
+.codex/
