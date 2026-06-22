@@ -62,6 +62,30 @@ export function skillAcceptTable(r) {
   ].join('\n');
 }
 
+/**
+ * skill:visibility → a flat summary block (status / name / state / target / alreadyInState /
+ * snapshotId) plus the one-line before→after diff when present. Defensive on malformed input
+ * (missing fields → empty lines); pure; never throws.
+ * @param {unknown} r the skill visibility command result (summarize shape)
+ * @returns {string}
+ */
+export function skillVisibilityTable(r) {
+  const o = isObj(r) ? r : {};
+  const lines = [
+    `status: ${scalar(o.status)}`,
+    `name: ${scalar(o.name)}`,
+    `state: ${scalar(o.state)}`,
+    `target: ${scalar(o.target)}`,
+    `alreadyInState: ${scalar(o.alreadyInState)}`,
+  ];
+  if (o.snapshotId) lines.push(`snapshotId: ${scalar(o.snapshotId)}`);
+  const diff = isObj(o.diff) ? o.diff : null;
+  if (diff && (diff.before !== undefined || diff.after !== undefined)) {
+    lines.push('', `- ${scalar(diff.before)}`, `+ ${scalar(diff.after)}`);
+  }
+  return lines.join('\n');
+}
+
 /** Coerce a value to a one-line, safe string for a summary line. @param {unknown} v */
 function scalar(v) {
   if (v === null || v === undefined) return '';
