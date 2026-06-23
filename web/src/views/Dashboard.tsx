@@ -25,9 +25,13 @@ import {
 export function Dashboard({
   target,
   reloadKey,
+  writeKinds,
+  onRefresh,
 }: {
   target: TargetId;
   reloadKey: number;
+  writeKinds: string[];
+  onRefresh: () => void;
 }) {
   const { t } = useLang();
 
@@ -234,6 +238,8 @@ export function Dashboard({
           config={config}
           shadow={shadow}
           target={target}
+          writeKinds={writeKinds}
+          onRefresh={onRefresh}
           onClose={() => setSelected(null)}
         />
       )}
