@@ -64,6 +64,27 @@ const READ_COMMANDS = Object.freeze(
 );
 
 /**
+ * The ONLY commands the write channel (POST /api/write) may run — frozen, and in the
+ * P2 pilot limited to the plugin enable/disable toggle. Every call still goes through
+ * the engine's two-factor gate: a request WITHOUT `apply` is a dry-run preview (no
+ * gate, no write); `apply:true` routes through resolveWriteIntent → snapshot → the
+ * byte-preserving editor → reversible rollback. The engine, not this server,
+ * enforces the write semantics — we only surface them.
+ */
+const WRITE_COMMANDS = Object.freeze(new Set(["disable", "enable"]));
+
+/** The write channel is restricted to this kind in the pilot. */
+const WRITE_KINDS = Object.freeze(new Set(["plugin"]));
+
+/**
+ * A write request MUST carry this header. A browser only attaches a custom header to
+ * a SAME-ORIGIN request (our app); a cross-origin page cannot, because the custom
+ * header forces a CORS preflight this server never answers with allow-headers. So
+ * this defeats CSRF-style drive-by writes on top of the 127.0.0.1 + Host guard.
+ */
+const WRITE_HEADER = "x-claude-mgr-write";
+
+/**
  * Query params that may flow into ctx.args. Excludes configDir (server-resolved),
  * apply, active-probes, force, break-lock — none of which a read UI needs and all of
  * which are write/spawn triggers. Unknown keys are ignored.
@@ -104,6 +125,24 @@ function resolveRequestedTarget(query) {
   return isKnownTarget(t) ? t : null;
 }
 
+/**
+ * Does this target support the plugin enable/disable toggle? Claude via the
+ * settings.json enabledPlugins map; Codex via the in-place config.toml surface.
+ * Mirrors the engine's own capability check in config-edit-command.mjs.
+ */
+function pluginWriteSupported(descriptor) {
+  if (!descriptor || typeof descriptor !== "object") return false;
+  if (descriptor.pluginEnableModel === "settings-map") return true;
+  const ws = descriptor.writeSurface;
+  return !!(
+    ws &&
+    ws.features &&
+    ws.features.configEdit === true &&
+    Array.isArray(ws.configEditFiles) &&
+    ws.configEditFiles.length > 0
+  );
+}
+
 const app = new Hono();
 
 // DNS-rebinding guard: a browser pointed at this server always sends a
@@ -124,12 +163,15 @@ app.get("/api/status", async (c) => {
     return c.json({ error: "unknown-target", message: "target must be claude or codex" }, 400);
   }
   const cfg = await resolveTargetAndConfig({ target });
+  // writeKinds tells the UI which item kinds it may offer a write toggle for on this
+  // target. Empty = read-only for this target. P2 pilot: plugin enable/disable only.
+  const writeKinds = pluginWriteSupported(cfg.descriptor) ? ["plugin"] : [];
   return c.json({
     version: PKG.version,
     target,
     configDir: cfg.configDir,
     targets: ["claude", "codex"],
-    readOnly: true,
+    writeKinds,
     diagnostics: cfg.diagnostics,
   });
 });
@@ -192,6 +234,71 @@ app.get("/api/events", (c) => {
       });
     });
   });
+});
+
+// Write channel (P2 pilot — plugin enable/disable only). SEPARATE from the read API:
+// its own frozen WRITE_COMMANDS allowlist, a required custom header (CSRF guard), and
+// a POST verb. The dir is STILL resolved server-side from `target` (never the client),
+// and every apply routes through the engine's two-factor gate → auto-snapshot →
+// reversible rollback. A request without `apply:true` is a dry-run preview only.
+app.post("/api/write/:cmd", async (c) => {
+  const cmd = c.req.param("cmd");
+  if (!WRITE_COMMANDS.has(cmd)) {
+    return c.json({ error: "command-not-allowed", message: `not a write command: ${cmd}` }, 403);
+  }
+  // CSRF guard: a cross-origin page cannot attach this custom header without a CORS
+  // preflight we never grant, so only the same-origin app can reach the write path.
+  if (c.req.header(WRITE_HEADER) === undefined) {
+    return c.json({ error: "write-header-required", message: `missing ${WRITE_HEADER} header` }, 403);
+  }
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "bad-json", message: "request body must be JSON" }, 400);
+  }
+  const target =
+    body?.target === undefined ? "claude" : isKnownTarget(body.target) ? body.target : null;
+  if (target === null) {
+    return c.json({ error: "unknown-target", message: "target must be claude or codex" }, 400);
+  }
+  const kind = typeof body?.type === "string" ? body.type : "";
+  if (!WRITE_KINDS.has(kind)) {
+    return c.json(
+      { error: "kind-not-allowed", message: `write is limited to: ${[...WRITE_KINDS].join(", ")}` },
+      400,
+    );
+  }
+  const name = typeof body?.name === "string" ? body.name : "";
+  if (name.length === 0) {
+    return c.json({ error: "name-required", message: "a plugin name is required" }, 400);
+  }
+  const apply = body?.apply === true;
+
+  const cfg = await resolveTargetAndConfig({ target });
+  const args = Object.create(null);
+  args.type = kind;
+  args.positionals = [name];
+  args.apply = apply;
+  const out = await COMMANDS[cmd]({
+    configDir: cfg.configDir,
+    mgrStateDir: cfg.mgrStateDir,
+    descriptor: cfg.descriptor,
+    args,
+  });
+  const code = typeof out.code === "number" ? out.code : 0;
+  // 0 ok/dry-run/already · 2 refused/gate, 3 unsupported/bad-args, 6 lock → 409 · else 500
+  const httpStatus = code === 0 ? 200 : code === 2 || code === 3 || code === 6 ? 409 : 500;
+  return c.json(
+    {
+      command: cmd,
+      apply,
+      code,
+      result: out.result,
+      diagnostics: [...cfg.diagnostics, ...out.diagnostics],
+    },
+    httpStatus,
+  );
 });
 
 // Production single-port mode: serve the built SPA when web/dist exists. In dev
