@@ -46,6 +46,9 @@ const EN = {
   "sidebar.toggleTheme": "Toggle theme",
   "sidebar.toggleLang": "Switch language",
   "sidebar.engineUnreachable": "engine unreachable",
+  "sidebar.live": "live",
+  "sidebar.connecting": "connecting…",
+  "sidebar.offline": "offline",
 
   // shared
   "common.loading": "Loading…",
@@ -184,6 +187,9 @@ const ZH: Record<StringKey, string> = {
   "sidebar.toggleTheme": "切换主题",
   "sidebar.toggleLang": "切换语言",
   "sidebar.engineUnreachable": "引擎不可达",
+  "sidebar.live": "实时",
+  "sidebar.connecting": "连接中…",
+  "sidebar.offline": "离线",
 
   "common.loading": "加载中…",
   "common.filter": "筛选…",
