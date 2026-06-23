@@ -50,6 +50,21 @@ const EN = {
   "sidebar.connecting": "connecting…",
   "sidebar.offline": "offline",
 
+  // write channel (P2 — plugin enable/disable)
+  "write.title": "Governance action",
+  "write.action.enable": "Enable plugin",
+  "write.action.disable": "Disable plugin",
+  "write.working": "Working…",
+  "write.noChange": "Already in the target state — nothing to write.",
+  "write.line": "settings.json · line {line}",
+  "write.reversible": "Edits settings.json. Reversible — an auto-snapshot is taken first.",
+  "write.confirm": "Confirm & apply",
+  "write.cancel": "Cancel",
+  "write.dismiss": "Dismiss",
+  "write.done": "Applied.",
+  "write.snapshot": "Snapshot {id} — roll back with: rollback {id}",
+  "write.failed": "Could not complete the change.",
+
   // shared
   "common.loading": "Loading…",
   "common.filter": "filter…",
@@ -190,6 +205,20 @@ const ZH: Record<StringKey, string> = {
   "sidebar.live": "实时",
   "sidebar.connecting": "连接中…",
   "sidebar.offline": "离线",
+
+  "write.title": "治理操作",
+  "write.action.enable": "启用插件",
+  "write.action.disable": "禁用插件",
+  "write.working": "处理中…",
+  "write.noChange": "已是目标状态 —— 无需写入。",
+  "write.line": "settings.json · 第 {line} 行",
+  "write.reversible": "将修改 settings.json。可回滚 —— 写入前会自动快照。",
+  "write.confirm": "确认并应用",
+  "write.cancel": "取消",
+  "write.dismiss": "关闭",
+  "write.done": "已应用。",
+  "write.snapshot": "快照 {id} —— 回滚命令：rollback {id}",
+  "write.failed": "操作未能完成。",
 
   "common.loading": "加载中…",
   "common.filter": "筛选…",
