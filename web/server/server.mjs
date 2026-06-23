@@ -24,6 +24,7 @@
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { existsSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +34,7 @@ import {
   resolveTargetAndConfig,
   isKnownTarget,
 } from "../../src/cli/resolve-target.mjs";
+import { createLiveHub } from "./live.mjs";
 import PKG from "../../package.json" with { type: "json" };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -160,6 +162,35 @@ app.get("/api/command/:cmd", async (c) => {
     command: cmd,
     result: out.result,
     diagnostics: [...cfg.diagnostics, ...out.diagnostics],
+  });
+});
+
+// Live-reload stream (P1). The hub watches each target's config dir and pushes a
+// coalesced "change" signal; the browser turns it into a reloadKey bump → views
+// re-fetch. Read-only: it only observes the filesystem (no writes, no spawns).
+// Inherits the Host-header guard above (the `app.use("*")` middleware).
+const live = await createLiveHub();
+
+app.get("/api/events", (c) => {
+  return streamSSE(c, async (stream) => {
+    // greet so the client flips its indicator to "live" immediately
+    await stream.writeSSE({ event: "hello", data: "{}" });
+    const unsub = live.subscribe((payload) => {
+      void stream.writeSSE({ event: "change", data: payload });
+    });
+    // keep-alive so an idle connection is not dropped by a proxy
+    const ping = setInterval(() => {
+      void stream.writeSSE({ event: "ping", data: "1" });
+    }, 25_000);
+    if (typeof ping.unref === "function") ping.unref();
+    // hold the stream open until the client disconnects, then clean up
+    await new Promise((resolve) => {
+      stream.onAbort(() => {
+        clearInterval(ping);
+        unsub();
+        resolve();
+      });
+    });
   });
 });
 
