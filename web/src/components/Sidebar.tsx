@@ -16,8 +16,21 @@ import { cn } from "@/lib/utils";
 import { useLang, type StringKey } from "@/lib/i18n";
 import { prefersReducedMotion } from "@/lib/motion";
 import type { StatusInfo, TargetId } from "@/lib/api";
+import type { LiveStatus } from "@/lib/useLiveReload";
 
 export type View = "dashboard" | "compare" | "doctor";
+
+/** Live-indicator dot colour + label per connection state. */
+const LIVE_DOT: Record<LiveStatus, string> = {
+  live: "bg-ok",
+  connecting: "bg-i42",
+  offline: "bg-danger",
+};
+const LIVE_LABEL: Record<LiveStatus, StringKey> = {
+  live: "sidebar.live",
+  connecting: "sidebar.connecting",
+  offline: "sidebar.offline",
+};
 
 const NAV: { id: View; labelKey: StringKey; icon: LucideIcon }[] = [
   { id: "dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
@@ -38,6 +51,7 @@ export function Sidebar(props: {
   onReload: () => void;
   status: StatusInfo | null;
   statusError: string | null;
+  live: LiveStatus;
 }) {
   const { t } = useLang();
   const navRef = useRef<HTMLElement>(null);
@@ -135,6 +149,20 @@ export function Sidebar(props: {
         <span className="inline-flex items-center gap-1.5 rounded-full bg-okbg px-2.5 py-1 text-[11px] font-medium text-ok">
           <ShieldCheck size={13} aria-hidden="true" />
           {t("sidebar.readonly")}
+        </span>
+        <span
+          className="inline-flex items-center gap-1.5 text-[11px] font-medium text-i60"
+          title={t(LIVE_LABEL[props.live])}
+        >
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              LIVE_DOT[props.live],
+              props.live === "live" && "animate-pulse motion-reduce:animate-none",
+            )}
+            aria-hidden="true"
+          />
+          {t(LIVE_LABEL[props.live])}
         </span>
         <button
           onClick={props.onToggleLang}
