@@ -68,6 +68,9 @@ const IGNORED_FILE_NAMES = new Set([
 /** Root-level file name PREFIXES that mark transient daemon/session state. */
 const IGNORED_FILE_PREFIXES = ["daemon", "security_warnings_state_", ".last-"];
 
+/** Live config file extensions — a file ending in one of these is never a backup. */
+const CONFIG_EXT_RE = /\.(json|md|toml|ya?ml)$/;
+
 /**
  * Is this change event noise we should drop? A null filename (some platforms omit
  * it) is treated as a real signal — better an extra refetch than a missed change.
@@ -87,20 +90,25 @@ function isNoise(filename) {
   }
   const base = (parts[parts.length - 1] ?? "").toLowerCase();
   // non-config file types that churn: logs (one write per command), lockfiles,
-  // editor scratch / atomic-write temp files, and config backups.
+  // editor scratch / atomic-write temp files.
   if (
     base.endsWith(".log") ||
     base.endsWith(".lock") ||
     base.endsWith(".tmp") ||
     base.endsWith("~") ||
-    base.includes(".bak") ||
-    base.includes(".backup") ||
     // SQLite / DB temp + journal files (e.g. a plugin's workbench.sqlite3-wal)
     base.includes(".sqlite") ||
     base.endsWith("-wal") ||
     base.endsWith("-shm") ||
     base.endsWith("-journal")
   ) {
+    return true;
+  }
+  // config backups (settings.json.bak-mcpfix, CLAUDE.md.backup.2026-…) — but
+  // NEVER a live config file, which ends in a real config extension. The backup
+  // marker sits AFTER the real extension, so a `.bak`/`.backup` that is not itself
+  // the trailing extension is a backup; a real `*.json` / `*.md` / `*.toml` passes.
+  if (!CONFIG_EXT_RE.test(base) && (base.includes(".bak") || base.includes(".backup"))) {
     return true;
   }
   if (IGNORED_FILE_NAMES.has(base)) return true;
@@ -144,6 +152,10 @@ export async function createLiveHub({ debounceMs = 300, dirs } = {}) {
 
   function flush() {
     timer = null;
+    // `targets` is a best-effort UNION of whatever changed within this debounce
+    // window — the single shared timer can fold a claude + codex change into one
+    // payload. The browser ignores it today (it bumps one global reloadKey); it is
+    // here for a future per-target consumer, which must treat it as best-effort.
     const targets = [...pending];
     pending = new Set();
     const payload = JSON.stringify({ type: "change", targets, ts: Date.now() });
