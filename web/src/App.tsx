@@ -6,6 +6,7 @@ import { Doctor } from "@/views/Doctor";
 import gsap from "gsap";
 import { fetchStatus, type TargetId } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
+import { useLiveReload } from "@/lib/useLiveReload";
 import { useLang, type StringKey } from "@/lib/i18n";
 import { useGsap } from "@/lib/motion";
 
@@ -32,6 +33,10 @@ export default function App() {
   const [target, setTarget] = useState<TargetId>("claude");
   const [view, setView] = useState<View>("dashboard");
   const [reloadKey, setReloadKey] = useState(0);
+
+  // P1 realtime: a config change on disk bumps the SAME reloadKey the manual
+  // refresh button uses, so every mounted view (and status) re-fetches.
+  const live = useLiveReload(() => setReloadKey((k) => k + 1));
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -61,6 +66,7 @@ export default function App() {
         onReload={() => setReloadKey((k) => k + 1)}
         status={status.data}
         statusError={status.error}
+        live={live}
       />
 
       <main className="h-screen flex-1 overflow-auto bg-bg">
