@@ -82,7 +82,12 @@ export default function App() {
 
           <div ref={stage}>
             {view === "dashboard" && (
-              <Dashboard target={target} reloadKey={reloadKey} />
+              <Dashboard
+                target={target}
+                reloadKey={reloadKey}
+                writeKinds={status.data?.writeKinds ?? []}
+                onRefresh={() => setReloadKey((k) => k + 1)}
+              />
             )}
             {view === "compare" && (
               <Compare target={target} reloadKey={reloadKey} />
