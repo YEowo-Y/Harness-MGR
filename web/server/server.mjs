@@ -1,0 +1,184 @@
+/**
+ * claude-mgr web — localhost API server (P0, read-only).
+ *
+ * Surfaces the zero-dependency engine over HTTP for the browser UI. It calls the
+ * SAME in-process boundary the CLI uses (resolveTargetAndConfig → COMMANDS[cmd](ctx)
+ * → the { command, result, diagnostics } envelope), so the UI never reimplements any
+ * discovery / analysis / redaction logic.
+ *
+ * SECURITY (this server reads a sensitive ~/.claude / ~/.codex):
+ *   1. Binds 127.0.0.1 ONLY — never a public interface.
+ *   2. Routes ONLY a frozen allowlist of READ commands. No write handler is
+ *      reachable in P0 (writes — even dry-run — are a P2 concern).
+ *   3. NEVER honors a client-supplied configDir — the dir is resolved server-side
+ *      from `target` only, so the browser cannot turn the engine into an
+ *      arbitrary-filesystem reader.
+ *   4. Strips `apply` and `active-probes` from incoming args (no writes, no
+ *      external-tool spawns triggered from a web request).
+ *   5. Host-header allowlist (localhost/127.0.0.1 only) defeats DNS-rebinding.
+ *
+ * Zero engine changes. Dev: Vite serves the app and proxies /api here. Prod
+ * (`npm run build` then `npm run start`): this server also serves web/dist.
+ */
+
+import { serve } from "@hono/node-server";
+import { serveStatic } from "@hono/node-server/serve-static";
+import { Hono } from "hono";
+import { existsSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { COMMANDS } from "../../src/cli/commands.mjs";
+import {
+  resolveTargetAndConfig,
+  isKnownTarget,
+} from "../../src/cli/resolve-target.mjs";
+import PKG from "../../package.json" with { type: "json" };
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const HOST = "127.0.0.1";
+const DEFAULT_PORT = 4319;
+
+/**
+ * The ONLY commands a web request may run — every one is a pure, never-throws READ.
+ * Deliberately excludes: all write commands; `config:diff` and `completion` (they
+ * take arbitrary file/path args → would be an arbitrary-read primitive); `selftest`
+ * (runs lint/boundary, not a UI read). Frozen so a handler can never extend it.
+ */
+const READ_COMMANDS = Object.freeze(
+  new Set([
+    "inventory",
+    "conflicts",
+    "compare",
+    "orphans",
+    "config:show-effective",
+    "hooks",
+    "permissions",
+    "doctor",
+    "health",
+    "snapshot:list",
+  ]),
+);
+
+/**
+ * Query params that may flow into ctx.args. Excludes configDir (server-resolved),
+ * apply, active-probes, force, break-lock — none of which a read UI needs and all of
+ * which are write/spawn triggers. Unknown keys are ignored.
+ */
+const SAFE_ARG_KEYS = Object.freeze([
+  "type",
+  "detail",
+  "by-category",
+  "audit",
+  "name",
+]);
+
+const BOOLEAN_ARG_KEYS = Object.freeze(
+  new Set(["detail", "by-category", "audit"]),
+);
+
+/** Coerce a query value to a boolean flag: absent/"0"/"false"/"" → false, else true. */
+function asBool(v) {
+  if (v === undefined || v === null) return false;
+  const s = String(v).toLowerCase();
+  return !(s === "" || s === "0" || s === "false");
+}
+
+/** Build the handler args from the request's safe query params only. */
+function buildArgs(query) {
+  const args = Object.create(null);
+  for (const key of SAFE_ARG_KEYS) {
+    if (!(key in query)) continue;
+    args[key] = BOOLEAN_ARG_KEYS.has(key) ? asBool(query[key]) : query[key];
+  }
+  return args;
+}
+
+/** Resolve the requested target, defaulting to claude. Returns null if invalid. */
+function resolveRequestedTarget(query) {
+  const t = query.target;
+  if (t === undefined) return "claude";
+  return isKnownTarget(t) ? t : null;
+}
+
+const app = new Hono();
+
+// DNS-rebinding guard: a browser pointed at this server always sends a
+// localhost/127.0.0.1 Host. Anything else means the request was routed via an
+// attacker-controlled name resolving to 127.0.0.1 — reject it.
+app.use("*", async (c, next) => {
+  const host = c.req.header("host") ?? "";
+  const name = host.replace(/:\d+$/, "");
+  if (name === "127.0.0.1" || name === "localhost" || name === "[::1]") {
+    return next();
+  }
+  return c.json({ error: "forbidden-host", message: `host not allowed: ${host}` }, 403);
+});
+
+app.get("/api/status", async (c) => {
+  const target = resolveRequestedTarget(c.req.query());
+  if (target === null) {
+    return c.json({ error: "unknown-target", message: "target must be claude or codex" }, 400);
+  }
+  const cfg = await resolveTargetAndConfig({ target });
+  return c.json({
+    version: PKG.version,
+    target,
+    configDir: cfg.configDir,
+    targets: ["claude", "codex"],
+    readOnly: true,
+    diagnostics: cfg.diagnostics,
+  });
+});
+
+app.get("/api/command/:cmd", async (c) => {
+  const cmd = c.req.param("cmd");
+  if (!READ_COMMANDS.has(cmd)) {
+    return c.json(
+      { error: "command-not-allowed", message: `not a read command: ${cmd}` },
+      403,
+    );
+  }
+  const query = c.req.query();
+  const target = resolveRequestedTarget(query);
+  if (target === null) {
+    return c.json({ error: "unknown-target", message: "target must be claude or codex" }, 400);
+  }
+
+  const cfg = await resolveTargetAndConfig({ target });
+  const args = buildArgs(query);
+  const out = await COMMANDS[cmd]({
+    configDir: cfg.configDir,
+    mgrStateDir: cfg.mgrStateDir,
+    descriptor: cfg.descriptor,
+    args,
+  });
+
+  // The CLI's --format json envelope, verbatim (src/cli.mjs render()).
+  return c.json({
+    command: cmd,
+    result: out.result,
+    diagnostics: [...cfg.diagnostics, ...out.diagnostics],
+  });
+});
+
+// Production single-port mode: serve the built SPA when web/dist exists. In dev
+// this never matches (Vite owns the frontend) — the API routes above are enough.
+const DIST = join(__dirname, "..", "dist");
+if (existsSync(DIST)) {
+  // serveStatic resolves `root`/`path` relative to process.cwd(), so compute the
+  // path from cwd to web/dist — the server then serves the SPA correctly no matter
+  // which directory it was launched from (repo root, web/, or a packaged bin).
+  const distRoot = relative(process.cwd(), DIST) || ".";
+  const indexPath = `${distRoot}/index.html`;
+  app.use("/*", serveStatic({ root: distRoot }));
+  // SPA fallback: any non-API path returns index.html so client routing works.
+  app.get("*", serveStatic({ path: indexPath }));
+}
+
+const port = Number(process.env.CLAUDE_MGR_WEB_PORT) || DEFAULT_PORT;
+serve({ fetch: app.fetch, hostname: HOST, port }, (info) => {
+  // eslint-disable-next-line no-console
+  console.log(`claude-mgr web API → http://${HOST}:${info.port}  (read-only)`);
+});
