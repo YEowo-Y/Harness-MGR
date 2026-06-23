@@ -36,12 +36,22 @@ npm run dev        # starts BOTH the API (127.0.0.1:4319) and Vite (127.0.0.1:51
 
 Then open **http://127.0.0.1:5173**. Vite proxies `/api/*` to the API server.
 
-Single-port production-style run (no live reload):
+Single-port production-style run (no Vite hot-reload):
 
 ```sh
 npm run build      # bundles the app to web/dist
 npm run start      # Hono serves web/dist + /api on http://127.0.0.1:4319
 ```
+
+## Live updates (P1)
+
+The views refresh **automatically** when your harness changes on disk. The server
+watches each target's config dir (`~/.claude` / `~/.codex`) and pushes a coalesced
+signal over Server-Sent Events (`/api/events`); the app re-fetches the affected
+views. A small dot in the sidebar shows the connection (`live` / `connecting` /
+`offline`). High-churn paths the UI never surfaces — logs, caches, snapshots,
+session transcripts, SQLite journals — are filtered out so edits, not noise,
+drive the refresh. This is still **read-only**: the watcher only observes.
 
 ## Security
 
