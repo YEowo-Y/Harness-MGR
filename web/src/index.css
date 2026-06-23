@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+/*
+ * claude-mgr web — design system (Claude warm brand).
+ *
+ * Tokens are the WCAG-CORRECTED set from docs/internal/web-ui-design.md §3 (the
+ * authoritative source), NOT the prototype's .72/.55/.40 ink tiers — those
+ * reintroduce the measured AA failure (tertiary text 2.63:1) the readability pass
+ * fixed. Ink hierarchy: --i80 body (9.6:1 AAA) / --i60 secondary (5.9:1 AA) /
+ * --i42 tertiary (4.8:1 AA) / --idec decorative GLYPHS ONLY, never text. The one
+ * reserved coral (--accent) is FILL+white only; coral TEXT must use --accent-text.
+ */
+
+:root {
+  --bg: #faf9f5;
+  --panel: #f3f1e9;
+  --surface: #ffffff;
+  --ink: #1a1a17;
+  --i80: rgba(26, 26, 23, 0.82); /* body      9.6:1  AAA */
+  --i60: rgba(26, 26, 23, 0.68); /* secondary 5.9:1  AA  */
+  --i42: rgba(26, 26, 23, 0.62); /* tertiary  4.8:1  AA  */
+  --idec: rgba(26, 26, 23, 0.42); /* DECORATIVE GLYPHS ONLY — never text */
+  --accent: #d97757; /* coral: FILL + white only (2.96:1) */
+  --accent-d: #c5613f;
+  --accent-text: #b54a23; /* 5.0:1 — coral as TEXT */
+  --info: #5b8bc0;
+  --ok: #5f7544;
+  --warn: #a76d13;
+  --danger: #a8442a;
+  --purple: #6c569c;
+  --hair: #ddd9cc;
+  --hair2: #cfccbe;
+  --tint: #f2efe7;
+  --zebra: #f6f4ec;
+  --sel: #efe4dc;
+  --okbg: #e9efde;
+  --infobg: #e2edf7;
+  --maxw: 1320px; /* WIDE chrome */
+  /* Content width cap. The design doc set a NARROW 1040 reading measure (~68ch),
+   * but this is a DATA dashboard (tables/KPIs), not long-form prose — per user
+   * feedback the content fills wide screens instead of stranding whitespace. */
+  --measure: 1800px;
+  --rail: 440px; /* skill-detail inspector — widened for more breathing room */
+  --lh-prose: 1.62;
+  --lh-data: 1.45;
+  /* Global UI scale — one knob to enlarge the WHOLE app (fonts, icons, spacing)
+   * proportionally. Uses zoom (reflows the layout, so no horizontal scrollbar),
+   * which scales fixed-px sizes too — unlike a root rem bump. Tune this single
+   * number to make everything bigger/smaller. */
+  --ui-scale: 1.15;
+  /* Category palette — a SEPARATE set from the semantic colors (ok/warn/danger),
+   * so a kind's hue is never misread as a status. NOT coral (reserved for the one
+   * Confirm CTA + brand dot). Used as KPI icon-chip tints on the Dashboard. */
+  --cat-skill: #6c569c; /* violet  */
+  --cat-agent: #3f7cb0; /* blue    */
+  --cat-command: #4f8a5b; /* green   */
+  --cat-plugin: #a76d13; /* amber   */
+  --cat-market: #b0567f; /* rose    */
+  --cat-mcp: #2f8c87; /* teal    */
+}
+
+[data-theme="dark"] {
+  --bg: #171512;
+  --panel: #1e1c18;
+  --surface: #252220;
+  --ink: #ede9e1;
+  --i80: rgba(237, 233, 225, 0.86);
+  --i60: rgba(237, 233, 225, 0.7);
+  --i42: rgba(237, 233, 225, 0.6);
+  --idec: rgba(237, 233, 225, 0.4);
+  --accent: #e3895f;
+  --accent-d: #d2774d;
+  --accent-text: #e89a73;
+  --info: #85b0dd;
+  --ok: #94ac72;
+  --warn: #d7a352;
+  --danger: #e3886a;
+  --purple: #b9a4e0;
+  --hair: #302c26;
+  --hair2: #403b33;
+  --tint: #272320;
+  --zebra: #1c1a16;
+  --sel: #3a2a1e;
+  --okbg: #252c1d;
+  --infobg: #1f2a35;
+  /* category palette — lighter variants for the dark theme */
+  --cat-skill: #b9a4e0;
+  --cat-agent: #85b0dd;
+  --cat-command: #94c293;
+  --cat-plugin: #d7a352;
+  --cat-market: #e0a0c0;
+  --cat-mcp: #6cc4be;
+}
+
+/* Map brand tokens into Tailwind's theme so utilities (bg-surface, text-i80,
+ * border-hair, font-serif …) resolve to the live CSS vars and follow the theme. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-i80: var(--i80);
+  --color-i60: var(--i60);
+  --color-i42: var(--i42);
+  --color-idec: var(--idec);
+  --color-accent: var(--accent);
+  --color-accent-d: var(--accent-d);
+  --color-accent-text: var(--accent-text);
+  --color-info: var(--info);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-purple: var(--purple);
+  --color-hair: var(--hair);
+  --color-hair2: var(--hair2);
+  --color-tint: var(--tint);
+  --color-zebra: var(--zebra);
+  --color-sel: var(--sel);
+  --color-okbg: var(--okbg);
+  --color-infobg: var(--infobg);
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Lora", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--i80);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+  zoom: var(--ui-scale);
+}
+
+/* tabular-nums on every number, per the design system */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Keyboard focus ring (WCAG 2.4.7). A flat coral OUTLINE is a graphical boundary,
+ * not text and not glow/shadow, so it is design-token compliant. Left UNLAYERED so
+ * it beats the Tailwind utilities layer (e.g. the filter inputs' `outline-none`);
+ * :focus-visible means it shows for keyboard users only, never on mouse click.
+ */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
