@@ -13,6 +13,7 @@ import { X } from "lucide-react";
 import gsap from "gsap";
 import { useLang } from "@/lib/i18n";
 import { useGsap } from "@/lib/motion";
+import { PluginWriteControl } from "@/components/PluginWriteControl";
 import type { KindConfig, RenderCtx } from "@/lib/kinds";
 import type { InventoryItem, TargetId } from "@/lib/api";
 
@@ -32,12 +33,18 @@ export function ItemInspector({
   config,
   shadow,
   target,
+  writeKinds,
+  onRefresh,
   onClose,
 }: {
   item: InventoryItem;
   config: KindConfig;
   shadow: ShadowInfo | null;
   target: TargetId;
+  /** item kinds the server will let us write on this target */
+  writeKinds: string[];
+  /** bump the data after a successful write so the inventory reflects it */
+  onRefresh: () => void;
   onClose: () => void;
 }) {
   const { t } = useLang();
@@ -153,11 +160,15 @@ export function ItemInspector({
           </Section>
         )}
 
-        {/* read-only / deferred notes */}
-        <div className="flex flex-col gap-1.5 border-t border-hair pt-3 text-[11px] leading-relaxed text-i42">
-          <p>{t("inspector.actionsP2")}</p>
-          {config.shadowKind === "skill" && <p>{t("inspector.contentDeferred")}</p>}
-        </div>
+        {/* write surface (P2 pilot — plugin only) OR the read-only / deferred notes */}
+        {config.type === "plugin" && writeKinds.includes("plugin") ? (
+          <PluginWriteControl item={item} target={target} onRefresh={onRefresh} />
+        ) : (
+          <div className="flex flex-col gap-1.5 border-t border-hair pt-3 text-[11px] leading-relaxed text-i42">
+            <p>{t("inspector.actionsP2")}</p>
+            {config.shadowKind === "skill" && <p>{t("inspector.contentDeferred")}</p>}
+          </div>
+        )}
       </div>
     </aside>
   );
