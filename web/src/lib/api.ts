@@ -31,7 +31,8 @@ export interface StatusInfo {
   configDir: string;
   /** which targets the server could resolve a config dir for */
   targets: TargetId[];
-  readOnly: true;
+  /** item kinds the write channel may toggle on this target ([] = read-only here) */
+  writeKinds: string[];
   /** resolution diagnostics (e.g. the missing-hooks-lib fallback warn) */
   diagnostics: Diagnostic[];
 }
@@ -251,6 +252,71 @@ export function fetchCommand<T = unknown>(
   const qs = new URLSearchParams(params).toString();
   const url = `/api/command/${encodeURIComponent(cmd)}${qs ? `?${qs}` : ""}`;
   return getJson<Envelope<T>>(url);
+}
+
+// ── write channel (P2 pilot — plugin enable/disable) ─────────────────────────
+/** The byte-level change the toggle would make (null when it's a no-op). */
+export interface WriteDiff {
+  line: number;
+  before: string;
+  after: string;
+}
+
+/** Flattened result of a disable/enable call (the engine's summarize() shape). */
+export interface WriteResult {
+  status: string;
+  ok: boolean;
+  dryRun: boolean;
+  kind: string | null;
+  name: string | null;
+  desired: boolean | null;
+  target: string | null;
+  diff: WriteDiff | null;
+  alreadyInState: boolean;
+  applied: boolean;
+  snapshotId: string | null;
+}
+
+export interface WriteEnvelope {
+  command: string;
+  apply: boolean;
+  code: number;
+  result: WriteResult;
+  diagnostics: Diagnostic[];
+}
+
+/**
+ * Call the write channel. `verb` is 'disable' | 'enable'; `apply:false` is a dry-run
+ * preview (no write), `apply:true` performs the gated, snapshot-backed write. The
+ * custom header is what makes this reachable only from the same-origin app. A non-2xx
+ * still returns its JSON envelope (refusals carry diagnostics) — only a transport/JSON
+ * failure throws.
+ */
+export async function writeCommand(
+  verb: "disable" | "enable",
+  body: { target: TargetId; type: "plugin"; name: string; apply: boolean },
+): Promise<WriteEnvelope> {
+  const res = await fetch(`/api/write/${verb}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json",
+      "x-claude-mgr-write": "1",
+    },
+    body: JSON.stringify(body),
+  });
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new ApiError(`${res.status} ${res.statusText}`, res.status);
+  }
+  // Guard envelopes (bad-json / forbidden-host / command-not-allowed) lack `result`.
+  if (!json || typeof json !== "object" || !("result" in json)) {
+    const msg = (json as { message?: string })?.message ?? `${res.status} ${res.statusText}`;
+    throw new ApiError(msg, res.status);
+  }
+  return json as WriteEnvelope;
 }
 
 export { ApiError };
