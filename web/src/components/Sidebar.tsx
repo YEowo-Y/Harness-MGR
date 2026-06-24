@@ -76,7 +76,7 @@ export function Sidebar(props: {
   }, [props.view]);
 
   return (
-    <aside className="flex h-screen w-[220px] flex-col border-r border-hair bg-panel px-3 py-4">
+    <aside className="flex h-full w-[220px] flex-col border-r border-hair bg-panel px-3 py-4">
       {/* brand */}
       <div className="mb-5 flex items-center gap-2 px-2">
         <span className="h-2.5 w-2.5 rounded-full bg-accent" aria-hidden="true" />
