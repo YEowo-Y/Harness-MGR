@@ -49,6 +49,8 @@ const EN = {
   "sidebar.live": "live",
   "sidebar.connecting": "connecting…",
   "sidebar.offline": "offline",
+  "sidebar.inventory": "Inventory",
+  "sidebar.analysis": "Analysis",
 
   // write channel (P2 — plugin enable/disable)
   "write.title": "Governance action",
@@ -205,6 +207,8 @@ const ZH: Record<StringKey, string> = {
   "sidebar.live": "实时",
   "sidebar.connecting": "连接中…",
   "sidebar.offline": "离线",
+  "sidebar.inventory": "清单",
+  "sidebar.analysis": "分析",
 
   "write.title": "治理操作",
   "write.action.enable": "启用插件",
