@@ -52,7 +52,7 @@ export function Doctor({
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto pr-1">
       {/* loadability + severity */}
       <section className="grid gap-6 md:grid-cols-[300px_1fr]">
         <Panel title={t("doctor.loadabilityTitle", { target })}>
@@ -124,7 +124,7 @@ export function Doctor({
         ) : findings.length === 0 ? (
           <Empty label={t("doctor.healthy")} />
         ) : (
-          <div className="max-h-[460px] overflow-auto">
+          <div>
             {findings.map((d, i) => (
               <FindingRow key={`${d.code}:${i}`} d={d} />
             ))}
