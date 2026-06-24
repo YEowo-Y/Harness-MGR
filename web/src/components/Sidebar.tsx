@@ -7,7 +7,7 @@ import {
   RefreshCw,
   ShieldCheck,
   AlertTriangle,
-  Languages,
+  Radio,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import gsap from "gsap";
@@ -22,10 +22,11 @@ import { KIND_CONFIG, type KindKey } from "@/lib/kinds";
 export type Section = KindKey | "compare" | "doctor";
 
 /** Live-indicator dot colour + label per connection state. */
-const LIVE_DOT: Record<LiveStatus, string> = {
-  live: "bg-ok",
-  connecting: "bg-i42",
-  offline: "bg-danger",
+/** Live-indicator icon colour per connection state (icon-only status chip). */
+const LIVE_ICON: Record<LiveStatus, string> = {
+  live: "text-ok",
+  connecting: "text-i42",
+  offline: "text-danger",
 };
 const LIVE_LABEL: Record<LiveStatus, StringKey> = {
   live: "sidebar.live",
@@ -176,46 +177,54 @@ export function Sidebar(props: {
           </div>
         </div>
 
-        {/* controls */}
-        <div className="mb-3 mt-4 flex items-center gap-2 px-1">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-okbg px-2.5 py-1 text-[11px] font-medium text-ok">
-            <ShieldCheck size={13} aria-hidden="true" />
-            {t("sidebar.readonly")}
+        {/* controls — icon-only chips so the narrow rail never wraps a status label */}
+        <div className="mb-3 mt-4 flex items-center gap-1.5 px-1">
+          <span
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-okbg text-ok"
+            title={t("sidebar.readonly")}
+            aria-label={t("sidebar.readonly")}
+          >
+            <ShieldCheck size={14} aria-hidden="true" />
           </span>
           <span
-            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-i60"
+            className={cn(
+              "inline-flex h-7 w-7 items-center justify-center rounded-md border border-hair2",
+              LIVE_ICON[props.live],
+            )}
             title={t(LIVE_LABEL[props.live])}
+            aria-label={t(LIVE_LABEL[props.live])}
           >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                LIVE_DOT[props.live],
-                props.live === "live" && "animate-pulse motion-reduce:animate-none",
-              )}
+            <Radio
+              size={14}
               aria-hidden="true"
+              className={
+                props.live === "live"
+                  ? "animate-pulse motion-reduce:animate-none"
+                  : ""
+              }
             />
-            {t(LIVE_LABEL[props.live])}
           </span>
           <button
             onClick={props.onToggleLang}
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-hair2 px-1.5 py-1.5 text-[11px] font-semibold text-i60 transition-colors hover:bg-tint hover:text-ink"
+            className="ml-auto inline-flex h-7 min-w-[28px] items-center justify-center rounded-md border border-hair2 px-1.5 text-[11px] font-semibold text-i60 transition-colors hover:bg-tint hover:text-ink"
             aria-label={t("sidebar.toggleLang")}
             title={t("sidebar.toggleLang")}
           >
-            <Languages size={13} aria-hidden="true" />
             {props.lang === "zh" ? "EN" : "中"}
           </button>
           <button
             onClick={props.onReload}
-            className="rounded-md border border-hair2 p-1.5 text-i60 transition-colors hover:bg-tint hover:text-ink"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-hair2 text-i60 transition-colors hover:bg-tint hover:text-ink"
             aria-label={t("sidebar.reload")}
+            title={t("sidebar.reload")}
           >
             <RefreshCw size={14} className={props.loading ? "animate-spin" : ""} />
           </button>
           <button
             onClick={props.onToggleTheme}
-            className="rounded-md border border-hair2 p-1.5 text-i60 transition-colors hover:bg-tint hover:text-ink"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-hair2 text-i60 transition-colors hover:bg-tint hover:text-ink"
             aria-label={t("sidebar.toggleTheme")}
+            title={t("sidebar.toggleTheme")}
           >
             {props.theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
           </button>
