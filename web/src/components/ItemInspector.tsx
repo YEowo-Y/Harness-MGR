@@ -101,7 +101,7 @@ export function ItemInspector({
         </button>
       </div>
 
-      <div className="flex flex-col gap-5 overflow-y-auto px-4 py-4">
+      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-4 py-4">
         {/* path (skill/agent/command have one; plugin/mcp/marketplace don't) */}
         {item.path && (
           <Field label={t("inspector.path")}>
@@ -160,11 +160,14 @@ export function ItemInspector({
           </Section>
         )}
 
-        {/* write surface (P2 pilot — plugin only) OR the read-only / deferred notes */}
+      </div>
+
+      {/* action footer — docked actions (industry-standard); the body scrolls above it */}
+      <div className="shrink-0 border-t border-hair px-4 py-3">
         {config.type === "plugin" && writeKinds.includes("plugin") ? (
           <PluginWriteControl item={item} target={target} onRefresh={onRefresh} />
         ) : (
-          <div className="flex flex-col gap-1.5 border-t border-hair pt-3 text-[11px] leading-relaxed text-i42">
+          <div className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-i42">
             <p>{t("inspector.actionsP2")}</p>
             {config.shadowKind === "skill" && <p>{t("inspector.contentDeferred")}</p>}
           </div>
