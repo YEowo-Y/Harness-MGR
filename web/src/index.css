@@ -134,7 +134,12 @@ body {
 }
 
 #root {
-  min-height: 100vh;
+  /* Single-screen shell: zoom scales rendered size, but 100vh is measured
+   * pre-zoom — so a plain 100vh would render at 100vh * --ui-scale and spill
+   * past the viewport. Divide by the scale so the post-zoom height is exactly
+   * one viewport, and clip so the app never drives a page scrollbar. */
+  height: calc(100vh / var(--ui-scale));
+  overflow: hidden;
   zoom: var(--ui-scale);
 }
 
