@@ -122,16 +122,16 @@ export function Dashboard({
   if (inv.error) return <ErrorBox message={inv.error} />;
 
   return (
-    <div className="lg:flex lg:items-start lg:gap-6">
-      <div className="flex min-w-0 flex-col gap-6 lg:flex-1">
+    <div className="flex h-full min-h-0 flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-6">
+      <div className="flex min-h-0 min-w-0 flex-col gap-6 lg:flex-1">
         {/* polite announcement of the active kind on switch (visually hidden) */}
         <div className="sr-only" role="status" aria-live="polite">
           {t(config.labelKey)}
         </div>
         {/* KPIs — each is a button that switches the table to that kind */}
         <section
-          className="grid gap-px overflow-hidden rounded-lg border border-hair bg-hair"
-          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}
+          className="grid shrink-0 gap-px overflow-hidden rounded-lg border border-hair bg-hair"
+          style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}
           aria-busy={inv.loading}
         >
           {KIND_CONFIG.map((d) => {
@@ -179,6 +179,7 @@ export function Dashboard({
 
         {/* active-kind table */}
         <Panel
+          className="flex min-h-0 flex-1 flex-col"
           title={t("dash.kindTitle", { kind: t(config.labelKey), target })}
           action={
             <div className="flex items-center gap-1.5 rounded-md border border-hair2 bg-bg px-2.5 py-1.5 normal-case">
@@ -199,7 +200,7 @@ export function Dashboard({
           ) : filtered.length === 0 ? (
             <Empty label={query ? t("dash.noMatchItems") : t("dash.noItems")} />
           ) : (
-            <div ref={tableRef} className="max-h-[560px] overflow-auto">
+            <div ref={tableRef} className="min-h-0 flex-1 overflow-auto">
               <table className="w-full border-collapse text-left">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-tint text-xs font-semibold uppercase tracking-wider text-i42">
