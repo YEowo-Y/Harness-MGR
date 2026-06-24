@@ -92,7 +92,7 @@ export function Compare({ reloadKey }: { target: TargetId; reloadKey: number }) 
   if (!result) return <Empty label={t("compare.noData")} />;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto pr-1">
       {/* totals */}
       <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-hair bg-hair">
         {result.targets.map((tt) => (
@@ -154,7 +154,7 @@ export function Compare({ reloadKey }: { target: TargetId; reloadKey: number }) 
         {filtered.length === 0 ? (
           <Empty label={t("compare.noMatch")} />
         ) : (
-          <div className="max-h-[520px] overflow-auto">
+          <div className="overflow-x-auto">
             <table className="w-full border-collapse text-left">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-tint text-xs font-semibold uppercase tracking-wider text-i42">
