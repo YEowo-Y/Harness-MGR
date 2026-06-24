@@ -240,7 +240,11 @@ app.get("/api/events", (c) => {
 // its own frozen WRITE_COMMANDS allowlist, a required custom header (CSRF guard), and
 // a POST verb. The dir is STILL resolved server-side from `target` (never the client),
 // and every apply routes through the engine's two-factor gate → auto-snapshot →
-// reversible rollback. A request without `apply:true` is a dry-run preview only.
+// reversible rollback. A request without `apply:true` is a dry-run preview.
+// NOTE: the server does NOT require a preceding dry-run — `apply:true` is accepted on
+// the first request. The preview-then-confirm flow is a CLIENT UX affordance, not a
+// server-enforced control. Write safety rests on the localhost + custom-header (CSRF)
+// boundary keeping callers same-origin, plus the engine's gate/snapshot/reversibility.
 app.post("/api/write/:cmd", async (c) => {
   const cmd = c.req.param("cmd");
   if (!WRITE_COMMANDS.has(cmd)) {
@@ -318,5 +322,7 @@ if (existsSync(DIST)) {
 const port = Number(process.env.CLAUDE_MGR_WEB_PORT) || DEFAULT_PORT;
 serve({ fetch: app.fetch, hostname: HOST, port }, (info) => {
   // eslint-disable-next-line no-console
-  console.log(`claude-mgr web API → http://${HOST}:${info.port}  (read-only)`);
+  console.log(
+    `claude-mgr web API → http://${HOST}:${info.port}  (read + plugin-write pilot)`,
+  );
 });
