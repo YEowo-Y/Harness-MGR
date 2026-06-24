@@ -80,7 +80,7 @@ export function ItemInspector({
           onClose();
         }
       }}
-      className="mt-6 flex max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden rounded-lg border border-hair bg-surface outline-none lg:sticky lg:top-7 lg:mt-0 lg:w-[var(--rail)] lg:shrink-0"
+      className="mt-6 flex max-h-[calc(100vh-3.5rem)] flex-col overflow-hidden rounded-lg border border-hair bg-surface outline-none lg:mt-0 lg:h-full lg:max-h-none lg:w-[var(--rail)] lg:shrink-0"
     >
       {/* header */}
       <div className="flex items-start justify-between gap-2 border-b border-hair px-4 py-3">
