@@ -52,7 +52,7 @@ export default function App() {
   );
 
   return (
-    <div className="flex">
+    <div className="flex h-full overflow-hidden">
       <Sidebar
         view={view}
         onView={setView}
@@ -69,9 +69,12 @@ export default function App() {
         live={live}
       />
 
-      <main className="h-screen flex-1 overflow-auto bg-bg">
-        <div className="mx-auto px-9 py-8" style={{ maxWidth: "var(--measure)" }}>
-          <header className="mb-7">
+      <main className="flex h-full flex-1 flex-col overflow-hidden bg-bg">
+        <div
+          className="mx-auto flex h-full w-full min-h-0 flex-col px-9 py-8"
+          style={{ maxWidth: "var(--measure)" }}
+        >
+          <header className="mb-7 shrink-0">
             <h1 className="font-sans text-[30px] font-semibold tracking-tight text-ink">
               {t(meta.titleKey)}
             </h1>
@@ -80,7 +83,7 @@ export default function App() {
             </p>
           </header>
 
-          <div ref={stage}>
+          <div ref={stage} className="min-h-0 flex-1 overflow-hidden">
             {view === "dashboard" && (
               <Dashboard
                 target={target}
