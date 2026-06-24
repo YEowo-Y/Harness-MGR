@@ -83,10 +83,7 @@ export default function App() {
       />
 
       <main className="flex h-full flex-1 flex-col overflow-hidden bg-bg">
-        <div
-          className="mx-auto flex h-full min-h-0 w-full flex-col px-9 py-7"
-          style={{ maxWidth: "var(--measure)" }}
-        >
+        <div className="flex h-full min-h-0 w-full flex-col px-9 py-7">
           <header className="mb-5 shrink-0">
             <h1 className="font-sans text-[24px] font-semibold tracking-tight text-ink">
               {title}
