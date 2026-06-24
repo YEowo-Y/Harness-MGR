@@ -1,37 +1,31 @@
 import { useEffect, useState } from "react";
-import { Sidebar, type View } from "@/components/Sidebar";
+import { Sidebar, type Section } from "@/components/Sidebar";
 import { Dashboard } from "@/views/Dashboard";
 import { Compare } from "@/views/Compare";
 import { Doctor } from "@/views/Doctor";
 import gsap from "gsap";
-import { fetchStatus, type TargetId } from "@/lib/api";
+import {
+  fetchStatus,
+  fetchCommand,
+  type InventoryResult,
+  type TargetId,
+} from "@/lib/api";
 import { useApi } from "@/lib/useApi";
 import { useLiveReload } from "@/lib/useLiveReload";
-import { useLang, type StringKey } from "@/lib/i18n";
+import { useLang } from "@/lib/i18n";
 import { useGsap } from "@/lib/motion";
+import { KIND_CONFIG, type KindKey } from "@/lib/kinds";
 
 type Theme = "light" | "dark";
 
-const VIEW_META: Record<View, { titleKey: StringKey; subtitleKey: StringKey }> = {
-  dashboard: {
-    titleKey: "nav.dashboard",
-    subtitleKey: "view.dashboard.subtitle",
-  },
-  compare: {
-    titleKey: "nav.compare",
-    subtitleKey: "view.compare.subtitle",
-  },
-  doctor: {
-    titleKey: "nav.doctor",
-    subtitleKey: "view.doctor.subtitle",
-  },
-};
+/** A section is an inventory kind unless it is one of the two analysis views. */
+const isKind = (s: Section): s is KindKey => s !== "compare" && s !== "doctor";
 
 export default function App() {
   const { t, lang, setLang } = useLang();
   const [theme, setTheme] = useState<Theme>("light");
   const [target, setTarget] = useState<TargetId>("claude");
-  const [view, setView] = useState<View>("dashboard");
+  const [section, setSection] = useState<Section>("skills");
   const [reloadKey, setReloadKey] = useState(0);
 
   // P1 realtime: a config change on disk bumps the SAME reloadKey the manual
@@ -43,23 +37,42 @@ export default function App() {
   }, [theme]);
 
   const status = useApi(() => fetchStatus(target), [target, reloadKey]);
-  const meta = VIEW_META[view];
+  // Inventory counts power the sidebar kind badges — one shared fetch.
+  const inv = useApi(
+    () => fetchCommand<InventoryResult>("inventory", { target }),
+    [target, reloadKey],
+  );
 
-  // Fade + lift the content area on every view switch (design §3: view transition).
+  // Header title/subtitle derive from the active section.
+  const kindConfig = isKind(section)
+    ? KIND_CONFIG.find((k) => k.key === section)
+    : undefined;
+  const title = kindConfig
+    ? t(kindConfig.labelKey)
+    : t(section === "compare" ? "nav.compare" : "nav.doctor");
+  const subtitle = kindConfig
+    ? t("view.dashboard.subtitle", { target })
+    : t(
+        section === "compare" ? "view.compare.subtitle" : "view.doctor.subtitle",
+        { target },
+      );
+
+  // Fade + lift the content area on every section switch (design §3).
   const stage = useGsap<HTMLDivElement>(
     (self) => gsap.from(self, { autoAlpha: 0, y: 10, duration: 0.3 }),
-    [view],
+    [section],
   );
 
   return (
     <div className="flex h-full overflow-hidden">
       <Sidebar
-        view={view}
-        onView={setView}
+        section={section}
+        onSection={setSection}
+        counts={inv.data?.result.counts}
         target={target}
         onTarget={setTarget}
         theme={theme}
-        onToggleTheme={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+        onToggleTheme={() => setTheme((th) => (th === "light" ? "dark" : "light"))}
         lang={lang}
         onToggleLang={() => setLang(lang === "zh" ? "en" : "zh")}
         loading={status.loading}
@@ -71,31 +84,31 @@ export default function App() {
 
       <main className="flex h-full flex-1 flex-col overflow-hidden bg-bg">
         <div
-          className="mx-auto flex h-full w-full min-h-0 flex-col px-9 py-8"
+          className="mx-auto flex h-full min-h-0 w-full flex-col px-9 py-7"
           style={{ maxWidth: "var(--measure)" }}
         >
-          <header className="mb-7 shrink-0">
-            <h1 className="font-sans text-[30px] font-semibold tracking-tight text-ink">
-              {t(meta.titleKey)}
+          <header className="mb-5 shrink-0">
+            <h1 className="font-sans text-[24px] font-semibold tracking-tight text-ink">
+              {title}
             </h1>
-            <p className="mt-1 text-[15px] text-i60">
-              {t(meta.subtitleKey, { target })}
-            </p>
+            <p className="mt-1 text-[14px] text-i60">{subtitle}</p>
           </header>
 
           <div ref={stage} className="min-h-0 flex-1 overflow-hidden">
-            {view === "dashboard" && (
+            {isKind(section) && (
               <Dashboard
+                key={section}
                 target={target}
+                activeKind={section}
                 reloadKey={reloadKey}
                 writeKinds={status.data?.writeKinds ?? []}
                 onRefresh={() => setReloadKey((k) => k + 1)}
               />
             )}
-            {view === "compare" && (
+            {section === "compare" && (
               <Compare target={target} reloadKey={reloadKey} />
             )}
-            {view === "doctor" && (
+            {section === "doctor" && (
               <Doctor target={target} reloadKey={reloadKey} />
             )}
           </div>
