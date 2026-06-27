@@ -6,6 +6,7 @@ import {
   type InventoryListResult,
   type InventoryItem,
   type ConflictResult,
+  type ShowEffectiveResult,
   type TargetId,
 } from "@/lib/api";
 import { useApi } from "@/lib/useApi";
@@ -52,6 +53,26 @@ export function Dashboard({
     () => fetchCommand<ConflictResult>("conflicts", { target }),
     [target, reloadKey],
   );
+  // Plugin enabled-state honesty (Claude): installed_plugins.json's record flag is
+  // stale — false even for active plugins — so for the Claude plugin view we fetch the
+  // merged settings `enabledPlugins` map (the authoritative source) and override each
+  // item's `enabled` with it below. Codex has no such map (its record flag IS the
+  // truth) and other kinds don't need it, so the fetch is gated to plugin + claude.
+  const needsEnabledMap = config.type === "plugin" && target === "claude";
+  const effective = useApi(
+    () =>
+      needsEnabledMap
+        ? fetchCommand<ShowEffectiveResult>("config:show-effective", { target })
+        : Promise.resolve(null),
+    [needsEnabledMap, target, reloadKey],
+  );
+  // The authoritative map once the fetch lands; null while loading OR if it failed —
+  // on failure we fall back to the raw record flag rather than wrongly asserting every
+  // plugin is disabled. {} once loaded with nothing enabled.
+  const enabledMap: Record<string, boolean> | null =
+    needsEnabledMap && effective.data
+      ? (effective.data.result?.effective?.enabledPlugins ?? {})
+      : null;
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<InventoryItem | null>(null);
@@ -59,7 +80,18 @@ export function Dashboard({
   // list as the active kind's once the refetch for THIS kind has landed — this gates
   // out the one-frame flash of new columns over old rows.
   const dataMatches = list.data?.result.type === config.type;
-  const items = dataMatches ? (list.data?.result.items ?? []) : [];
+  const rawItems = dataMatches ? (list.data?.result.items ?? []) : [];
+  // Replace each plugin's stale `enabled` with the authoritative map value (Claude
+  // only) so the table, the inspector status, and the write toggle's direction all
+  // reflect the real settings.json state — not the installed_plugins.json record flag.
+  const items = useMemo(() => {
+    if (!needsEnabledMap || !enabledMap) return rawItems;
+    return rawItems.map((it) => ({ ...it, enabled: enabledMap[it.key ?? ""] === true }));
+  }, [rawItems, needsEnabledMap, enabledMap]);
+  // Hold the table until the authoritative fetch settles (plugin + claude), so the
+  // stale record flag never flashes before the override applies. On a fetch error we
+  // stop holding and fall back to the raw flag (enabledMap stays null above).
+  const enabledReady = !needsEnabledMap || !effective.loading;
 
   // Reset selection + filter when the kind / target / data changes, so each kind
   // starts from a clean, unfiltered table.
@@ -130,7 +162,7 @@ export function Dashboard({
       >
         {list.error ? (
           <ErrorBox message={list.error} />
-        ) : list.loading || !dataMatches ? (
+        ) : list.loading || !dataMatches || !enabledReady ? (
           <Loading />
         ) : filtered.length === 0 ? (
           <Empty label={query ? t("dash.noMatchItems") : t("dash.noItems")} />
