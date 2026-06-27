@@ -109,7 +109,10 @@ export interface InventoryListResult {
  */
 export interface ShowEffectiveResult {
   effective?: {
-    enabledPlugins?: Record<string, boolean>;
+    // Values are booleans, EXCEPT a key whose name@marketplace contains a sensitive
+    // substring (key/token/secret/auth/password/credential) comes back as a redaction
+    // sentinel object — so consumers must trust only real booleans, never `=== true`.
+    enabledPlugins?: Record<string, unknown>;
     [k: string]: unknown;
   };
   [k: string]: unknown;
