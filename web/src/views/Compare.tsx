@@ -74,7 +74,7 @@ export function Compare({ reloadKey }: { target: TargetId; reloadKey: number }) 
   }, [items, presence, query]);
 
   // Grow each stacked bar from the left once the comparison lands (design §3:
-  // bar scaleX grow). Scoped to the per-kind panel; reverts cleanly on reload.
+  // bar scaleX grow). Scoped to the per-kind panel; reverts cleanly on cleanup.
   const barsRef = useGsap<HTMLDivElement>(
     () =>
       gsap.from(".cmp-bar", {
@@ -84,11 +84,16 @@ export function Compare({ reloadKey }: { target: TargetId; reloadKey: number }) 
         ease: "power2.out",
         stagger: { amount: 0.3 },
       }),
-    [result?.categories.length ?? 0, reloadKey],
+    // NOT keyed on reloadKey: the bars grow on first load / when the kind set changes,
+    // but a background live-reload must not replay the animation under a reading user.
+    [result?.categories.length ?? 0],
   );
 
-  if (cmp.loading) return <Loading label={t("compare.comparing")} />;
-  if (cmp.error) return <ErrorBox message={cmp.error} />;
+  // Stale-while-revalidate: the full-view spinner shows ONLY on the first load (no data
+  // yet). A live-reload refetch keeps the current table on screen and swaps the new data
+  // in when it lands — so browsing is never interrupted by a loading flash.
+  if (cmp.loading && !cmp.data) return <Loading label={t("compare.comparing")} />;
+  if (cmp.error && !cmp.data) return <ErrorBox message={cmp.error} />;
   if (!result) return <Empty label={t("compare.noData")} />;
 
   return (
