@@ -101,6 +101,20 @@ export interface InventoryListResult {
   items: InventoryItem[];
 }
 
+/**
+ * `config show-effective` — the merged settings view. We consume only the
+ * authoritative `enabledPlugins` map (key `name@marketplace` → boolean): for the
+ * Claude target this, not the installed_plugins.json record flag, is the source of
+ * truth for whether a plugin is actually enabled.
+ */
+export interface ShowEffectiveResult {
+  effective?: {
+    enabledPlugins?: Record<string, boolean>;
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+
 // ── compare (cross-target presence) ──────────────────────────────────────────
 export type Presence = "both" | "claude-only" | "codex-only";
 
