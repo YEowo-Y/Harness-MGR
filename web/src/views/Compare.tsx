@@ -92,105 +92,115 @@ export function Compare({ reloadKey }: { target: TargetId; reloadKey: number }) 
   if (!result) return <Empty label={t("compare.noData")} />;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto pr-1">
-      {/* totals */}
-      <section className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-hair bg-hair">
-        {result.targets.map((tt) => (
-          <div key={tt.id} className="bg-surface px-6 py-5">
-            <div className="text-xs font-semibold uppercase tracking-wider text-i42">
-              {tt.label}
-            </div>
-            <div className="tnum mt-1.5 font-sans text-[38px] font-semibold leading-none text-ink">
-              {tt.total}
-            </div>
-            <div className="mt-1 text-xs text-i42">
-              {t("compare.componentsUnit")}
-            </div>
-          </div>
-        ))}
-      </section>
+    <div className="flex h-full min-h-0 flex-col gap-6">
+      {/* Wide two-column split: the summary (totals + per-kind bars) stays put on
+          the left while the long divergent list scrolls in its own region on the
+          right. Pinning everything stacked vertically starved the list (the bars
+          panel alone is ~400px tall), so the overview lives beside the list. */}
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(360px,440px)_1fr] gap-6">
+        {/* summary column — scrolls internally if it ever outgrows the height */}
+        <div className="flex min-h-0 flex-col gap-6 overflow-y-auto pr-1">
+          {/* totals */}
+          <section className="grid shrink-0 grid-cols-2 gap-px overflow-hidden rounded-lg border border-hair bg-hair">
+            {result.targets.map((tt) => (
+              <div key={tt.id} className="bg-surface px-6 py-5">
+                <div className="text-xs font-semibold uppercase tracking-wider text-i42">
+                  {tt.label}
+                </div>
+                <div className="tnum mt-1.5 font-sans text-[38px] font-semibold leading-none text-ink">
+                  {tt.total}
+                </div>
+                <div className="mt-1 text-xs text-i42">
+                  {t("compare.componentsUnit")}
+                </div>
+              </div>
+            ))}
+          </section>
 
-      {/* per-kind composition */}
-      <Panel title={t("compare.byKindTitle")}>
-        <div ref={barsRef} className="flex flex-col">
-          {result.categories.map((c) => (
-            <CategoryRow key={c.category} cat={c} maxTotal={maxTotal} t={t} />
-          ))}
+          {/* per-kind composition */}
+          <Panel className="shrink-0" title={t("compare.byKindTitle")}>
+            <div ref={barsRef} className="flex flex-col">
+              {result.categories.map((c) => (
+                <CategoryRow key={c.category} cat={c} maxTotal={maxTotal} t={t} />
+              ))}
+            </div>
+            <Legend t={t} />
+          </Panel>
         </div>
-        <Legend t={t} />
-      </Panel>
 
-      {/* divergent list */}
-      <Panel
-        title={t("compare.componentsTitle", { n: filtered.length })}
-        action={
-          <div className="flex items-center gap-1.5 rounded-md border border-hair2 bg-bg px-2.5 py-1.5 normal-case">
-            <Search size={13} className="text-i42" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("common.filter")}
-              className="w-40 bg-transparent text-[13px] text-ink outline-none placeholder:text-i42"
-            />
+        {/* divergent list — fills the column height; only this list scrolls */}
+        <Panel
+          className="flex min-h-0 flex-col"
+          title={t("compare.componentsTitle", { n: filtered.length })}
+          action={
+            <div className="flex items-center gap-1.5 rounded-md border border-hair2 bg-bg px-2.5 py-1.5 normal-case">
+              <Search size={13} className="text-i42" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={t("common.filter")}
+                className="w-40 bg-transparent text-[13px] text-ink outline-none placeholder:text-i42"
+              />
+            </div>
+          }
+        >
+          <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-hair px-4 py-3">
+            {PRESENCE_FILTERS.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setPresence(f.id)}
+                className={
+                  "rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors " +
+                  (presence === f.id
+                    ? "bg-sel text-ink"
+                    : "text-i60 hover:bg-tint hover:text-ink")
+                }
+              >
+                {t(f.labelKey)}
+              </button>
+            ))}
           </div>
-        }
-      >
-        <div className="flex flex-wrap gap-1.5 border-b border-hair px-4 py-3">
-          {PRESENCE_FILTERS.map((f) => (
-            <button
-              key={f.id}
-              onClick={() => setPresence(f.id)}
-              className={
-                "rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors " +
-                (presence === f.id
-                  ? "bg-sel text-ink"
-                  : "text-i60 hover:bg-tint hover:text-ink")
-              }
-            >
-              {t(f.labelKey)}
-            </button>
-          ))}
-        </div>
-        {filtered.length === 0 ? (
-          <Empty label={t("compare.noMatch")} />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-tint text-xs font-semibold uppercase tracking-wider text-i42">
-                  <th className="px-4 py-2.5 font-semibold">{t("col.name")}</th>
-                  <th className="px-4 py-2.5 font-semibold">{t("compare.col.kind")}</th>
-                  <th className="px-4 py-2.5 font-semibold">
-                    {t("compare.col.presence")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((it) => (
-                  <tr
-                    key={`${it.category}:${it.key}`}
-                    className="border-t border-hair even:bg-zebra hover:bg-tint"
-                  >
-                    <td className="px-4 py-2 font-mono text-[13.5px] text-ink">
-                      {it.name}
-                    </td>
-                    <td className="px-4 py-2 text-[13.5px] text-i60">
-                      {it.category}
-                    </td>
-                    <td className="px-4 py-2">
-                      <Badge tone={PRESENCE_TONE[it.presence]}>
-                        {t(PRESENCE_KEY[it.presence])}
-                      </Badge>
-                    </td>
+          {filtered.length === 0 ? (
+            <Empty label={t("compare.noMatch")} />
+          ) : (
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full border-collapse text-left">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-tint text-xs font-semibold uppercase tracking-wider text-i42">
+                    <th className="px-4 py-2.5 font-semibold">{t("col.name")}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t("compare.col.kind")}</th>
+                    <th className="px-4 py-2.5 font-semibold">
+                      {t("compare.col.presence")}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                </thead>
+                <tbody>
+                  {filtered.map((it) => (
+                    <tr
+                      key={`${it.category}:${it.key}`}
+                      className="border-t border-hair even:bg-zebra hover:bg-tint"
+                    >
+                      <td className="px-4 py-2 font-mono text-[13.5px] text-ink">
+                        {it.name}
+                      </td>
+                      <td className="px-4 py-2 text-[13.5px] text-i60">
+                        {it.category}
+                      </td>
+                      <td className="px-4 py-2">
+                        <Badge tone={PRESENCE_TONE[it.presence]}>
+                          {t(PRESENCE_KEY[it.presence])}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+      </div>
 
-      <p className="px-1 text-xs leading-relaxed text-i42">
+      <p className="shrink-0 px-1 text-xs leading-relaxed text-i42">
         {t("compare.caveatBefore")}{" "}
         <span className="text-i60">{t("compare.caveatKey")}</span>
         {t("compare.caveatAfter")}
