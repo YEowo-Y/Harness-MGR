@@ -66,12 +66,13 @@ export function Dashboard({
         : Promise.resolve(null),
     [needsEnabledMap, target, reloadKey],
   );
-  // The authoritative map once the fetch lands; null while loading OR if it failed —
-  // on failure we fall back to the raw record flag rather than wrongly asserting every
-  // plugin is disabled. {} once loaded with nothing enabled.
-  const enabledMap: Record<string, boolean> | null =
+  // The authoritative map once the fetch lands; null while loading, on a fetch error,
+  // OR when settings carry no map — in all those cases we keep the raw record flag
+  // rather than wrongly asserting state. Values are booleans except a sensitive-substring
+  // plugin name, which comes back redacted (an object), so the override trusts only reals.
+  const enabledMap: Record<string, unknown> | null =
     needsEnabledMap && effective.data
-      ? (effective.data.result?.effective?.enabledPlugins ?? {})
+      ? (effective.data.result?.effective?.enabledPlugins ?? null)
       : null;
 
   const [query, setQuery] = useState("");
@@ -86,7 +87,12 @@ export function Dashboard({
   // reflect the real settings.json state — not the installed_plugins.json record flag.
   const items = useMemo(() => {
     if (!needsEnabledMap || !enabledMap) return rawItems;
-    return rawItems.map((it) => ({ ...it, enabled: enabledMap[it.key ?? ""] === true }));
+    return rawItems.map((it) => {
+      const v = enabledMap[it.key ?? ""];
+      // Only a real boolean is authoritative; a redacted sentinel (sensitive-substring
+      // plugin name) or an absent key keeps the raw record flag instead of mislabeling it.
+      return typeof v === "boolean" ? { ...it, enabled: v } : it;
+    });
   }, [rawItems, needsEnabledMap, enabledMap]);
   // Hold the table until the authoritative fetch settles (plugin + claude), so the
   // stale record flag never flashes before the override applies. On a fetch error we
