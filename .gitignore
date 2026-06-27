@@ -24,6 +24,8 @@ WORKING-CONTEXT.md
 AGENTS.md
 .claude/
 .codex/
+.serena/
+.playwright-mcp/
 
 # Internal design / handoff / review notes — kept locally, not shipped publicly.
 docs/internal/
