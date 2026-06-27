@@ -5,12 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
     <title>claude-mgr</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Lora:ital,wght@0,400;0,500;1,400&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <!-- No webfont CDN: this localhost-only tool reads a sensitive ~/.claude and must
+         not reach out to the network on load. Type falls back to the system stacks in
+         index.css (Poppins→system-ui, Lora→Georgia, JetBrains Mono→ui-monospace). -->
   </head>
   <body>
     <div id="root"></div>
