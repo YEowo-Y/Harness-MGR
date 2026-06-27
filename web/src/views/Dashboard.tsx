@@ -94,10 +94,11 @@ export function Dashboard({
       return typeof v === "boolean" ? { ...it, enabled: v } : it;
     });
   }, [rawItems, needsEnabledMap, enabledMap]);
-  // Hold the table until the authoritative fetch settles (plugin + claude), so the
-  // stale record flag never flashes before the override applies. On a fetch error we
-  // stop holding and fall back to the raw flag (enabledMap stays null above).
-  const enabledReady = !needsEnabledMap || !effective.loading;
+  // Hold the table only until the authoritative map FIRST lands (plugin + claude), so the
+  // stale record flag never flashes before the override applies. Once we have data we stop
+  // holding — a background live-reload refetch keeps the current table on screen
+  // (stale-while-revalidate) instead of flashing the spinner.
+  const enabledReady = !needsEnabledMap || effective.data != null;
 
   // Reset selection + filter when the kind / target / data changes, so each kind
   // starts from a clean, unfiltered table.
@@ -133,8 +134,9 @@ export function Dashboard({
     return items.filter((it) => searchText(it).includes(q));
   }, [items, query]);
 
-  // Re-stagger the rows whenever the kind switches or the data reloads (amount-capped
-  // so hundreds of rows stay snappy).
+  // Re-stagger the rows when the kind/target switches or the row count changes — NOT on
+  // every reloadKey bump, so a background live-reload doesn't replay the animation under a
+  // reading user (amount-capped so hundreds of rows stay snappy).
   const tableRef = useGsap<HTMLDivElement>(
     () =>
       gsap.from("tbody tr", {
@@ -144,7 +146,7 @@ export function Dashboard({
         ease: "power3.out",
         stagger: { amount: 0.4 },
       }),
-    [activeKind, target, reloadKey, items.length],
+    [activeKind, target, items.length],
   );
 
   const ctx: RenderCtx = { t, target };
@@ -166,9 +168,9 @@ export function Dashboard({
           </div>
         }
       >
-        {list.error ? (
+        {list.error && !list.data ? (
           <ErrorBox message={list.error} />
-        ) : list.loading || !dataMatches || !enabledReady ? (
+        ) : (list.loading && !list.data) || !dataMatches || !enabledReady ? (
           <Loading />
         ) : filtered.length === 0 ? (
           <Empty label={query ? t("dash.noMatchItems") : t("dash.noItems")} />
