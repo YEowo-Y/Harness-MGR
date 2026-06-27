@@ -40,8 +40,10 @@ export function Doctor({
     );
   }, [doctor.data]);
 
-  if (health.error) return <ErrorBox message={health.error} />;
-  if (doctor.error) return <ErrorBox message={doctor.error} />;
+  // Surface an error only when there's no data to show — a transient refetch error on a
+  // live-reload keeps the last good view rather than yanking it to a full error box.
+  if (health.error && !health.data) return <ErrorBox message={health.error} />;
+  if (doctor.error && !doctor.data) return <ErrorBox message={doctor.error} />;
 
   const summary = health.data?.result.health.summary;
   const checks = doctor.data?.result.checks ?? [];
@@ -56,7 +58,9 @@ export function Doctor({
       {/* loadability + severity */}
       <section className="grid shrink-0 gap-6 md:grid-cols-[300px_1fr]">
         <Panel title={t("doctor.loadabilityTitle", { target })}>
-          {health.loading || !summary ? (
+          {/* stale-while-revalidate: spinner only until the first summary lands; a
+              live-reload keeps the current gauge on screen instead of flashing. */}
+          {!summary ? (
             <Loading />
           ) : (
             <div className="flex items-center gap-5 px-5 py-6">
@@ -83,7 +87,7 @@ export function Doctor({
         </Panel>
 
         <Panel title={t("doctor.findingsBySeverity")}>
-          {doctor.loading ? (
+          {doctor.loading && !doctor.data ? (
             <Loading />
           ) : (
             <div className="grid grid-cols-3 gap-px overflow-hidden bg-hair">
@@ -122,7 +126,7 @@ export function Doctor({
         className="flex min-h-0 flex-1 flex-col"
         title={t("doctor.findingsTitle", { n: findings.length })}
       >
-        {doctor.loading ? (
+        {doctor.loading && !doctor.data ? (
           <Loading />
         ) : findings.length === 0 ? (
           <Empty label={t("doctor.healthy")} />
