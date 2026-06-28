@@ -8,7 +8,7 @@
  * inspector only mounts it when writeKinds includes "skill"). The four state values are the
  * engine's enum and stay verbatim (governance values are not translated, like the read side).
  */
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Check, AlertTriangle, Loader2, RotateCcw } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import {
@@ -41,6 +41,13 @@ export function SkillVisibilityControl({
 }) {
   const { t } = useLang();
   const [phase, setPhase] = useState<Phase>("idle");
+  // While the async write runs, move focus to the live-region status node so keyboard/SR focus
+  // is not dropped to <body> when the clicked button unmounts; the region (role=status +
+  // aria-live) announces "Working…". Mirrors the inspector's tabIndex=-1 + outline-none pattern.
+  const loadingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (phase === "loading") loadingRef.current?.focus();
+  }, [phase]);
   const [pending, setPending] = useState<string | null>(null);
   const [preview, setPreview] = useState<WriteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +149,7 @@ export function SkillVisibilityControl({
       )}
 
       {phase === "loading" && (
-        <div className="inline-flex items-center gap-2 px-1 py-2 text-[13px] text-i60">
+        <div ref={loadingRef} tabIndex={-1} role="status" aria-live="polite" className="inline-flex items-center gap-2 px-1 py-2 text-[13px] text-i60 outline-none">
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
           {t("write.working")}
         </div>
