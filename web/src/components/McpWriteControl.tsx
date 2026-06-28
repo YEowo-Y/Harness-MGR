@@ -18,7 +18,7 @@
  * returns — no write logic is reimplemented here. After a successful apply it calls onRefresh
  * (the P1 watcher also fires on the config.toml write).
  */
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Power, Check, AlertTriangle, Loader2, RotateCcw } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import {
@@ -49,6 +49,13 @@ export function McpWriteControl({
 }) {
   const { t } = useLang();
   const [phase, setPhase] = useState<Phase>("idle");
+  // While the async write runs, move focus to the live-region status node so keyboard/SR focus
+  // is not dropped to <body> when the clicked button unmounts; the region (role=status +
+  // aria-live) announces "Working…". Mirrors the inspector's tabIndex=-1 + outline-none pattern.
+  const loadingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (phase === "loading") loadingRef.current?.focus();
+  }, [phase]);
   // The action the user picked — also the verb runApply must re-send (so the applied write
   // is exactly the previewed one, never a direction recomputed at apply time).
   const [pending, setPending] = useState<Verb | null>(null);
@@ -131,7 +138,7 @@ export function McpWriteControl({
       )}
 
       {phase === "loading" && (
-        <div className="inline-flex items-center gap-2 px-1 py-2 text-[13px] text-i60">
+        <div ref={loadingRef} tabIndex={-1} role="status" aria-live="polite" className="inline-flex items-center gap-2 px-1 py-2 text-[13px] text-i60 outline-none">
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
           {t("write.working")}
         </div>
