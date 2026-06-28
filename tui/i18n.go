@@ -162,10 +162,6 @@ var translations = map[string][2]string{
 	// toggle / remove / rollback / drift-update live under codex; the active-probe
 	// "a" key remains gated (its probes are claude-specific), so it alone uses this.
 	"write.codexReadOnly": {"active probes are claude-only", "主动探针仅 claude 可用"},
-	// Codex skills toggle via a binary enable/disable flip (config.toml
-	// [[skills.config]]), NOT the Claude 4-state visibility picker — that wiring is
-	// slice 2b. Until then the codex skill row shows this instead of the picker.
-	"write.skill.codexTodo": {"codex skill toggle arrives in a later update", "codex 技能开关将在后续版本支持"},
 
 	"write.activeProbe.title":    {"Run active probes?", "运行主动探针?"},
 	"write.activeProbe.body":     {"Runs the 3 active doctor checks: they spawn node/claude and write a transient probe file into ~/.claude/agents that is immediately removed. Nothing else is modified.", "运行 3 项主动体检:会启动 node/claude,并向 ~/.claude/agents 写入一个临时探针文件(随即删除)。不改动其它任何东西。"},
@@ -186,6 +182,19 @@ var translations = map[string][2]string{
 	"write.plugin.done":           {"plugin updated — restart Claude Code", "插件已更新 —— 重启 Claude Code 生效"},
 	"write.plugin.hint":           {"toggle plugin", "切换插件"},
 	"write.plugin.selectHint":     {"select a plugin row, then press w to toggle it", "请先选中一个插件行,再按 w 切换启用/停用"},
+
+	// Codex skill enable/disable flip confirm-apply flow (Inventory tab, codex target).
+	// A binary toggle whose direction the dry-run probe decides; it writes config.toml
+	// [[skills.config]] enabled (NOT settings.json). The skill name + the diff fragments
+	// are engine DATA shown verbatim; only the prose is translated. Reuses
+	// write.plugin.change for the diff-line label.
+	"write.skillFlip.enableTitle":  {"Enable skill?", "启用技能?"},
+	"write.skillFlip.disableTitle": {"Disable skill?", "停用技能?"},
+	"write.skillFlip.willEnable":   {"Will ENABLE codex skill «%s» — writes config.toml [[skills.config]].", "将【启用】codex 技能「%s」—— 写入 config.toml 的 [[skills.config]]。"},
+	"write.skillFlip.willDisable":  {"Will DISABLE codex skill «%s» — writes config.toml [[skills.config]].", "将【停用】codex 技能「%s」—— 写入 config.toml 的 [[skills.config]]。"},
+	"write.skillFlip.reversible":   {"An auto-snapshot is taken first, so rollback can undo it. Restart Codex for it to take effect.", "落盘前会自动快照,可用 rollback 撤销。改动需重启 Codex 生效。"},
+	"write.skillFlip.done":         {"skill updated — restart Codex", "技能已更新 —— 重启 Codex 生效"},
+	"write.skillFlip.hint":         {"toggle skill", "切换技能"},
 
 	// Per-skill visibility confirm-apply flow (Inventory tab, Claude-only). The
 	// skill name, the chosen state (an engine enum value), and the before→after diff
@@ -212,6 +221,14 @@ var translations = map[string][2]string{
 	"write.remove.done":       {"component removed", "已删除组件"},
 	"write.remove.hint":       {"delete", "删除"},
 	"write.remove.selectHint": {"select a skill, agent, or command row, then press x to delete it", "请先选中一个 skill / agent / command 行,再按 x 删除"},
+	// Codex-skill-delete picker (offered before the red confirm modal): delete the
+	// skill only, or also prune its orphaned config.toml [[skills.config]] entries.
+	// willPrune carries a count (%d) shown in the confirm modal.
+	"write.remove.pickTitle":      {"Delete codex skill", "删除 codex 技能"},
+	"write.remove.pickHint":       {"↑/↓ choose · enter confirm · esc cancel", "↑/↓ 选择 · enter 确认 · esc 取消"},
+	"write.remove.pickDeleteOnly": {"Delete skill only", "仅删除技能"},
+	"write.remove.pickPrune":      {"Delete skill + prune config entries", "删除技能 + 清理 config 条目"},
+	"write.remove.willPrune":      {"Also prunes %d orphaned config.toml entr(y/ies) in the same snapshot.", "并在同一个快照中清理 %d 个孤立的 config.toml 条目。"},
 
 	// Snapshot rollback confirm-apply flow (Snapshots tab). The reason/id are engine
 	// DATA shown verbatim; only the surrounding prose is translated. A drifted
