@@ -192,14 +192,17 @@ func findCLIUpwards(startDir string) (string, bool) {
 
 // fetchInventory shells out to `node <cliPath> inventory --format json`, captures
 // stdout, and unmarshals it into an Inventory. It never panics: exec failures,
-// timeouts, and malformed JSON are all returned as errors.
-func fetchInventory(cliPath string) (Inventory, error) {
+// timeouts, and malformed JSON are all returned as errors. target scopes the read
+// to a harness ("" / "claude" = engine default, byte-identical to before; "codex"
+// appends --target codex).
+func fetchInventory(cliPath string, target string) (Inventory, error) {
 	var inv Inventory
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "node", cliPath, "inventory", "--format", "json")
+	args := append([]string{cliPath, "inventory", "--format", "json"}, targetArgs(target)...)
+	cmd := exec.CommandContext(ctx, "node", args...)
 	// cmd.Output() buffers all of stdout in memory. The inventory JSON is small
 	// (~1 KB), so this is safe. A future multi-command version should wrap the
 	// reader with io.LimitReader to defend against a misbehaving CLI emitting
@@ -226,14 +229,16 @@ func fetchInventory(cliPath string) (Inventory, error) {
 // same exec + 30s context timeout + JSON-unmarshal pattern as fetchInventory and
 // never panics: exec failures, timeouts, and malformed JSON return errors,
 // surfacing node stderr when available. Components are ordered by kind then name
-// so the tree's per-type folders have a stable order.
-func fetchDetail(cliPath string) (DetailData, error) {
+// so the tree's per-type folders have a stable order. target scopes the read the
+// same way fetchInventory does.
+func fetchDetail(cliPath string, target string) (DetailData, error) {
 	var d DetailData
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "node", cliPath, "inventory", "--detail", "--format", "json")
+	args := append([]string{cliPath, "inventory", "--detail", "--format", "json"}, targetArgs(target)...)
+	cmd := exec.CommandContext(ctx, "node", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
@@ -369,9 +374,10 @@ func parseDispositions(data []byte) ([]Disposition, error) {
 }
 
 // fetchDispositions shells out to `node <cliPath> conflicts --format json`,
-// captures stdout, and unmarshals the dispositions array. It never panics.
-func fetchDispositions(cliPath string) ([]Disposition, error) {
-	data, err := runJSON(cliPath, "conflicts", "--format", "json")
+// captures stdout, and unmarshals the dispositions array. It never panics. target
+// scopes the read to a harness (codex emits a conflicts-unverified caveat).
+func fetchDispositions(cliPath string, target string) ([]Disposition, error) {
+	data, err := runJSON(cliPath, target, "conflicts", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -414,9 +420,10 @@ func parseSnapshots(data []byte) ([]Snapshot, error) {
 
 // fetchSnapshots shells out to `node <cliPath> snapshot list --format json`,
 // captures stdout, and unmarshals the snapshots array. READ-ONLY — `snapshot
-// list` only enumerates existing snapshots, never writes. It never panics.
-func fetchSnapshots(cliPath string) ([]Snapshot, error) {
-	data, err := runJSON(cliPath, "snapshot", "list", "--format", "json")
+// list` only enumerates existing snapshots, never writes. It never panics. target
+// scopes the read to a harness (each target has its own snapshot store).
+func fetchSnapshots(cliPath string, target string) ([]Snapshot, error) {
+	data, err := runJSON(cliPath, target, "snapshot", "list", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +467,7 @@ func parseRollback(data []byte) (RollbackResult, []Diagnostic, error) {
 // archive-corrupt (exit 4) preflight exits non-zero while still printing the
 // envelope — the result's status, not the exit code, is the signal. Never panics.
 func fetchRollbackDry(cliPath, id string) (RollbackResult, []Diagnostic, error) {
-	data, err := runJSONCapture(cliPath, "rollback", id, "--format", "json")
+	data, err := runJSONCapture(cliPath, "", "rollback", id, "--format", "json")
 	if err != nil {
 		return RollbackResult{}, nil, err
 	}
@@ -498,15 +505,28 @@ type orphansEnvelope struct {
 
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 
+// targetArgs returns the CLI flag pair that scopes a command to the given target.
+// Only "codex" needs an explicit flag; "" and "claude" use the engine default and
+// return nil so the Claude call line stays byte-identical to before this change.
+func targetArgs(target string) []string {
+	if target == "codex" {
+		return []string{"--target", "codex"}
+	}
+	return nil
+}
+
 // runJSON shells out to `node <cliPath> <args...>`, captures stdout, and returns
 // the raw bytes. It never panics: exec failures, timeouts, and non-zero exits
 // return errors with stderr included when available. The 30-second timeout
-// matches the existing fetchInventory / fetchDetail pattern.
-func runJSON(cliPath string, args ...string) ([]byte, error) {
+// matches the existing fetchInventory / fetchDetail pattern. target scopes the
+// command to a harness ("" / "claude" = engine default, byte-identical to before;
+// "codex" appends --target codex — the engine parses it order-independently).
+func runJSON(cliPath string, target string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	allArgs := append([]string{cliPath}, args...)
+	allArgs = append(allArgs, targetArgs(target)...)
 	cmd := exec.CommandContext(ctx, "node", allArgs...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -572,12 +592,15 @@ func parseConfigEdit(data []byte) (ConfigEditResult, []Diagnostic, error) {
 // stdout AND set a non-zero exit code on a refusal (exit 2/3); the envelope's own
 // ok/status/diagnostics carry the real outcome, so for these commands the exit
 // code is redundant. A genuine failure with no stdout (e.g. node missing) still
-// returns an error. The 30-second timeout matches runJSON.
-func runJSONCapture(cliPath string, args ...string) ([]byte, error) {
+// returns an error. The 30-second timeout matches runJSON. target scopes the
+// command the same way runJSON does ("" / "claude" = engine default; "codex"
+// appends --target codex).
+func runJSONCapture(cliPath string, target string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	allArgs := append([]string{cliPath}, args...)
+	allArgs = append(allArgs, targetArgs(target)...)
 	cmd := exec.CommandContext(ctx, "node", allArgs...)
 	out, err := cmd.Output()
 	if err != nil {
@@ -602,7 +625,7 @@ func fetchPluginToggleDry(cliPath, key string, desired bool) (ConfigEditResult, 
 	if desired {
 		verb = "enable"
 	}
-	data, err := runJSONCapture(cliPath, verb, "--type", "plugin", key, "--format", "json")
+	data, err := runJSONCapture(cliPath, "", verb, "--type", "plugin", key, "--format", "json")
 	if err != nil {
 		return ConfigEditResult{}, nil, err
 	}
@@ -619,7 +642,7 @@ func fetchPluginToggleDry(cliPath, key string, desired bool) (ConfigEditResult, 
 // envelope on stdout (the result's ok/status, not the exit code, is the signal).
 // Never panics.
 func fetchSkillVisDry(cliPath, name, state string) (ConfigEditResult, []Diagnostic, error) {
-	data, err := runJSONCapture(cliPath, "skill", "visibility", name, state, "--format", "json")
+	data, err := runJSONCapture(cliPath, "", "skill", "visibility", name, state, "--format", "json")
 	if err != nil {
 		return ConfigEditResult{}, nil, err
 	}
@@ -663,7 +686,7 @@ func parseRemove(data []byte) (RemoveResult, []Diagnostic, error) {
 // wrong-type / symlink) exits non-zero while still printing the envelope on stdout
 // (result.ok/status, not the exit code, is the signal). Never panics.
 func fetchRemoveDry(cliPath, kind, name string) (RemoveResult, []Diagnostic, error) {
-	data, err := runJSONCapture(cliPath, "remove", kind+":"+name, "--format", "json")
+	data, err := runJSONCapture(cliPath, "", "remove", kind+":"+name, "--format", "json")
 	if err != nil {
 		return RemoveResult{}, nil, err
 	}
@@ -696,8 +719,9 @@ func parseOrphans(data []byte) (OrphansResult, error) {
 // fetchConflicts shells out to `node <cliPath> conflicts --format json`,
 // captures stdout, and unmarshals it into a ConflictCluster slice. It never
 // panics: exec failures, timeouts, and malformed JSON are returned as errors.
-func fetchConflicts(cliPath string) ([]ConflictCluster, error) {
-	data, err := runJSON(cliPath, "conflicts", "--format", "json")
+// target scopes the read to a harness.
+func fetchConflicts(cliPath string, target string) ([]ConflictCluster, error) {
+	data, err := runJSON(cliPath, target, "conflicts", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -706,9 +730,10 @@ func fetchConflicts(cliPath string) ([]ConflictCluster, error) {
 
 // fetchOrphans shells out to `node <cliPath> orphans --format json`, captures
 // stdout, and unmarshals it into an OrphansResult. It never panics: exec
-// failures, timeouts, and malformed JSON are returned as errors.
-func fetchOrphans(cliPath string) (OrphansResult, error) {
-	data, err := runJSON(cliPath, "orphans", "--format", "json")
+// failures, timeouts, and malformed JSON are returned as errors. target scopes
+// the read to a harness.
+func fetchOrphans(cliPath string, target string) (OrphansResult, error) {
+	data, err := runJSON(cliPath, target, "orphans", "--format", "json")
 	if err != nil {
 		return OrphansResult{}, err
 	}
@@ -867,9 +892,10 @@ func parseDoctor(data []byte) (DoctorReport, error) {
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 
 // fetchConfig shells out to `node <cliPath> config show-effective --format json`,
-// captures stdout, and unmarshals it into a ConfigResult. It never panics.
-func fetchConfig(cliPath string) (ConfigResult, error) {
-	data, err := runJSON(cliPath, "config", "show-effective", "--format", "json")
+// captures stdout, and unmarshals it into a ConfigResult. It never panics. target
+// scopes the read to a harness.
+func fetchConfig(cliPath string, target string) (ConfigResult, error) {
+	data, err := runJSON(cliPath, target, "config", "show-effective", "--format", "json")
 	if err != nil {
 		return ConfigResult{}, err
 	}
@@ -877,9 +903,10 @@ func fetchConfig(cliPath string) (ConfigResult, error) {
 }
 
 // fetchHooks shells out to `node <cliPath> hooks --format json`, captures
-// stdout, and unmarshals it into a HooksResult. It never panics.
-func fetchHooks(cliPath string) (HooksResult, error) {
-	data, err := runJSON(cliPath, "hooks", "--format", "json")
+// stdout, and unmarshals it into a HooksResult. It never panics. target scopes
+// the read to a harness.
+func fetchHooks(cliPath string, target string) (HooksResult, error) {
+	data, err := runJSON(cliPath, target, "hooks", "--format", "json")
 	if err != nil {
 		return HooksResult{}, err
 	}
@@ -887,9 +914,11 @@ func fetchHooks(cliPath string) (HooksResult, error) {
 }
 
 // fetchSelftest shells out to `node <cliPath> selftest --format json`, captures
-// stdout, and unmarshals it into a SelftestResult. It never panics.
+// stdout, and unmarshals it into a SelftestResult. It never panics. Selftest is
+// target-AGNOSTIC — it checks claude-mgr's OWN repo, not a harness, so it never
+// passes --target (always the engine default).
 func fetchSelftest(cliPath string) (SelftestResult, error) {
-	data, err := runJSON(cliPath, "selftest", "--format", "json")
+	data, err := runJSON(cliPath, "", "selftest", "--format", "json")
 	if err != nil {
 		return SelftestResult{}, err
 	}
@@ -904,8 +933,8 @@ func fetchSelftest(cliPath string) (SelftestResult, error) {
 // real ~/.claude/agents; that side effect must never fire merely because the
 // user opened the TUI. The passive run is pure read-only judgment over already
 // gathered facts.
-func fetchDoctor(cliPath string) (DoctorReport, error) {
-	data, err := runJSON(cliPath, "doctor", "--format", "json")
+func fetchDoctor(cliPath string, target string) (DoctorReport, error) {
+	data, err := runJSON(cliPath, target, "doctor", "--format", "json")
 	if err != nil {
 		return DoctorReport{}, err
 	}
@@ -917,9 +946,11 @@ func fetchDoctor(cliPath string) (DoctorReport, error) {
 // --check, #15 claude --version, #19 the transient loader-probe write/cleanup).
 // It NEVER runs at startup or on a passive refresh; only an explicit, confirmed
 // user action reaches it. Distinct from fetchDoctor, which stays passive. Never
-// panics: exec/timeout/JSON errors are returned.
-func fetchDoctorActive(cliPath string) (DoctorReport, error) {
-	data, err := runJSON(cliPath, "doctor", "--active-probes", "--format", "json")
+// panics: exec/timeout/JSON errors are returned. target scopes the run to a
+// harness; in codex mode the active-probe entry point is gated off (slice 1
+// keeps codex read-only), so this is only ever reached with the claude default.
+func fetchDoctorActive(cliPath string, target string) (DoctorReport, error) {
+	data, err := runJSON(cliPath, target, "doctor", "--active-probes", "--format", "json")
 	if err != nil {
 		return DoctorReport{}, err
 	}
@@ -970,9 +1001,11 @@ func parsePermissions(data []byte) (PermissionsResult, error) {
 // fetchPermissions shells out to `node <cliPath> permissions --audit --format json`,
 // captures stdout, and unmarshals it into a PermissionsResult. It never panics:
 // exec failures, timeouts, and malformed JSON are returned as errors. This is
-// fully READ-ONLY — `permissions --audit` never writes to the config dir.
-func fetchPermissions(cliPath string) (PermissionsResult, error) {
-	data, err := runJSON(cliPath, "permissions", "--audit", "--format", "json")
+// fully READ-ONLY — `permissions --audit` never writes to the config dir. target
+// scopes the read to a harness (codex has no permission model — an empty,
+// honest result, not an error).
+func fetchPermissions(cliPath string, target string) (PermissionsResult, error) {
+	data, err := runJSON(cliPath, target, "permissions", "--audit", "--format", "json")
 	if err != nil {
 		return PermissionsResult{}, err
 	}
@@ -1038,9 +1071,10 @@ func parseDrift(data []byte) (DriftResult, error) {
 // READ-ONLY — it deliberately does NOT pass --update. `drift` is dry-run by
 // default: without --update it only READS the config surface + the lockfile and
 // reports the diff; the lockfile is written ONLY under --update. Opening the TUI
-// must never persist a new baseline.
-func fetchDrift(cliPath string) (DriftResult, error) {
-	data, err := runJSON(cliPath, "drift", "--format", "json")
+// must never persist a new baseline. target scopes the read to a harness (each
+// target has its OWN per-target baseline).
+func fetchDrift(cliPath string, target string) (DriftResult, error) {
+	data, err := runJSON(cliPath, target, "drift", "--format", "json")
 	if err != nil {
 		return DriftResult{}, err
 	}
@@ -1104,9 +1138,9 @@ func parseAudit(data []byte) (AuditResult, error) {
 // fetchAudit shells out to `node <cliPath> audit --format json`, captures stdout,
 // and unmarshals it into an AuditResult. It never panics. Fully READ-ONLY — the
 // audit command only reads the metadata-only .mgr-state/audit.log (a missing log
-// is benign: zero entries).
-func fetchAudit(cliPath string) (AuditResult, error) {
-	data, err := runJSON(cliPath, "audit", "--format", "json")
+// is benign: zero entries). target scopes the read to a harness.
+func fetchAudit(cliPath string, target string) (AuditResult, error) {
+	data, err := runJSON(cliPath, target, "audit", "--format", "json")
 	if err != nil {
 		return AuditResult{}, err
 	}
@@ -1279,9 +1313,9 @@ func parseHealth(data []byte) (HealthReport, error) {
 // + the advice engine in a single command (no --active-probes, so no child
 // spawn and no transient probe write). It is the heaviest single section fetch,
 // which is why the Health tab lazy-loads on first visit rather than eager-fetching
-// at startup (see lazyLoadCurrent).
-func fetchHealth(cliPath string) (HealthReport, error) {
-	data, err := runJSON(cliPath, "health", "--format", "json")
+// at startup (see lazyLoadCurrent). target scopes the read to a harness.
+func fetchHealth(cliPath string, target string) (HealthReport, error) {
+	data, err := runJSON(cliPath, target, "health", "--format", "json")
 	if err != nil {
 		return HealthReport{}, err
 	}
