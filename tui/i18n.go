@@ -184,14 +184,15 @@ var translations = map[string][2]string{
 	// binary toggle whose direction the dry-run probe decides; it writes config.toml
 	// mcp_servers `enabled` (a disable INSERTs it). Reuses write.plugin.change for the
 	// diff-line label. tf only on the two %s strings (see [[tui-i18n-tr-vs-tf]]).
-	"write.mcp.enableTitle":  {"Enable MCP server?", "启用 MCP 服务器?"},
-	"write.mcp.disableTitle": {"Disable MCP server?", "停用 MCP 服务器?"},
-	"write.mcp.willEnable":   {"Will ENABLE MCP server «%s» — writes config.toml mcp_servers.", "将【启用】MCP 服务器「%s」—— 写入 config.toml 的 mcp_servers。"},
-	"write.mcp.willDisable":  {"Will DISABLE MCP server «%s» — writes config.toml mcp_servers.", "将【停用】MCP 服务器「%s」—— 写入 config.toml 的 mcp_servers。"},
-	"write.mcp.reversible":   {"An auto-snapshot is taken first, so rollback can undo it. Restart Codex for it to take effect.", "落盘前会自动快照,可用 rollback 撤销。改动需重启 Codex 生效。"},
-	"write.mcp.done":         {"MCP server updated — restart Codex", "MCP 服务器已更新 —— 重启 Codex 生效"},
-	"write.mcp.hint":         {"toggle MCP server", "切换 MCP 服务器"},
-	"write.mcp.claudeHint":   {"MCP toggle is codex-only here", "MCP 切换目前仅 codex 支持"},
+	"write.mcp.enableTitle":      {"Enable MCP server?", "启用 MCP 服务器?"},
+	"write.mcp.disableTitle":     {"Disable MCP server?", "停用 MCP 服务器?"},
+	"write.mcp.willEnable":       {"Will ENABLE MCP server «%s» — writes config.toml mcp_servers.", "将【启用】MCP 服务器「%s」—— 写入 config.toml 的 mcp_servers。"},
+	"write.mcp.willDisable":      {"Will DISABLE MCP server «%s» — writes config.toml mcp_servers.", "将【停用】MCP 服务器「%s」—— 写入 config.toml 的 mcp_servers。"},
+	"write.mcp.reversible":       {"An auto-snapshot is taken first, so rollback can undo it. Restart Codex for it to take effect.", "落盘前会自动快照,可用 rollback 撤销。改动需重启 Codex 生效。"},
+	"write.mcp.unverifiedCaveat": {"Note: disabling can't be verified live on this machine. After applying, restart Codex and confirm this server is gone — if it still loads, use rollback to undo.", "注意:本机无法实时验证停用是否生效。落盘后请重启 Codex 确认该服务器已消失 —— 若仍加载,用 rollback 撤销。"},
+	"write.mcp.done":             {"MCP server updated — restart Codex", "MCP 服务器已更新 —— 重启 Codex 生效"},
+	"write.mcp.hint":             {"toggle MCP server", "切换 MCP 服务器"},
+	"write.mcp.claudeHint":       {"MCP toggle is codex-only here", "MCP 切换目前仅 codex 支持"},
 
 	// Codex skill enable/disable flip confirm-apply flow (Inventory tab, codex target).
 	// A binary toggle whose direction the dry-run probe decides; it writes config.toml
