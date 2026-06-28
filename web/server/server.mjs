@@ -73,12 +73,19 @@ const READ_COMMANDS = Object.freeze(
  * → the byte-preserving editor → reversible rollback. The engine, not this server,
  * enforces the write semantics — we only surface them.
  *
- *   disable / enable   → plugin on/off (Claude settings.json map / Codex config.toml)
+ *   disable / enable   → plugin on/off (Claude settings.json map / Codex config.toml),
+ *                        and an mcp server on/off (Codex config.toml only)
  *   skill:visibility   → a Claude skill's 4-state skillOverrides value (name + state)
+ *
+ * Note: a command's `kinds` set is the COMMAND-level allowlist; the per-TARGET capability
+ * (which of those kinds the resolved target actually supports) is a SECOND gate enforced by
+ * writeKindsFor() below. e.g. disable/enable accept `mcp` here, but writeKindsFor advertises
+ * mcp only for Codex — Claude's mcp toggle delegates to the `claude` CLI + a stash (a
+ * different, non-snapshot mechanism) and is deliberately NOT surfaced through this channel.
  */
 const WRITE_SPEC = Object.freeze({
-  disable: { kinds: new Set(["plugin"]) },
-  enable: { kinds: new Set(["plugin"]) },
+  disable: { kinds: new Set(["plugin", "mcp"]) },
+  enable: { kinds: new Set(["plugin", "mcp"]) },
   "skill:visibility": {
     kinds: new Set(["skill"]),
     states: new Set(["on", "name-only", "user-invocable-only", "off"]),
@@ -160,6 +167,25 @@ function pluginWriteSupported(descriptor) {
   );
 }
 
+/**
+ * The item kinds the write channel may toggle on a given target — the SINGLE source of
+ * the write-capability matrix, consumed by BOTH /api/status (to advertise) and /api/write
+ * (to enforce). Keeping one function means the UI can never be offered a control the
+ * endpoint would reject, and the endpoint can never route a kind to a target it doesn't
+ * support:
+ *   plugin → either target when supported (Claude settings.json map / Codex config.toml)
+ *   skill  → Claude only (the 4-state settings.json skillOverrides; Codex has no such lever)
+ *   mcp    → Codex only (a pure in-place config.toml splice — diff + snapshot + reversible;
+ *            Claude's mcp toggle is a different `claude`-CLI-delegating mechanism, not surfaced)
+ */
+function writeKindsFor(descriptor) {
+  const kinds = [];
+  if (pluginWriteSupported(descriptor)) kinds.push("plugin");
+  if (descriptor && descriptor.id === "claude") kinds.push("skill");
+  if (descriptor && descriptor.id === "codex") kinds.push("mcp");
+  return kinds;
+}
+
 const app = new Hono();
 
 // DNS-rebinding guard: a browser pointed at this server always sends a
@@ -181,11 +207,9 @@ app.get("/api/status", async (c) => {
   }
   const cfg = await resolveTargetAndConfig({ target });
   // writeKinds tells the UI which item kinds it may offer a write control for on this
-  // target. Empty = read-only for this target. plugin = enable/disable (either target,
-  // when supported); skill = the 4-state visibility override (Claude settings.json only).
-  const writeKinds = [];
-  if (pluginWriteSupported(cfg.descriptor)) writeKinds.push("plugin");
-  if (cfg.descriptor && cfg.descriptor.id === "claude") writeKinds.push("skill");
+  // target. Empty = read-only for this target. Computed by the shared writeKindsFor() so
+  // the advertised set is identical to what /api/write enforces.
+  const writeKinds = writeKindsFor(cfg.descriptor);
   return c.json({
     version: PKG.version,
     target,
@@ -317,6 +341,17 @@ app.post("/api/write/:cmd", async (c) => {
   const apply = body?.apply === true;
 
   const cfg = await resolveTargetAndConfig({ target });
+  // Per-TARGET capability gate (the second factor beyond the command-level WRITE_SPEC.kinds):
+  // the engine command `disable --type mcp` would, for a Claude target, route to the
+  // `claude`-CLI-delegating mcp toggle (a different mechanism). Refuse any kind the resolved
+  // target does not advertise, so this channel can never reach an unsupported write path —
+  // and the rejection matches exactly what /api/status told the UI was writable.
+  if (!writeKindsFor(cfg.descriptor).includes(kind)) {
+    return c.json(
+      { error: "kind-not-supported-for-target", message: `${kind} write is not supported for target ${target}` },
+      400,
+    );
+  }
   const args = Object.create(null);
   args.type = kind;
   args.positionals = positionals;
@@ -360,6 +395,6 @@ const port = Number(process.env.CLAUDE_MGR_WEB_PORT) || DEFAULT_PORT;
 serve({ fetch: app.fetch, hostname: HOST, port }, (info) => {
   // eslint-disable-next-line no-console
   console.log(
-    `claude-mgr web API → http://${HOST}:${info.port}  (read + plugin-write pilot)`,
+    `claude-mgr web API → http://${HOST}:${info.port}  (read + writes: plugin / skill-visibility / codex-mcp)`,
   );
 });
