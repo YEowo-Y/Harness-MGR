@@ -158,9 +158,14 @@ var translations = map[string][2]string{
 	"write.modeOn":       {"write mode enabled", "写入模式已开启"},
 	"write.modeOff":      {"write mode disabled", "写入模式已关闭"},
 	"write.disabledHint": {"writes disabled — press W to enable", "写入已关闭 — 按 W 开启"},
-	// Codex is read-only in slice 1 — every write entry point (w/x/a/rollback) shows
-	// this toast and no-ops under the codex target.
-	"write.codexReadOnly": {"codex is read-only", "codex 为只读"},
+	// Shown when a codex write entry point is still gated. Slice 2a made plugin
+	// toggle / remove / rollback / drift-update live under codex; the active-probe
+	// "a" key remains gated (its probes are claude-specific), so it alone uses this.
+	"write.codexReadOnly": {"active probes are claude-only", "主动探针仅 claude 可用"},
+	// Codex skills toggle via a binary enable/disable flip (config.toml
+	// [[skills.config]]), NOT the Claude 4-state visibility picker — that wiring is
+	// slice 2b. Until then the codex skill row shows this instead of the picker.
+	"write.skill.codexTodo": {"codex skill toggle arrives in a later update", "codex 技能开关将在后续版本支持"},
 
 	"write.activeProbe.title":    {"Run active probes?", "运行主动探针?"},
 	"write.activeProbe.body":     {"Runs the 3 active doctor checks: they spawn node/claude and write a transient probe file into ~/.claude/agents that is immediately removed. Nothing else is modified.", "运行 3 项主动体检:会启动 node/claude,并向 ~/.claude/agents 写入一个临时探针文件(随即删除)。不改动其它任何东西。"},
