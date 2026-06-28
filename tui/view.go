@@ -580,37 +580,16 @@ func tabAccelerator(v viewID) string {
 // tabBarView renders the horizontal tab strip across the full terminal width:
 // the active tab gets the accent background, inactive tabs are dim, and any tab
 // whose data has notable findings carries a small severity dot (red error /
-// amber warn). Trailing space fills the bar to the terminal width on the chrome
-// background.
+// amber warn). When the full strip fits in m.width it renders unchanged; when it
+// does not it shows a horizontally-scrolled WINDOW of tabs (with ‹/› overflow
+// markers) that always keeps the active tab fully visible. The bar is always
+// padded — or clipped — to exactly m.width on the chrome background.
 func tabBarView(m model) string {
-	active := m.currentView
 	termWidth := m.width
+	active := int(m.currentView)
 	cells := make([]string, 0, len(tabLabels))
 	for i := range tabLabels {
-		v := viewID(i)
-		// The key that jumps to this tab: digit 1-9 then 0 for the first ten tabs;
-		// a mnemonic letter (H, D, …) for tabs beyond the digit range.
-		accel := tabAccelerator(v)
-		text := tabLabel(v)
-		if accel != "" {
-			text = accel + " " + tabLabel(v)
-		}
-
-		cellStyle := inactiveTabStyle
-		bg := chromeBg
-		if v == active {
-			cellStyle = activeTabStyle
-			bg = accent
-		}
-		// Append a severity dot when this tab has notable findings. The dot is
-		// rendered with its OWN foreground over the cell's background so it stays
-		// the right color inside the cell (the cell style would otherwise recolor it).
-		content := text
-		if sev, ok := tabBadge(m, v); ok {
-			dot := lipgloss.NewStyle().Foreground(sev).Background(bg).Render(glyph("●", "*"))
-			content = text + " " + dot
-		}
-		cells = append(cells, cellStyle.Render(content))
+		cells = append(cells, tabCell(m, viewID(i)))
 	}
 	bar := lipgloss.JoinHorizontal(lipgloss.Top, cells...)
 
@@ -618,11 +597,118 @@ func tabBarView(m model) string {
 		return bar
 	}
 	used := lipgloss.Width(bar)
+	if used <= termWidth {
+		// The full strip fits: render exactly as before — join, then pad to width.
+		if used < termWidth {
+			bar += lipgloss.NewStyle().Background(chromeBg).
+				Render(strings.Repeat(" ", termWidth-used))
+		}
+		return bar
+	}
+	// Too narrow: render a scrolled window of tabs that fits, keeping the active
+	// tab fully visible, with overflow markers for hidden tabs on either side.
+	return tabBarWindow(cells, active, termWidth)
+}
+
+// tabCell renders one styled tab cell: its accelerator + label, the active/
+// inactive background, and an optional severity dot for tabs with findings.
+func tabCell(m model, v viewID) string {
+	// The key that jumps to this tab: digit 1-9 then 0 for the first ten tabs;
+	// a mnemonic letter (H, D, …) for tabs beyond the digit range.
+	accel := tabAccelerator(v)
+	text := tabLabel(v)
+	if accel != "" {
+		text = accel + " " + tabLabel(v)
+	}
+
+	cellStyle := inactiveTabStyle
+	bg := chromeBg
+	if v == m.currentView {
+		cellStyle = activeTabStyle
+		bg = accent
+	}
+	// Append a severity dot when this tab has notable findings. The dot is
+	// rendered with its OWN foreground over the cell's background so it stays
+	// the right color inside the cell (the cell style would otherwise recolor it).
+	content := text
+	if sev, ok := tabBadge(m, v); ok {
+		dot := lipgloss.NewStyle().Foreground(sev).Background(bg).Render(glyph("●", "*"))
+		content = text + " " + dot
+	}
+	return cellStyle.Render(content)
+}
+
+// tabBarWindow assembles a horizontally-scrolled window of the pre-rendered tab
+// cells that fits within termWidth, always keeping the active cell fully visible.
+// ‹ / › markers (ASCII < / > on no-Unicode terminals) flag tabs hidden to the
+// left / right; their columns are reserved from the budget. The result is padded
+// to exactly termWidth on the chrome background, and never exceeds it.
+func tabBarWindow(cells []string, active, termWidth int) string {
+	markerStyle := lipgloss.NewStyle().Foreground(tabDim).Background(chromeBg)
+	left := markerStyle.Render(glyph("‹", "<"))
+	right := markerStyle.Render(glyph("›", ">"))
+	markerW := lipgloss.Width(left) // both markers are one glyph wide
+
+	widths := make([]int, len(cells))
+	for i, c := range cells {
+		widths[i] = lipgloss.Width(c)
+	}
+
+	// Grow a window [lo, hi) outward from the active cell, adding whichever
+	// neighbour fits next, while reserving marker columns for any still-hidden
+	// side. fits reports whether the cells in [lo,hi) plus the needed markers fit.
+	fits := func(lo, hi int) bool {
+		need := 0
+		for i := lo; i < hi; i++ {
+			need += widths[i]
+		}
+		if lo > 0 {
+			need += markerW
+		}
+		if hi < len(cells) {
+			need += markerW
+		}
+		return need <= termWidth
+	}
+
+	lo, hi := active, active+1
+	if !fits(lo, hi) {
+		// Even the active cell alone (with markers) overflows the terminal — only
+		// possible if one tab is wider than the whole width, which the real labels
+		// never are at any usable terminal size. Fall back to a blank bar of exactly
+		// termWidth so the frame still never overflows.
+		return lipgloss.NewStyle().Background(chromeBg).
+			Render(strings.Repeat(" ", termWidth))
+	}
+	for {
+		grew := false
+		if lo > 0 && fits(lo-1, hi) {
+			lo--
+			grew = true
+		}
+		if hi < len(cells) && fits(lo, hi+1) {
+			hi++
+			grew = true
+		}
+		if !grew {
+			break
+		}
+	}
+
+	parts := make([]string, 0, hi-lo+2)
+	if lo > 0 {
+		parts = append(parts, left)
+	}
+	parts = append(parts, cells[lo:hi]...)
+	if hi < len(cells) {
+		parts = append(parts, right)
+	}
+	bar := lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+
+	used := lipgloss.Width(bar)
 	if used < termWidth {
-		filler := lipgloss.NewStyle().
-			Background(chromeBg).
+		bar += lipgloss.NewStyle().Background(chromeBg).
 			Render(strings.Repeat(" ", termWidth-used))
-		bar = bar + filler
 	}
 	return bar
 }
