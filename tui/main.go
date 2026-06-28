@@ -459,8 +459,9 @@ func fetchDoctorCmd(cliPath, target string) tea.Cmd {
 // fetchDoctorActiveCmd runs the OPT-IN active doctor probes and reports the
 // outcome as a doctorMsg (same handler as the passive run, so the tab updates in
 // place). Only ever dispatched from a confirmed "a" action — never at startup.
-// In codex mode the "a" entry point is gated off (slice 1 keeps codex read-only),
-// so this is only ever dispatched with the claude target.
+// The active probe writes a transient ~/.claude governed-dir file, so the "a"
+// entry point stays gated under codex even though other codex writes are now live;
+// this is therefore only ever dispatched with the claude target.
 func fetchDoctorActiveCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
 		data, err := fetchDoctorActive(cliPath, target)
@@ -951,8 +952,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.writeStatus = tr("write.rollback.done")
 		m.writeOK = true
 		// Re-read the counts (the live tree changed) and the snapshot list (the safety
-		// snapshot added one). Both are pure reads. (Rollback is claude-only in slice
-		// 1, so m.target is always claude here.)
+		// snapshot added one). Both are pure reads, scoped to m.target so a codex
+		// rollback re-reads the codex harness (slice 2a: codex rollback is live).
 		return m, tea.Batch(fetchCmd(m.cliPath, m.target), fetchSnapshotsCmd(m.cliPath, m.target))
 	case writeResultMsg:
 		m.writeRunning = false
@@ -964,9 +965,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.writeStatus = tr(msg.action.doneKey)
 		m.writeOK = true
 		// Re-fetch the affected tab so the UI reflects the write (drift now reads
-		// "clean" against the just-written baseline). The re-fetch is a pure READ.
+		// "clean" against the just-written baseline). The re-fetch is a pure READ,
+		// scoped to the active target so a codex write re-reads the codex harness.
 		if msg.action.refetch != nil {
-			return m, msg.action.refetch(m.cliPath)
+			return m, msg.action.refetch(m.cliPath, m.target)
 		}
 		return m, nil
 	case spinner.TickMsg:
@@ -1113,10 +1115,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.writeRunning = true
 			if a.run != nil {
 				// Custom on-confirm cmd (e.g. active probes → doctorMsg). writeRunning
-				// shows the "working…" indicator; the result msg clears it.
-				return m, a.run(m.cliPath)
+				// shows the "working…" indicator; the result msg clears it. m.target
+				// scopes the run to the active harness (codex rollback runs its safety
+				// snapshot + restore under --target codex).
+				return m, a.run(m.cliPath, m.target)
 			}
-			return m, runWriteCmd(m.cliPath, a)
+			return m, runWriteCmd(m.cliPath, m.target, a)
 		case "n", "esc", "q":
 			m.pending = nil
 		}
@@ -1192,14 +1196,6 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m, m.refreshCurrent()
 	case "w":
-		if m.target == "codex" {
-			// Codex is read-only in slice 1 — every write action no-ops with a toast.
-			// (The guard is a no-op when target=="claude", so the Claude path below is
-			// byte-identical to before.)
-			m.writeStatus = tr("write.codexReadOnly")
-			m.writeOK = false
-			return m, nil
-		}
 		if !m.writesEnabled {
 			// Writes are opt-in and currently off — tell the user how to enable.
 			m.writeStatus = tr("write.disabledHint")
@@ -1214,10 +1210,19 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if node, ok := m.tree.selectedNode(); ok && node.kind == kindPlugin && node.plug != nil {
 				m.writeRunning = true
 				m.writeStatus = ""
-				return m, preparePluginToggleCmd(m.cliPath, node.plug.Key)
+				return m, preparePluginToggleCmd(m.cliPath, m.target, node.plug.Key)
 			} else if ok && node.kind == kindSkill && node.comp != nil {
-				// A skill row opens the visibility picker (Claude-only, 4-state). The
-				// dry-run runs only after the user picks a state and presses Enter.
+				// A skill row opens the visibility picker — Claude-ONLY (4-state
+				// skillOverrides). Codex skills use a binary enable/disable flip keyed
+				// by name OR path (config.toml [[skills.config]]), a different operation
+				// that lands in slice 2b; until then the codex skill row no-ops with a
+				// hint instead of opening the (wrong) Claude picker.
+				if m.target == "codex" {
+					m.writeStatus = tr("write.skill.codexTodo")
+					m.writeOK = false
+					return m, nil
+				}
+				// The dry-run runs only after the user picks a state and presses Enter.
 				m.visPick = &visPicker{name: node.comp.Name}
 				return m, nil
 			}
@@ -1233,7 +1238,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if snap, ok := m.selectedSnapshot(); ok {
 				m.writeRunning = true
 				m.writeStatus = ""
-				return m, prepareRollbackCmd(m.cliPath, snap)
+				return m, prepareRollbackCmd(m.cliPath, m.target, snap)
 			}
 			m.writeStatus = tr("write.rollback.selectHint")
 			m.writeOK = false
@@ -1249,14 +1254,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// dry-run that resolves + validates the target path and opens the RED confirm
 		// modal only when removeMsg arrives. Only skill/agent/command rows are removable
 		// (plugins toggle via "w"; mcp/marketplace are not remove kinds). A non-removable
-		// or empty selection gets a hint.
-		if m.target == "codex" {
-			// Codex is read-only in slice 1 — delete no-ops with a toast (byte-identical
-			// Claude path when target=="claude").
-			m.writeStatus = tr("write.codexReadOnly")
-			m.writeOK = false
-			return m, nil
-		}
+		// or empty selection gets a hint. Works under BOTH targets (slice 2a: codex
+		// remove is live — prepareRemoveCmd dry-runs under m.target).
 		if !m.writesEnabled {
 			m.writeStatus = tr("write.disabledHint")
 			m.writeOK = false
@@ -1270,7 +1269,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// node.comp.Kind is the engine string node.kind was derived from
 				// (tree.go componentKind), so the spec kind always matches the guarded
 				// row kind — they can never disagree about what is being deleted.
-				return m, prepareRemoveCmd(m.cliPath, node.comp.Kind, node.comp.Name)
+				return m, prepareRemoveCmd(m.cliPath, m.target, node.comp.Kind, node.comp.Name)
 			}
 			m.writeStatus = tr("write.remove.selectHint")
 			m.writeOK = false
@@ -1291,7 +1290,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Flip the active harness target (claude↔codex), persist the choice, and
 		// re-fetch fresh per-target data (switchTarget invalidates all caches first so
 		// stale rows never show under the other target). Case-insensitive like the H/D/S
-		// tab jumps. Codex is read-only in slice 1 (the w/x/a writes no-op under it).
+		// tab jumps. Codex now supports writes (plugin toggle / remove / rollback /
+		// drift-update); only the active probe (a) and the codex skill flip stay gated.
 		cmd := m.switchTarget()
 		// Confirm the flip with a transient status-bar toast naming the NEW target
 		// (switchTarget already set m.target). The toast clears on the next key like
@@ -1311,7 +1311,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if m.target == "codex" {
-			// Codex is read-only in slice 1 — the active probe (a governed-dir write)
+			// The active probe writes a transient ~/.claude governed-dir file, so it
+			// stays gated under codex even though other codex writes are now live — it
 			// no-ops with a toast (byte-identical Claude path when target=="claude").
 			m.writeStatus = tr("write.codexReadOnly")
 			m.writeOK = false
