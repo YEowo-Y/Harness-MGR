@@ -6,6 +6,7 @@ import {
   Sun,
   RefreshCw,
   ShieldCheck,
+  FilePen,
   AlertTriangle,
   Radio,
 } from "lucide-react";
@@ -59,6 +60,14 @@ export function Sidebar(props: {
   const { t } = useLang();
   const navRef = useRef<HTMLElement>(null);
   const indicatorRef = useRef<HTMLSpanElement>(null);
+
+  // Capability chip: honest per-target write state. Both axes count (a state
+  // toggle OR a destructive remove). status is null before load / on error →
+  // treat as read-only (never claim a capability we haven't confirmed).
+  const canWrite =
+    (props.status?.writeKinds.length ?? 0) +
+      (props.status?.removeKinds.length ?? 0) >
+    0;
 
   // Slide a coral marker to the active nav item (design §3: sliding nav indicator).
   // It ALWAYS lands on the right item — under reduced-motion duration collapses to
@@ -181,10 +190,14 @@ export function Sidebar(props: {
         <div className="mb-3 mt-4 flex items-center gap-1.5 px-1">
           <span
             className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-okbg text-ok"
-            title={t("sidebar.readonly")}
-            aria-label={t("sidebar.readonly")}
+            title={t(canWrite ? "sidebar.writeEnabled" : "sidebar.readonly")}
+            aria-label={t(canWrite ? "sidebar.writeEnabled" : "sidebar.readonly")}
           >
-            <ShieldCheck size={14} aria-hidden="true" />
+            {canWrite ? (
+              <FilePen size={14} aria-hidden="true" />
+            ) : (
+              <ShieldCheck size={14} aria-hidden="true" />
+            )}
           </span>
           <span
             className={cn(
