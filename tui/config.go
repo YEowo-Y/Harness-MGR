@@ -12,15 +12,16 @@ import (
 //
 // claude-mgr is a read-only governance tool for ~/.claude and must NEVER write
 // there. This file persists only the TUI's own UI preferences — currently the
-// chosen language and the opt-in write-mode flag — under the user's OS config
-// dir, so choices are remembered across launches. Every write is best-effort: a
-// preference is not worth failing a launch over, so all errors are swallowed and
-// the defaults (English, writes off) are used.
+// chosen language, the opt-in write-mode flag, and the active target — under the
+// user's OS config dir, so choices are remembered across launches. Every write is
+// best-effort: a preference is not worth failing a launch over, so all errors are
+// swallowed and the defaults (English, writes off, claude target) are used.
 
 // uiConfig is the persisted TUI preference document.
 type uiConfig struct {
 	Language      string `json:"language"`      // "en" | "zh"
 	WritesEnabled bool   `json:"writesEnabled"` // TUI write actions opt-in; default false (off)
+	Target        string `json:"target"`        // "claude" | "codex"; default claude
 }
 
 // lang maps the persisted language code to the language enum (English default).
@@ -29,6 +30,16 @@ func (c uiConfig) lang() language {
 		return langZH
 	}
 	return langEN
+}
+
+// target maps the persisted target to the canonical target string ("claude" the
+// default). Only "codex" is recognized as the alternate; any other value
+// (including "" from an older config) reads as "claude".
+func (c uiConfig) target() string {
+	if c.Target == "codex" {
+		return "codex"
+	}
+	return "claude"
 }
 
 // langCode maps a language enum to its persisted code. Inverse of uiConfig.lang().
