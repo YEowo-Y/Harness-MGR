@@ -68,6 +68,13 @@ const EN = {
   "write.failed": "Could not complete the change.",
   "write.vis.current": "Current visibility",
   "write.vis.set": "Set to",
+  // write channel — codex mcp server enable/disable (config.toml, not settings.json)
+  "write.mcp.hint":
+    "An MCP server's on/off state lives in config.toml and isn't shown here — pick an action to preview the exact change first.",
+  "write.mcp.enable": "Enable server",
+  "write.mcp.disable": "Disable server",
+  "write.mcp.line": "config.toml · line {line}",
+  "write.mcp.reversible": "Edits config.toml. Reversible — an auto-snapshot is taken first.",
 
   // shared
   "common.loading": "Loading…",
@@ -227,6 +234,12 @@ const ZH: Record<StringKey, string> = {
   "write.failed": "操作未能完成。",
   "write.vis.current": "当前可见性",
   "write.vis.set": "设为",
+  "write.mcp.hint":
+    "MCP 服务的启停状态记录在 config.toml，此处不预先显示 —— 选择操作后会先预览实际改动。",
+  "write.mcp.enable": "启用服务",
+  "write.mcp.disable": "禁用服务",
+  "write.mcp.line": "config.toml · 第 {line} 行",
+  "write.mcp.reversible": "将修改 config.toml。可回滚 —— 写入前会自动快照。",
 
   "common.loading": "加载中…",
   "common.filter": "筛选…",
