@@ -34,9 +34,12 @@ func sampleDetail() DetailData {
 // loadedModel builds a model with detail data loaded and panes sized, as the
 // live Update loop would after a detailMsg + key press (to dismiss the splash)
 // + WindowSizeMsg. The key press swallows itself (splash gate) so currentView
-// stays at Inventory.
+// stays at Inventory. The target is pinned to "claude" so the suite is
+// deterministic regardless of any persisted ui.json on the test machine (the T
+// switcher + codex-read-only tests flip it explicitly).
 func loadedModel(w, h int) model {
 	m := initialModel("unused")
+	m.target = "claude"
 	mm, _ := m.Update(detailMsg{data: sampleDetail()})
 	m = mm.(model)
 	// Dismiss the splash with any key (swallowed by the splash gate).
