@@ -15,9 +15,11 @@ import (
 // which a key press can run a state-changing CLI command — and only after the
 // user confirms it in a modal. Two kinds of action exist:
 //
-//   - Tab-level, target-LESS actions registered in writeActionFor: `drift
-//     --update` (writes only the .mgr-state lockfile) + the Doctor active probes.
-//     Their args are hardcoded constants — no user input reaches the command line.
+//   - Tab-level actions registered in writeActionFor: `drift --update` (writes
+//     only the .mgr-state lockfile) + the Doctor active probes. Their args are
+//     hardcoded constants — no user input reaches the command line — but they are
+//     scoped to the active target (drift-update runs under --target codex when the
+//     codex harness is active; active probes stay gated to claude).
 //   - The Inventory tab's per-plugin enable/disable (preparePluginToggleCmd +
 //     buildPluginToggleAction): a TARGETED config write. The selected plugin's
 //     key flows into the argv (via the engine's exec, NOT a shell, so there is no
@@ -26,8 +28,9 @@ import (
 //     auto-snapshots every write so rollback can undo it.
 //
 // The engine's assertWritable gate is the real safety boundary regardless of
-// caller; this modal is the explicit-consent UX guard. Snapshot / rollback writes
-// are still deliberately NOT wired into the TUI.
+// caller; this modal is the explicit-consent UX guard. A standalone `snapshot`
+// capture is still not a TUI action (rollback takes its own safety snapshot
+// internally before restoring).
 
 // writeAction describes one confirm-gated write. titleKey/bodyKey/doneKey/hintKey
 // are i18n keys resolved at render time; args is the exact CLI argv; refetch is the
@@ -39,11 +42,13 @@ type writeAction struct {
 	doneKey  string
 	hintKey  string
 	args     []string
-	refetch  func(cliPath string) tea.Cmd
+	refetch  func(cliPath, target string) tea.Cmd
 	// run, when non-nil, is the on-confirm command used INSTEAD of the default
 	// runWriteCmd(args) path — for a confirmed action whose result is handled by a
 	// specific msg (e.g. active probes → doctorMsg) rather than a writeResultMsg.
-	run func(cliPath string) tea.Cmd
+	// Both refetch and run take the active target so a codex write re-reads / runs
+	// under --target codex; the claude default ("") keeps that path byte-identical.
+	run func(cliPath, target string) tea.Cmd
 	// plugin, when non-nil, marks a per-plugin enable/disable action: confirmView
 	// composes its title/body from this preview (resolved at render time, so no
 	// i18n runs in the off-thread prepare Cmd). args still hold the real --apply
@@ -128,10 +133,10 @@ func writeActionFor(v viewID) (writeAction, bool) {
 			doneKey:  "write.drift.done",
 			hintKey:  "write.drift.hint",
 			args:     []string{"drift", "--update", "--format", "json"},
-			// Writes are claude-only in slice 1, so the post-write refetch uses the
-			// claude default. (The refetch field is target-LESS; codex writes — and
-			// their refetch — arrive in slice 2.)
-			refetch: func(cli string) tea.Cmd { return fetchDriftCmd(cli, "") },
+			// The post-write refetch re-reads drift under the SAME target the write
+			// ran against (slice 2a: codex drift-update is live). runWriteCmd appends
+			// --target codex to the args above when the active target is codex.
+			refetch: func(cli, target string) tea.Cmd { return fetchDriftCmd(cli, target) },
 		}, true
 	default:
 		return writeAction{}, false
@@ -148,9 +153,10 @@ func activeProbeAction() writeAction {
 		titleKey: "write.activeProbe.title",
 		bodyKey:  "write.activeProbe.body",
 		hintKey:  "write.activeProbe.hint",
-		// Active probes are claude-only in slice 1 (the "a" entry point no-ops in
-		// codex), so the run uses the claude default.
-		run: func(cli string) tea.Cmd { return fetchDoctorActiveCmd(cli, "") },
+		// Active probes stay gated under codex (the "a" entry point no-ops there and
+		// the Doctor tab hides the hint), so this run only ever fires under claude.
+		// It still forwards target for signature uniformity (codex never reaches it).
+		run: func(cli, target string) tea.Cmd { return fetchDoctorActiveCmd(cli, target) },
 	}
 }
 
@@ -218,10 +224,10 @@ func refusalError(diags []Diagnostic) error {
 // action — or an err (refusal / exec failure) the handler surfaces in the status
 // bar WITHOUT opening a modal. It NEVER writes (dry-run only); the real write
 // happens only after the user confirms the returned action.
-func preparePluginToggleCmd(cliPath, key string) tea.Cmd {
+func preparePluginToggleCmd(cliPath, target, key string) tea.Cmd {
 	return func() tea.Msg {
 		// Probe with an enable dry-run: AlreadyInState ⇒ the plugin is already enabled.
-		probe, pdiags, err := fetchPluginToggleDry(cliPath, key, true)
+		probe, pdiags, err := fetchPluginToggleDry(cliPath, target, key, true)
 		if err != nil {
 			return pluginToggleMsg{err: err}
 		}
@@ -233,7 +239,7 @@ func preparePluginToggleCmd(cliPath, key string) tea.Cmd {
 		preview, diags := probe, pdiags
 		if !desired {
 			// The probe was an enable; fetch the disable-direction preview instead.
-			d, ddiags, derr := fetchPluginToggleDry(cliPath, key, false)
+			d, ddiags, derr := fetchPluginToggleDry(cliPath, target, key, false)
 			if derr != nil {
 				return pluginToggleMsg{err: derr}
 			}
@@ -316,9 +322,10 @@ func buildRemoveAction(info removeInfo) writeAction {
 		hintKey: "write.remove.hint",
 		args:    []string{"remove", info.kind + ":" + info.name, "--apply", "--format", "json"},
 		remove:  &info,
-		// Writes are claude-only in slice 1, so the post-delete refetch uses the
-		// claude default (see writeActionFor's note).
-		refetch: func(cli string) tea.Cmd { return fetchCmd(cli, "") },
+		// The post-delete refetch re-reads the inventory under the SAME target the
+		// delete ran against (slice 2a: codex remove is live) so the deleted row
+		// vanishes from the correct harness's tree.
+		refetch: func(cli, target string) tea.Cmd { return fetchCmd(cli, target) },
 	}
 }
 
@@ -328,9 +335,9 @@ func buildRemoveAction(info removeInfo) writeAction {
 // / wrong type / symlink refusal / exec failure) the handler surfaces in the status
 // bar WITHOUT opening a modal. It NEVER writes (dry-run only); the real delete
 // happens only after the user confirms the returned action.
-func prepareRemoveCmd(cliPath, kind, name string) tea.Cmd {
+func prepareRemoveCmd(cliPath, target, kind, name string) tea.Cmd {
 	return func() tea.Msg {
-		preview, diags, err := fetchRemoveDry(cliPath, kind, name)
+		preview, diags, err := fetchRemoveDry(cliPath, target, kind, name)
 		if err != nil {
 			return removeMsg{err: err}
 		}
@@ -350,7 +357,7 @@ func buildRollbackAction(info rollbackInfo) writeAction {
 	return writeAction{
 		id:       "rollback",
 		rollback: &info,
-		run:      func(cli string) tea.Cmd { return runRollbackCmd(cli, info.id, info.drifted) },
+		run:      func(cli, target string) tea.Cmd { return runRollbackCmd(cli, target, info.id, info.drifted) },
 	}
 }
 
@@ -382,9 +389,9 @@ func rollbackRefusalError(diags []Diagnostic, status string) error {
 // WITHOUT opening a modal (archive-corrupt or any non-drift refusal). A
 // refused-drift outcome is offerable: the action will pass --force, and the
 // confirm step takes a safety snapshot first.
-func prepareRollbackCmd(cliPath string, snap Snapshot) tea.Cmd {
+func prepareRollbackCmd(cliPath, target string, snap Snapshot) tea.Cmd {
 	return func() tea.Msg {
-		probe, diags, err := fetchRollbackDry(cliPath, snap.Id)
+		probe, diags, err := fetchRollbackDry(cliPath, target, snap.Id)
 		if err != nil {
 			return rollbackPrepMsg{err: err}
 		}
@@ -410,12 +417,15 @@ func prepareRollbackCmd(cliPath string, snap Snapshot) tea.Cmd {
 // drifted (the safety snapshot already captured the changes --force overwrites).
 // A failed safety snapshot ABORTS before the rollback touches anything. Reports a
 // rollbackResultMsg. The real writes go through the engine's gate + auto-snapshot.
-func runRollbackCmd(cliPath, id string, drifted bool) tea.Cmd {
+// target scopes BOTH the safety snapshot and the rollback to the active harness
+// (slice 2a: codex rollback is live), so a codex rollback snapshots + restores the
+// codex tree, never the claude one.
+func runRollbackCmd(cliPath, target, id string, drifted bool) tea.Cmd {
 	return func() tea.Msg {
 		// Capture the envelope and ASSERT a real snapshot was written — a
 		// write-gate-unavailable run can exit 0 with ok:false and nothing captured,
 		// which would silently make this rollback NON-undoable. Refuse in that case.
-		out, err := runJSON(cliPath, "", "snapshot", "--apply", "--format", "json")
+		out, err := runJSON(cliPath, target, "snapshot", "--apply", "--format", "json")
 		if err != nil {
 			return rollbackResultMsg{err: fmt.Errorf("safety snapshot failed; rollback aborted: %w", err)}
 		}
@@ -426,7 +436,7 @@ func runRollbackCmd(cliPath, id string, drifted bool) tea.Cmd {
 		if drifted {
 			args = append(args, "--force")
 		}
-		if _, err := runJSON(cliPath, "", args...); err != nil {
+		if _, err := runJSON(cliPath, target, args...); err != nil {
 			return rollbackResultMsg{err: err}
 		}
 		return rollbackResultMsg{err: nil}
@@ -461,10 +471,12 @@ type writeResultMsg struct {
 // runWriteCmd runs the action's hardcoded CLI command (a state-changing write) and
 // reports a writeResultMsg. stdout is discarded — the subsequent refetch re-reads
 // authoritative state. This is the ONLY function that runs a write, and it is
-// reached ONLY from the confirm modal's y/enter branch.
-func runWriteCmd(cliPath string, a writeAction) tea.Cmd {
+// reached ONLY from the confirm modal's y/enter branch. target scopes the write to
+// the active harness (slice 2a: codex drift-update is live) by appending --target
+// codex to the action's args; the claude default ("") keeps the args unchanged.
+func runWriteCmd(cliPath, target string, a writeAction) tea.Cmd {
 	return func() tea.Msg {
-		_, err := runJSON(cliPath, "", a.args...)
+		_, err := runJSON(cliPath, target, a.args...)
 		return writeResultMsg{action: a, err: err}
 	}
 }
