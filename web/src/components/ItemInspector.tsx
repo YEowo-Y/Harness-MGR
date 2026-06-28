@@ -14,6 +14,7 @@ import gsap from "gsap";
 import { useLang } from "@/lib/i18n";
 import { useGsap } from "@/lib/motion";
 import { PluginWriteControl } from "@/components/PluginWriteControl";
+import { SkillVisibilityControl } from "@/components/SkillVisibilityControl";
 import type { KindConfig, RenderCtx } from "@/lib/kinds";
 import type { InventoryItem, TargetId } from "@/lib/api";
 
@@ -166,6 +167,8 @@ export function ItemInspector({
       <div className="shrink-0 border-t border-hair px-4 py-3">
         {config.type === "plugin" && writeKinds.includes("plugin") ? (
           <PluginWriteControl item={item} target={target} onRefresh={onRefresh} />
+        ) : config.type === "skill" && writeKinds.includes("skill") ? (
+          <SkillVisibilityControl item={item} target={target} onRefresh={onRefresh} />
         ) : (
           <div className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-i42">
             <p>{t("inspector.actionsP2")}</p>
