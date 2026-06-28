@@ -1,9 +1,12 @@
 /*
- * Remove-component control (the FOURTH web write surface — DESTRUCTIVE, Claude only).
+ * Remove-component control (the FOURTH web write surface — DESTRUCTIVE; Claude + Codex).
  *
  * Deletes a user-level skill / agent / command. Unlike the three toggle controls (plugin /
  * skill-visibility / codex-mcp), which are idempotent state flips, this DELETES a file
- * (agent/command → one .md) or a whole DIRECTORY (skill → skills/<name>/). It is still
+ * (agent/command → one .md/.toml) or a whole DIRECTORY (skill → skills/<name>/). For a
+ * CODEX skill the server routes the delete through the engine's --prune-config so the
+ * now-orphaned [[skills.config]] entries are pruned in the SAME reversible snapshot; the
+ * preview then shows the prune count (result.prunedCount). It is still
  * reversible: the engine auto-snapshots BEFORE the delete, so one `rollback` restores it —
  * the UX is "serious but not terrifying": show the exact engine-resolved path, warn that a
  * skill is the whole folder, reassure it's reversible, and gate the danger button behind an
@@ -143,6 +146,16 @@ export function RemoveControl({
             <p className="flex items-start gap-1.5 text-[12px] leading-relaxed text-warn">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>{t("remove.warnFolder")}</span>
+            </p>
+          )}
+          {/* codex skill (--prune-config): the engine also prunes orphaned [[skills.config]]
+              entries in the SAME reversible snapshot. The count comes from the dry-run result
+              (present only on the prune path), so the user sees the full blast radius. */}
+          {preview.prunedCount != null && (
+            <p className="text-[12px] leading-relaxed text-i60">
+              {preview.prunedCount > 0
+                ? t("remove.prune", { count: String(preview.prunedCount) })
+                : t("remove.pruneNone")}
             </p>
           )}
           <p className="text-[12px] leading-relaxed text-i42">{t("remove.reversible")}</p>
