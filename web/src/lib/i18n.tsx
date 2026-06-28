@@ -75,6 +75,15 @@ const EN = {
   "write.mcp.disable": "Disable server",
   "write.mcp.line": "config.toml · line {line}",
   "write.mcp.reversible": "Edits config.toml. Reversible — an auto-snapshot is taken first.",
+  // remove channel — delete a component (skill / agent / command), DESTRUCTIVE but reversible
+  "remove.title": "Remove component",
+  "remove.action": "Remove…",
+  "remove.pathLabel": "Will delete",
+  "remove.warnFolder": "This deletes the entire skill folder (SKILL.md and all its files).",
+  "remove.reversible": "An auto-snapshot is taken first — reversible via rollback.",
+  "remove.ack": "I understand this permanently removes the item above.",
+  "remove.confirm": "Delete {name}",
+  "remove.done": "Removed.",
 
   // shared
   "common.loading": "Loading…",
@@ -240,6 +249,14 @@ const ZH: Record<StringKey, string> = {
   "write.mcp.disable": "禁用服务",
   "write.mcp.line": "config.toml · 第 {line} 行",
   "write.mcp.reversible": "将修改 config.toml。可回滚 —— 写入前会自动快照。",
+  "remove.title": "删除组件",
+  "remove.action": "删除…",
+  "remove.pathLabel": "将删除",
+  "remove.warnFolder": "这将删除整个技能文件夹（含 SKILL.md 与所有附属文件）。",
+  "remove.reversible": "删除前会自动快照，可通过 rollback 撤销。",
+  "remove.ack": "我明白这会删除上述组件。",
+  "remove.confirm": "确认删除 {name}",
+  "remove.done": "已删除。",
 
   "common.loading": "加载中…",
   "common.filter": "筛选…",
