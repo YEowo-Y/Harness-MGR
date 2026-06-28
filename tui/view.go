@@ -676,6 +676,12 @@ func statusBarView(m model) string {
 		modeLabel = tr("status.writesOn")
 	}
 	hint += sep + keyStyle.Render("W") + modeStyle.Render(" "+modeLabel)
+	// On the Inventory tab with writes enabled, advertise the "x delete" action so the
+	// component-remove write is discoverable next to the W mode indicator (mirrors how
+	// section tabs surface their "w <verb>" via tabActionHint).
+	if m.currentView == viewInventory && m.writesEnabled {
+		hint += sep + keyStyle.Render("x") + dim.Render(" "+tr("write.remove.hint"))
+	}
 	hint += sep +
 		keyStyle.Render("?") + dim.Render(" "+tr("status.help")) +
 		sep +
