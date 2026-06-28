@@ -154,6 +154,17 @@ type removeMsg struct {
 	err    error
 }
 
+// skillFlipMsg carries the resolved codex skill enable/disable flip action ready for
+// the confirm modal — built by prepareSkillFlipCmd AFTER a dry-run probe of the
+// authoritative config.toml state. err set ⇒ a probe/refusal failure (the skill has
+// no [[skills.config]] entry, an ambiguous name, or an exec error — shown in the
+// status bar, no modal); otherwise action holds the real --apply flip plus the
+// preview confirmView renders. Mirrors pluginToggleMsg.
+type skillFlipMsg struct {
+	action writeAction
+	err    error
+}
+
 // skillVisStates is the fixed set of skill-visibility states the picker offers,
 // in display order. They are engine enum values passed verbatim to
 // `skill visibility <name> <state>` — NOT translated (see visPickerView).
@@ -163,6 +174,16 @@ var skillVisStates = []string{"on", "name-only", "user-invocable-only", "off"}
 // skillVisStates for the selected skill before the dry-run runs. cursor indexes
 // skillVisStates; name is the skill being edited.
 type visPicker struct {
+	name   string
+	cursor int
+}
+
+// removePicker is the small modal shown when deleting a codex SKILL row: it lets the
+// user choose whether to also prune the skill's orphaned config.toml [[skills.config]]
+// entries. cursor indexes removePickLabelKeys (0 = delete only, 1 = delete + prune);
+// name is the skill being deleted. Only codex skills reach it — Claude skills and
+// codex agents/commands delete directly (no [[skills.config]] to prune).
+type removePicker struct {
 	name   string
 	cursor int
 }
@@ -329,6 +350,13 @@ type model struct {
 	// Enter launches the dry-run for the chosen state → m.pending; Esc/n/q cancels).
 	// It is mutually exclusive with pending — the picker leads INTO the confirm modal.
 	visPick *visPicker
+
+	// removePick holds the codex-skill-delete picker when open (nil = no picker).
+	// While set, handleKey routes to its overlay (arrow keys move the cursor over the
+	// two options, Enter launches the remove dry-run with the chosen prune flag →
+	// m.pending; Esc/n/q cancels). Mutually exclusive with visPick and pending — like
+	// visPick it leads INTO the confirm modal and does no write itself.
+	removePick *removePicker
 
 	// snapshotData is the last-fetched snapshot list, kept so the rollback action can
 	// map the selected Snapshots-tab row (by its id) back to the full record for the
@@ -929,6 +957,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a := msg.action
 		m.pending = &a // open the RED confirm modal with the resolved target preview
 		return m, nil
+	case skillFlipMsg:
+		// The codex skill-flip dry-run probe finished (writeRunning set when "w"
+		// launched it). Mirrors the pluginToggleMsg handler.
+		m.writeRunning = false
+		if msg.err != nil {
+			// Refusal (no config entry / ambiguous) or exec failure: status bar, no modal.
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		a := msg.action
+		m.pending = &a // open the confirm modal with the resolved flip preview
+		return m, nil
 	case rollbackPrepMsg:
 		// The rollback dry-run preflight finished (writeRunning set when "w" launched it).
 		m.writeRunning = false
@@ -1102,6 +1143,36 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// The codex-skill-delete picker swallows keys while open: up/k and down/j move the
+	// cursor over the two options (delete only / delete + prune config), Enter launches
+	// the remove dry-run with the chosen prune flag (which opens the RED confirm modal
+	// via removeMsg), n/Esc/q cancels. Checked BEFORE pending and the writeRunning guard
+	// (like visPick) because the picker itself does no write — it only leads INTO the
+	// confirm flow once Enter resolves the dry-run.
+	if m.removePick != nil {
+		switch msg.String() {
+		case "up", "k":
+			if m.removePick.cursor > 0 {
+				m.removePick.cursor--
+			}
+		case "down", "j":
+			if m.removePick.cursor < len(removePickLabelKeys)-1 {
+				m.removePick.cursor++
+			}
+		case "enter":
+			prune := m.removePick.cursor == 1 // index 1 = delete + prune config
+			name := m.removePick.name
+			m.removePick = nil
+			m.writeRunning = true
+			m.writeStatus = ""
+			// Codex skill delete: the dry-run resolves the target + (when prune) the
+			// orphaned config entries under --target codex.
+			return m, prepareRemoveCmd(m.cliPath, m.target, "skill", name, prune)
+		case "n", "esc", "q":
+			m.removePick = nil
+		}
+		return m, nil
+	}
 	// A pending write action shows a confirm modal that swallows keys: y/Enter runs
 	// it, n/Esc/q cancels. Nothing else acts while it is up (mirrors splash/help).
 	// The engine's assertWritable gate — not this modal — is the real safety
@@ -1212,15 +1283,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.writeStatus = ""
 				return m, preparePluginToggleCmd(m.cliPath, m.target, node.plug.Key)
 			} else if ok && node.kind == kindSkill && node.comp != nil {
-				// A skill row opens the visibility picker — Claude-ONLY (4-state
-				// skillOverrides). Codex skills use a binary enable/disable flip keyed
-				// by name OR path (config.toml [[skills.config]]), a different operation
-				// that lands in slice 2b; until then the codex skill row no-ops with a
-				// hint instead of opening the (wrong) Claude picker.
+				// A skill row's "w" branches by target. Claude: open the 4-state
+				// visibility picker (settings.json skillOverrides). Codex: launch the
+				// binary enable/disable FLIP (config.toml [[skills.config]] enabled) — an
+				// off-thread dry-run probe that decides direction and opens the confirm
+				// modal when skillFlipMsg arrives (mirrors the plugin toggle). A skill
+				// with no config entry refuses at probe time → a status-bar toast.
 				if m.target == "codex" {
-					m.writeStatus = tr("write.skill.codexTodo")
-					m.writeOK = false
-					return m, nil
+					m.writeRunning = true
+					m.writeStatus = ""
+					return m, prepareSkillFlipCmd(m.cliPath, m.target, node.comp.Name)
 				}
 				// The dry-run runs only after the user picks a state and presses Enter.
 				m.visPick = &visPicker{name: node.comp.Name}
@@ -1264,12 +1336,21 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.currentView == viewInventory {
 			if node, ok := m.tree.selectedNode(); ok && node.comp != nil &&
 				(node.kind == kindSkill || node.kind == kindAgent || node.kind == kindCommand) {
+				// A codex SKILL delete can also prune its orphaned config.toml entries, so
+				// it first opens the two-option picker (delete only / delete + prune); the
+				// dry-run launches from the picker's Enter with the chosen flag. Every other
+				// case (Claude rows, codex agents/commands — none have [[skills.config]])
+				// deletes directly with prune=false.
+				if m.target == "codex" && node.kind == kindSkill {
+					m.removePick = &removePicker{name: node.comp.Name}
+					return m, nil
+				}
 				m.writeRunning = true
 				m.writeStatus = ""
 				// node.comp.Kind is the engine string node.kind was derived from
 				// (tree.go componentKind), so the spec kind always matches the guarded
 				// row kind — they can never disagree about what is being deleted.
-				return m, prepareRemoveCmd(m.cliPath, m.target, node.comp.Kind, node.comp.Name)
+				return m, prepareRemoveCmd(m.cliPath, m.target, node.comp.Kind, node.comp.Name, false)
 			}
 			m.writeStatus = tr("write.remove.selectHint")
 			m.writeOK = false
@@ -1566,6 +1647,9 @@ func (m model) View() string {
 	}
 	if m.visPick != nil {
 		return visPickerView(m)
+	}
+	if m.removePick != nil {
+		return removePickerView(m)
 	}
 	if m.pending != nil {
 		return confirmView(m)
