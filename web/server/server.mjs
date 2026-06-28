@@ -280,35 +280,6 @@ app.get("/api/command/:cmd", async (c) => {
   });
 });
 
-// Live-reload stream (P1). The hub watches each target's config dir and pushes a
-// coalesced "change" signal; the browser turns it into a reloadKey bump → views
-// re-fetch. Read-only: it only observes the filesystem (no writes, no spawns).
-// Inherits the Host-header guard above (the `app.use("*")` middleware).
-const live = await createLiveHub();
-
-app.get("/api/events", (c) => {
-  return streamSSE(c, async (stream) => {
-    // greet so the client flips its indicator to "live" immediately
-    await stream.writeSSE({ event: "hello", data: "{}" });
-    const unsub = live.subscribe((payload) => {
-      void stream.writeSSE({ event: "change", data: payload });
-    });
-    // keep-alive so an idle connection is not dropped by a proxy
-    const ping = setInterval(() => {
-      void stream.writeSSE({ event: "ping", data: "1" });
-    }, 25_000);
-    if (typeof ping.unref === "function") ping.unref();
-    // hold the stream open until the client disconnects, then clean up
-    await new Promise((resolve) => {
-      stream.onAbort(() => {
-        clearInterval(ping);
-        unsub();
-        resolve();
-      });
-    });
-  });
-});
-
 // Write channel. SEPARATE from the read API: its own frozen WRITE_SPEC allowlist, a
 // required custom header (CSRF guard), and a POST verb. The dir is STILL resolved
 // server-side from `target` (never the client), and every apply routes through the
@@ -418,24 +389,76 @@ app.post("/api/write/:cmd", async (c) => {
   );
 });
 
-// Production single-port mode: serve the built SPA when web/dist exists. In dev
-// this never matches (Vite owns the frontend) — the API routes above are enough.
-const DIST = join(__dirname, "..", "dist");
-if (existsSync(DIST)) {
-  // serveStatic resolves `root`/`path` relative to process.cwd(), so compute the
-  // path from cwd to web/dist — the server then serves the SPA correctly no matter
-  // which directory it was launched from (repo root, web/, or a packaged bin).
-  const distRoot = relative(process.cwd(), DIST) || ".";
-  const indexPath = `${distRoot}/index.html`;
-  app.use("/*", serveStatic({ root: distRoot }));
-  // SPA fallback: any non-API path returns index.html so client routing works.
-  app.get("*", serveStatic({ path: indexPath }));
+// Live-reload + the HTTP listener run ONLY when this module is the entry point
+// (`node server.mjs`), never on import — so the test suite can `app.request(...)`
+// the routes above WITHOUT binding a port or starting the filesystem watchers.
+// import.meta.main is true only for the entry module (Node ≥ 24).
+if (import.meta.main) {
+  // Live-reload stream (P1). The hub watches each target's config dir and pushes a
+  // coalesced "change" signal; the browser turns it into a reloadKey bump → views
+  // re-fetch. Read-only: it only observes the filesystem (no writes, no spawns).
+  // Inherits the Host-header guard above (the `app.use("*")` middleware).
+  const live = await createLiveHub();
+  app.get("/api/events", (c) => {
+    return streamSSE(c, async (stream) => {
+      // greet so the client flips its indicator to "live" immediately
+      await stream.writeSSE({ event: "hello", data: "{}" });
+      const unsub = live.subscribe((payload) => {
+        void stream.writeSSE({ event: "change", data: payload });
+      });
+      // keep-alive so an idle connection is not dropped by a proxy
+      const ping = setInterval(() => {
+        void stream.writeSSE({ event: "ping", data: "1" });
+      }, 25_000);
+      if (typeof ping.unref === "function") ping.unref();
+      // hold the stream open until the client disconnects, then clean up
+      await new Promise((resolve) => {
+        stream.onAbort(() => {
+          clearInterval(ping);
+          unsub();
+          resolve();
+        });
+      });
+    });
+  });
+
+  // Production single-port mode: serve the built SPA when web/dist exists. In dev
+  // this never matches (Vite owns the frontend) — the API routes above are enough.
+  const DIST = join(__dirname, "..", "dist");
+  if (existsSync(DIST)) {
+    // serveStatic resolves `root`/`path` relative to process.cwd(), so compute the
+    // path from cwd to web/dist — the server then serves the SPA correctly no matter
+    // which directory it was launched from (repo root, web/, or a packaged bin).
+    const distRoot = relative(process.cwd(), DIST) || ".";
+    const indexPath = `${distRoot}/index.html`;
+    app.use("/*", serveStatic({ root: distRoot }));
+    // SPA fallback: any non-API path returns index.html so client routing works.
+    app.get("*", serveStatic({ path: indexPath }));
+  }
+
+  const port = Number(process.env.CLAUDE_MGR_WEB_PORT) || DEFAULT_PORT;
+  serve({ fetch: app.fetch, hostname: HOST, port }, (info) => {
+    // eslint-disable-next-line no-console
+    console.log(
+      `claude-mgr web API → http://${HOST}:${info.port}  (read + writes: plugin / skill-visibility / codex-mcp / remove)`,
+    );
+  });
 }
 
-const port = Number(process.env.CLAUDE_MGR_WEB_PORT) || DEFAULT_PORT;
-serve({ fetch: app.fetch, hostname: HOST, port }, (info) => {
-  // eslint-disable-next-line no-console
-  console.log(
-    `claude-mgr web API → http://${HOST}:${info.port}  (read + writes: plugin / skill-visibility / codex-mcp / remove)`,
-  );
-});
+// Exported for the test suite (server.test.mjs drives the routes via app.request()
+// and unit-tests the pure guard helpers). Importing the module does NOT start a
+// server — the listener is gated behind import.meta.main above.
+export {
+  app,
+  READ_COMMANDS,
+  WRITE_SPEC,
+  WRITE_COMMANDS,
+  WRITE_HEADER,
+  SAFE_ARG_KEYS,
+  asBool,
+  buildArgs,
+  resolveRequestedTarget,
+  pluginWriteSupported,
+  writeKindsFor,
+  removeKindsFor,
+};
