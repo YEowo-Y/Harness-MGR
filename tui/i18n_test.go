@@ -15,15 +15,14 @@ func TestTranslateEnglishDefault(t *testing.T) {
 	defer func() { uiLang = langEN }()
 	uiLang = langEN
 	cases := map[string]string{
-		"tab.inventory":          "Inventory",
-		"tab.selftest":           "Selftest",
-		"status.expand":          "expand",
-		"status.quit":            "quit",
-		"count.skills":           "skills",
-		"count.mcp":              "mcp",
-		"placeholder.comingSoon": "coming soon",
-		"empty.conflicts":        "no conflicts found",
-		"splash.tagline":         "agent harness configuration governance · read-only",
+		"tab.inventory":   "Inventory",
+		"tab.selftest":    "Selftest",
+		"status.expand":   "expand",
+		"status.quit":     "quit",
+		"count.skills":    "skills",
+		"count.mcp":       "mcp",
+		"empty.conflicts": "no conflicts found",
+		"splash.tagline":  "agent harness configuration governance · read-only",
 	}
 	for key, want := range cases {
 		if got := tr(key); got != want {
