@@ -304,9 +304,9 @@ export interface WriteResult {
   lockAcquired?: boolean | null;
   /** codex skill remove (--prune-config) only: how many orphaned [[skills.config]] entries the
    * plan also prunes. Present (a number, possibly 0) only on the prune path; absent for plain
-   * remove + the toggle commands. The `pruned` array carries the specific entries. */
+   * remove + the toggle commands. (The server response also carries the specific entries, but the
+   * UI shows only the count, so that array is intentionally not modeled here.) */
   prunedCount?: number | null;
-  pruned?: { field: string; value: string }[] | null;
 }
 
 export interface WriteEnvelope {
