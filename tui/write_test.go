@@ -236,24 +236,32 @@ func TestConfirmViewRendersTitleBodyPrompt(t *testing.T) {
 func TestSummaryBarShowsWriteHintOnDrift(t *testing.T) {
 	st := &sectionState{}
 	// Hint must appear regardless of write mode — tabActionHint has no writesEnabled
-	// parameter, so a direct call is the proof.
-	out := sectionSummaryBar(viewDrift, st, 120)
-	if !strings.Contains(out, tr("write.drift.hint")) {
-		t.Fatalf("summary bar on Drift missing write hint %q:\n%s", tr("write.drift.hint"), out)
+	// parameter, so a direct call is the proof. Shown under BOTH targets (slice 2a:
+	// codex drift-update is live).
+	if out := sectionSummaryBar(viewDrift, st, 120, "claude"); !strings.Contains(out, tr("write.drift.hint")) {
+		t.Fatalf("claude summary bar on Drift missing write hint %q:\n%s", tr("write.drift.hint"), out)
+	}
+	if out := sectionSummaryBar(viewDrift, st, 120, "codex"); !strings.Contains(out, tr("write.drift.hint")) {
+		t.Fatalf("codex summary bar on Drift missing write hint %q (drift-update is live under codex):\n%s", tr("write.drift.hint"), out)
 	}
 }
 
 func TestSummaryBarShowsActiveProbeHintOnDoctor(t *testing.T) {
 	st := &sectionState{}
-	out := sectionSummaryBar(viewDoctor, st, 120)
-	if !strings.Contains(out, tr("write.activeProbe.hint")) {
-		t.Fatalf("summary bar on Doctor missing active-probe hint %q:\n%s", tr("write.activeProbe.hint"), out)
+	// Claude advertises the active probe; codex HIDES it — the probes are claude-
+	// specific and stay gated under codex (slice 2a), so advertising them there
+	// would mislead.
+	if out := sectionSummaryBar(viewDoctor, st, 120, "claude"); !strings.Contains(out, tr("write.activeProbe.hint")) {
+		t.Fatalf("claude summary bar on Doctor missing active-probe hint %q:\n%s", tr("write.activeProbe.hint"), out)
+	}
+	if out := sectionSummaryBar(viewDoctor, st, 120, "codex"); strings.Contains(out, tr("write.activeProbe.hint")) {
+		t.Fatalf("codex summary bar on Doctor must NOT advertise the active-probe hint (it no-ops under codex):\n%s", out)
 	}
 }
 
 func TestSummaryBarNoHintOnConflicts(t *testing.T) {
 	st := &sectionState{}
-	out := sectionSummaryBar(viewConflicts, st, 120)
+	out := sectionSummaryBar(viewConflicts, st, 120, "claude")
 	if strings.Contains(out, tr("write.drift.hint")) {
 		t.Fatalf("summary bar on Conflicts should not contain drift hint:\n%s", out)
 	}
@@ -263,10 +271,10 @@ func TestSummaryBarNoHintOnConflicts(t *testing.T) {
 }
 
 func TestSummaryBarHintIndependentOfWriteMode(t *testing.T) {
-	// tabActionHint is stateless (view-only) — calling sectionSummaryBar directly
-	// without a model proves write mode has no effect on hint visibility.
+	// tabActionHint ignores write mode — calling sectionSummaryBar directly without a
+	// model proves write mode has no effect on hint visibility.
 	st := &sectionState{}
-	out := sectionSummaryBar(viewDrift, st, 120)
+	out := sectionSummaryBar(viewDrift, st, 120, "claude")
 	if !strings.Contains(out, tr("write.drift.hint")) {
 		t.Fatalf("summary bar hint missing when writesEnabled is irrelevant:\n%s", out)
 	}
