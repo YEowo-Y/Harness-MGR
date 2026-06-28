@@ -99,6 +99,7 @@ export default function App() {
                 activeKind={section}
                 reloadKey={reloadKey}
                 writeKinds={status.data?.writeKinds ?? []}
+                removeKinds={status.data?.removeKinds ?? []}
                 onRefresh={() => setReloadKey((k) => k + 1)}
               />
             )}
