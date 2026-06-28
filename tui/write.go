@@ -64,6 +64,12 @@ type writeAction struct {
 	// --apply command run on confirm. Mirrors the plugin field, but the target state
 	// is chosen in the visibility picker before the dry-run runs.
 	skillVis *skillVisInfo
+	// skillFlip, when non-nil, marks a codex per-skill enable/disable flip (Inventory
+	// tab, codex target): confirmView composes its title/body from this preview. args
+	// hold the real --apply flip run on confirm. Mirrors the plugin field exactly (a
+	// binary toggle whose direction the dry-run probe decides), but writes config.toml
+	// [[skills.config]] enabled rather than settings.json enabledPlugins.
+	skillFlip *skillFlipInfo
 	// remove, when non-nil, marks a component-delete action (Inventory tab):
 	// confirmView composes its title/body from this preview AND renders the modal in
 	// danger red (a destructive delete). args still hold the real --apply delete run
@@ -111,14 +117,32 @@ type skillVisInfo struct {
 	line   int
 }
 
+// skillFlipInfo carries what the confirm modal needs to describe a resolved codex
+// skill enable/disable flip, all derived from the dry-run preview. desired is the
+// direction (true = enable, false = disable) the probe picked; before/after/line
+// are the engine's config.toml diff fragments (before is "" for an INSERT, though a
+// skills.config block always carries enabled so a flip is normally a replace).
+type skillFlipInfo struct {
+	name    string
+	desired bool
+	before  string
+	after   string
+	line    int
+}
+
 // removeInfo carries what the confirm modal needs to describe a resolved component
 // delete, derived from the dry-run preview. kind is "skill"|"agent"|"command";
 // target is the engine-resolved absolute path (a FILE for agent/command, a whole
-// DIRECTORY for skill — the skill case adds a folder warning in the modal).
+// DIRECTORY for skill — the skill case adds a folder warning in the modal). prune is
+// true for a codex skill delete that also prunes its orphaned [[skills.config]]
+// entries (--prune-config); prunedCount is how many the dry-run reported (shown in
+// the modal so the config edits are visible before confirming).
 type removeInfo struct {
-	kind   string
-	name   string
-	target string
+	kind        string
+	name        string
+	target      string
+	prune       bool
+	prunedCount int
 }
 
 // writeActionFor returns the write action available on view v, or ok=false when the
@@ -257,6 +281,73 @@ func preparePluginToggleCmd(cliPath, target, key string) tea.Cmd {
 	}
 }
 
+// ── Codex skill enable/disable flip (Inventory tab, codex target) ───────────
+
+// buildSkillFlipAction builds the confirm-gated apply action from a resolved codex
+// skill-flip intent. args are the REAL --apply flip run on confirm; skillFlip holds
+// the preview confirmView renders. Pure — no exec. Mirrors buildPluginToggleAction.
+//
+// refetch is nil ON PURPOSE: the inventory tree does not display a codex skill's
+// enabled state (it comes from config.toml, not the discovered file), so a refetch
+// would show no visible change AND reset the tree's expand/cursor state (same
+// reasoning as the plugin/skill-visibility toggles). The status-bar toast is the
+// feedback instead.
+func buildSkillFlipAction(info skillFlipInfo) writeAction {
+	verb := "disable"
+	if info.desired {
+		verb = "enable"
+	}
+	return writeAction{
+		id:        "skill-flip",
+		doneKey:   "write.skillFlip.done",
+		hintKey:   "write.skillFlip.hint",
+		args:      []string{verb, "--type", "skill", info.name, "--apply", "--format", "json"},
+		skillFlip: &info,
+	}
+}
+
+// prepareSkillFlipCmd is the off-thread PROBE half of the codex skill-flip
+// confirm-apply flow. It dry-runs an `enable` to learn the authoritative
+// config.toml state (AlreadyInState ⇒ already enabled), picks the OPPOSITE verb,
+// fetches that direction's preview, and returns a skillFlipMsg with a
+// ready-to-confirm action — or an err (refusal: the skill has no [[skills.config]]
+// entry, or the name is ambiguous / exec failure) the handler surfaces in the
+// status bar WITHOUT opening a modal. It NEVER writes (dry-run only); the real flip
+// happens only after the user confirms the returned action. Mirrors
+// preparePluginToggleCmd exactly, but --type skill against config.toml.
+func prepareSkillFlipCmd(cliPath, target, name string) tea.Cmd {
+	return func() tea.Msg {
+		// Probe with an enable dry-run: AlreadyInState ⇒ the skill is already enabled.
+		probe, pdiags, err := fetchSkillFlipDry(cliPath, target, name, true)
+		if err != nil {
+			return skillFlipMsg{err: err}
+		}
+		if !probe.Ok {
+			return skillFlipMsg{err: refusalError(pdiags)}
+		}
+		desired := !probe.AlreadyInState // flip whatever the current state is
+
+		preview := probe
+		if !desired {
+			// The probe was an enable; fetch the disable-direction preview instead.
+			d, ddiags, derr := fetchSkillFlipDry(cliPath, target, name, false)
+			if derr != nil {
+				return skillFlipMsg{err: derr}
+			}
+			if !d.Ok {
+				return skillFlipMsg{err: refusalError(ddiags)}
+			}
+			preview = d
+		}
+
+		info := skillFlipInfo{name: name, desired: desired}
+		if preview.Diff != nil {
+			info.before, info.after, info.line = preview.Diff.Before, preview.Diff.After, preview.Diff.Line
+		}
+		return skillFlipMsg{action: buildSkillFlipAction(info)}
+	}
+}
+
 // ── Skill visibility (Inventory tab) ────────────────────────────────────────
 
 // buildSkillVisAction builds the confirm-gated apply action from a resolved
@@ -316,11 +407,19 @@ func prepareSkillVisCmd(cliPath, name, state string) tea.Cmd {
 // makes the row VANISH, so re-reading the inventory is the honest feedback that the
 // delete succeeded.
 func buildRemoveAction(info removeInfo) writeAction {
+	// A codex skill delete with prune adds --prune-config so the same atomic snapshot
+	// also removes the skill's orphaned [[skills.config]] entries. The flag sits
+	// before --apply, mirroring the engine's CLI shape. Plain removes omit it.
+	args := []string{"remove", info.kind + ":" + info.name}
+	if info.prune {
+		args = append(args, "--prune-config")
+	}
+	args = append(args, "--apply", "--format", "json")
 	return writeAction{
 		id:      "remove",
 		doneKey: "write.remove.done",
 		hintKey: "write.remove.hint",
-		args:    []string{"remove", info.kind + ":" + info.name, "--apply", "--format", "json"},
+		args:    args,
 		remove:  &info,
 		// The post-delete refetch re-reads the inventory under the SAME target the
 		// delete ran against (slice 2a: codex remove is live) so the deleted row
@@ -335,16 +434,19 @@ func buildRemoveAction(info removeInfo) writeAction {
 // / wrong type / symlink refusal / exec failure) the handler surfaces in the status
 // bar WITHOUT opening a modal. It NEVER writes (dry-run only); the real delete
 // happens only after the user confirms the returned action.
-func prepareRemoveCmd(cliPath, target, kind, name string) tea.Cmd {
+func prepareRemoveCmd(cliPath, target, kind, name string, prune bool) tea.Cmd {
 	return func() tea.Msg {
-		preview, diags, err := fetchRemoveDry(cliPath, target, kind, name)
+		preview, diags, err := fetchRemoveDry(cliPath, target, kind, name, prune)
 		if err != nil {
 			return removeMsg{err: err}
 		}
 		if !preview.Ok {
 			return removeMsg{err: refusalError(diags)}
 		}
-		return removeMsg{action: buildRemoveAction(removeInfo{kind: kind, name: name, target: preview.Target})}
+		return removeMsg{action: buildRemoveAction(removeInfo{
+			kind: kind, name: name, target: preview.Target,
+			prune: prune, prunedCount: preview.PrunedCount,
+		})}
 	}
 }
 
@@ -527,6 +629,31 @@ func skillVisConfirmText(info skillVisInfo) (title, body string) {
 	return title, body
 }
 
+// skillFlipConfirmText composes the confirm modal's title + body for a codex skill
+// enable/disable flip from its dry-run preview. The skill name and the config.toml
+// diff fragments are engine DATA (shown verbatim); only the surrounding prose is
+// translated. Called at render time on the UI thread, so reading uiLang via tr/tf is
+// race-free. Mirrors pluginConfirmText but names config.toml + Codex. Reuses
+// write.plugin.change for the diff-line label.
+func skillFlipConfirmText(info skillFlipInfo) (title, body string) {
+	if info.desired {
+		title = tr("write.skillFlip.enableTitle")
+		body = tf("write.skillFlip.willEnable", info.name)
+	} else {
+		title = tr("write.skillFlip.disableTitle")
+		body = tf("write.skillFlip.willDisable", info.name)
+	}
+	if info.after != "" {
+		change := info.before + "  →  " + info.after
+		if info.before == "" {
+			change = "+ " + info.after // an INSERT: the block had no enabled key yet
+		}
+		body += "\n\n" + tf("write.plugin.change", "config.toml", info.line) + "\n" + change
+	}
+	body += "\n\n" + tr("write.skillFlip.reversible")
+	return title, body
+}
+
 // removeConfirmText composes the confirm modal's title + body for a component
 // delete from its dry-run preview. The name + engine-resolved target path are
 // engine DATA shown verbatim; only the surrounding prose is translated. A skill
@@ -541,6 +668,12 @@ func removeConfirmText(info removeInfo) (title, body string) {
 	}
 	if info.kind == "skill" {
 		body += "\n\n" + tr("write.remove.folderWarn")
+	}
+	// A codex prune delete also removes the skill's orphaned config.toml entries — show
+	// how many so the config edits are visible before confirming (the same single
+	// snapshot covers both, so one rollback undoes the whole thing).
+	if info.prune {
+		body += "\n\n" + tf("write.remove.willPrune", info.prunedCount)
 	}
 	body += "\n\n" + tr("write.remove.reversible")
 	return title, body
@@ -572,6 +705,8 @@ func confirmView(m model) string {
 		titleText, bodyText = pluginConfirmText(*a.plugin)
 	case a.skillVis != nil:
 		titleText, bodyText = skillVisConfirmText(*a.skillVis)
+	case a.skillFlip != nil:
+		titleText, bodyText = skillFlipConfirmText(*a.skillFlip)
 	case a.remove != nil:
 		titleText, bodyText = removeConfirmText(*a.remove)
 		accentCol = colorRed // a destructive delete → danger styling (same red as a drifted rollback)
@@ -636,6 +771,54 @@ func visPickerView(m model) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n" + lipgloss.NewStyle().Foreground(configGray).Render(tr("write.skillVis.pickHint")))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorOrange).
+		Padding(1, 3).
+		Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// removePickLabelKeys are the two codex-skill-delete options, in cursor order:
+// index 0 = delete the skill only (prune=false), index 1 = also prune the orphaned
+// config.toml entries (prune=true). Unlike the skill-visibility picker (which shows
+// raw engine enum values), these are human labels, so they are translated at render.
+var removePickLabelKeys = []string{"write.remove.pickDeleteOnly", "write.remove.pickPrune"}
+
+// removePickerView renders the centered codex-skill-delete picker for m.removePick,
+// mirroring visPickerView's amber overlay. It offers two options — delete only, or
+// delete + prune the orphaned [[skills.config]] entries — the cursor row marked with
+// a "▸ " accent prefix and brightened, the other dimmed, plus a footer key hint. The
+// chosen option's prune flag flows into the dry-run, then the RED confirm modal.
+func removePickerView(m model) string {
+	width, height := m.width, m.height
+	if width < 1 || height < 1 {
+		return ""
+	}
+	if m.removePick == nil {
+		return dashboardView(m)
+	}
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorOrange)
+	nameStyle := lipgloss.NewStyle().Foreground(labelGray)
+	dim := lipgloss.NewStyle().Foreground(statusDim)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(glyph("✎", "!") + " " + tr("write.remove.pickTitle")))
+	b.WriteString("\n\n")
+	b.WriteString(nameStyle.Render(m.removePick.name))
+	b.WriteString("\n\n")
+
+	for i, key := range removePickLabelKeys {
+		if i == m.removePick.cursor {
+			b.WriteString(keyStyle.Bold(true).Render(glyph("▸", ">") + " " + tr(key)))
+		} else {
+			b.WriteString(dim.Render("  " + tr(key)))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n" + lipgloss.NewStyle().Foreground(configGray).Render(tr("write.remove.pickHint")))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
