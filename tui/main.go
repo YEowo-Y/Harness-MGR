@@ -291,6 +291,7 @@ type model struct {
 	cliPath     string
 	currentView viewID
 	lang        language // active UI language; defaults to langEN, chosen on the splash
+	target      string   // active harness target: "claude" (default) | "codex"; flipped by T
 	width       int
 	height      int
 
@@ -344,7 +345,7 @@ type model struct {
 
 // uiConfig snapshots the model's persisted TUI preferences for saveConfigCmd.
 func (m model) uiConfig() uiConfig {
-	return uiConfig{Language: langCode(m.lang), WritesEnabled: m.writesEnabled}
+	return uiConfig{Language: langCode(m.lang), WritesEnabled: m.writesEnabled, Target: m.target}
 }
 
 func initialModel(cliPath string) model {
@@ -354,6 +355,7 @@ func initialModel(cliPath string) model {
 		showSplash:    true,
 		cliPath:       cliPath,
 		currentView:   viewInventory,
+		target:        "claude", // clean default; main() applies the persisted value (mirrors lang/writesEnabled)
 		width:         defaultWidth,
 		height:        defaultHeight,
 		tree:          newTreeModel(DetailData{}),
@@ -382,61 +384,62 @@ func initialModel(cliPath string) model {
 }
 
 // fetchCmd returns a tea.Cmd that fetches the inventory counts and reports the
-// outcome back to Update as an inventoryMsg.
-func fetchCmd(cliPath string) tea.Cmd {
+// outcome back to Update as an inventoryMsg. target scopes the read to a harness.
+func fetchCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		inv, err := fetchInventory(cliPath)
+		inv, err := fetchInventory(cliPath, target)
 		return inventoryMsg{inv: inv, err: err}
 	}
 }
 
 // fetchDetailCmd returns a tea.Cmd that fetches all four object arrays
 // (`inventory --detail`) and reports the outcome back as a detailMsg.
-func fetchDetailCmd(cliPath string) tea.Cmd {
+func fetchDetailCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchDetail(cliPath)
+		data, err := fetchDetail(cliPath, target)
 		return detailMsg{data: data, err: err}
 	}
 }
 
 // fetchConflictsCmd returns a tea.Cmd that runs `conflicts --format json` and
 // reports the outcome back as a conflictsMsg.
-func fetchConflictsCmd(cliPath string) tea.Cmd {
+func fetchConflictsCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchConflicts(cliPath)
+		data, err := fetchConflicts(cliPath, target)
 		return conflictsMsg{data: data, err: err}
 	}
 }
 
 // fetchOrphansCmd returns a tea.Cmd that runs `orphans --format json` and
 // reports the outcome back as an orphansMsg.
-func fetchOrphansCmd(cliPath string) tea.Cmd {
+func fetchOrphansCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchOrphans(cliPath)
+		data, err := fetchOrphans(cliPath, target)
 		return orphansMsg{data: data, err: err}
 	}
 }
 
 // fetchConfigCmd returns a tea.Cmd that runs `config show-effective --format json`
 // and reports the outcome back as a configMsg.
-func fetchConfigCmd(cliPath string) tea.Cmd {
+func fetchConfigCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchConfig(cliPath)
+		data, err := fetchConfig(cliPath, target)
 		return configMsg{data: data, err: err}
 	}
 }
 
 // fetchHooksCmd returns a tea.Cmd that runs `hooks --format json` and reports
 // the outcome back as a hooksMsg.
-func fetchHooksCmd(cliPath string) tea.Cmd {
+func fetchHooksCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchHooks(cliPath)
+		data, err := fetchHooks(cliPath, target)
 		return hooksMsg{data: data, err: err}
 	}
 }
 
 // fetchSelftestCmd returns a tea.Cmd that runs `selftest --format json` and
-// reports the outcome back as a selftestMsg.
+// reports the outcome back as a selftestMsg. Target-AGNOSTIC — selftest checks
+// claude-mgr's OWN repo, not a harness, so it takes NO target param.
 func fetchSelftestCmd(cliPath string) tea.Cmd {
 	return func() tea.Msg {
 		data, err := fetchSelftest(cliPath)
@@ -446,9 +449,9 @@ func fetchSelftestCmd(cliPath string) tea.Cmd {
 
 // fetchDoctorCmd returns a tea.Cmd that runs `doctor --format json` (PASSIVE —
 // no --active-probes) and reports the outcome back as a doctorMsg.
-func fetchDoctorCmd(cliPath string) tea.Cmd {
+func fetchDoctorCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchDoctor(cliPath)
+		data, err := fetchDoctor(cliPath, target)
 		return doctorMsg{data: data, err: err}
 	}
 }
@@ -456,9 +459,11 @@ func fetchDoctorCmd(cliPath string) tea.Cmd {
 // fetchDoctorActiveCmd runs the OPT-IN active doctor probes and reports the
 // outcome as a doctorMsg (same handler as the passive run, so the tab updates in
 // place). Only ever dispatched from a confirmed "a" action — never at startup.
-func fetchDoctorActiveCmd(cliPath string) tea.Cmd {
+// In codex mode the "a" entry point is gated off (slice 1 keeps codex read-only),
+// so this is only ever dispatched with the claude target.
+func fetchDoctorActiveCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchDoctorActive(cliPath)
+		data, err := fetchDoctorActive(cliPath, target)
 		return doctorMsg{data: data, err: err}
 	}
 }
@@ -466,27 +471,27 @@ func fetchDoctorActiveCmd(cliPath string) tea.Cmd {
 // fetchPermissionsCmd returns a tea.Cmd that runs
 // `permissions --audit --format json` and reports the outcome back as a
 // permissionsMsg. This is fully READ-ONLY — no writes occur.
-func fetchPermissionsCmd(cliPath string) tea.Cmd {
+func fetchPermissionsCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchPermissions(cliPath)
+		data, err := fetchPermissions(cliPath, target)
 		return permissionsMsg{data: data, err: err}
 	}
 }
 
 // fetchDriftCmd returns a tea.Cmd that runs `drift --format json` (READ-ONLY —
 // no --update, so no lockfile is written) and reports the outcome as a driftMsg.
-func fetchDriftCmd(cliPath string) tea.Cmd {
+func fetchDriftCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchDrift(cliPath)
+		data, err := fetchDrift(cliPath, target)
 		return driftMsg{data: data, err: err}
 	}
 }
 
 // fetchAuditCmd returns a tea.Cmd that runs `audit --format json` (READ-ONLY log
 // view) and reports the outcome back as an auditMsg.
-func fetchAuditCmd(cliPath string) tea.Cmd {
+func fetchAuditCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchAudit(cliPath)
+		data, err := fetchAudit(cliPath, target)
 		return auditMsg{data: data, err: err}
 	}
 }
@@ -494,59 +499,61 @@ func fetchAuditCmd(cliPath string) tea.Cmd {
 // fetchHealthCmd returns a tea.Cmd that runs `health --format json` (READ-ONLY —
 // a passive doctor run plus scan/hooks/advice aggregation, no --active-probes, no
 // writes) and reports the outcome back as a healthMsg.
-func fetchHealthCmd(cliPath string) tea.Cmd {
+func fetchHealthCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchHealth(cliPath)
+		data, err := fetchHealth(cliPath, target)
 		return healthMsg{data: data, err: err}
 	}
 }
 
 // fetchDispositionsCmd returns a tea.Cmd that runs `conflicts --format json`
 // (READ-ONLY) and parses the additive dispositions overlay from the result.
-func fetchDispositionsCmd(cliPath string) tea.Cmd {
+func fetchDispositionsCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchDispositions(cliPath)
+		data, err := fetchDispositions(cliPath, target)
 		return dispositionsMsg{data: data, err: err}
 	}
 }
 
 // fetchSnapshotsCmd returns a tea.Cmd that runs `snapshot list --format json`
 // (READ-ONLY) and parses the snapshot list from the result.
-func fetchSnapshotsCmd(cliPath string) tea.Cmd {
+func fetchSnapshotsCmd(cliPath, target string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := fetchSnapshots(cliPath)
+		data, err := fetchSnapshots(cliPath, target)
 		return snapshotsMsg{data: data, err: err}
 	}
 }
 
 // sectionFetchCmd returns the read-only fetch command that (re)loads section view
-// v's data, or nil for a non-section view. Same commands Init dispatches.
-func sectionFetchCmd(v viewID, cliPath string) tea.Cmd {
+// v's data, or nil for a non-section view. Same commands Init dispatches. target
+// scopes every read to the active harness — EXCEPT selftest, which is
+// target-agnostic (it checks claude-mgr's own repo, not a harness).
+func sectionFetchCmd(v viewID, cliPath, target string) tea.Cmd {
 	switch v {
 	case viewConflicts:
-		return fetchConflictsCmd(cliPath)
+		return fetchConflictsCmd(cliPath, target)
 	case viewOrphans:
-		return fetchOrphansCmd(cliPath)
+		return fetchOrphansCmd(cliPath, target)
 	case viewConfig:
-		return fetchConfigCmd(cliPath)
+		return fetchConfigCmd(cliPath, target)
 	case viewHooks:
-		return fetchHooksCmd(cliPath)
+		return fetchHooksCmd(cliPath, target)
 	case viewSelftest:
-		return fetchSelftestCmd(cliPath)
+		return fetchSelftestCmd(cliPath) // target-AGNOSTIC — never scoped to a harness
 	case viewDoctor:
-		return fetchDoctorCmd(cliPath) // PASSIVE — no --active-probes
+		return fetchDoctorCmd(cliPath, target) // PASSIVE — no --active-probes
 	case viewPermissions:
-		return fetchPermissionsCmd(cliPath)
+		return fetchPermissionsCmd(cliPath, target)
 	case viewDrift:
-		return fetchDriftCmd(cliPath)
+		return fetchDriftCmd(cliPath, target)
 	case viewAudit:
-		return fetchAuditCmd(cliPath)
+		return fetchAuditCmd(cliPath, target)
 	case viewHealth:
-		return fetchHealthCmd(cliPath)
+		return fetchHealthCmd(cliPath, target)
 	case viewDispositions:
-		return fetchDispositionsCmd(cliPath)
+		return fetchDispositionsCmd(cliPath, target)
 	case viewSnapshots:
-		return fetchSnapshotsCmd(cliPath)
+		return fetchSnapshotsCmd(cliPath, target)
 	}
 	return nil
 }
@@ -566,7 +573,7 @@ func (m *model) refreshCurrent() tea.Cmd {
 		}
 		m.loading = true
 		m.detailLoading = true
-		return tea.Batch(fetchCmd(m.cliPath), fetchDetailCmd(m.cliPath))
+		return tea.Batch(fetchCmd(m.cliPath, m.target), fetchDetailCmd(m.cliPath, m.target))
 	}
 	if isSectionView(m.currentView) {
 		st := m.sections[m.currentView]
@@ -576,7 +583,7 @@ func (m *model) refreshCurrent() tea.Cmd {
 		// Resolve the fetch BEFORE flipping the loading flag: should a section view
 		// ever be missing from sectionFetchCmd (drift vs isSectionView), this stays a
 		// clean no-op instead of stranding the tab in a never-ending spinner.
-		cmd := sectionFetchCmd(m.currentView, m.cliPath)
+		cmd := sectionFetchCmd(m.currentView, m.cliPath, m.target)
 		if cmd == nil {
 			return nil
 		}
@@ -610,12 +617,79 @@ func (m *model) lazyLoadCurrent() tea.Cmd {
 	if st == nil || st.loading || st.loaded {
 		return nil
 	}
-	cmd := sectionFetchCmd(m.currentView, m.cliPath)
+	cmd := sectionFetchCmd(m.currentView, m.cliPath, m.target)
 	if cmd == nil {
 		return nil
 	}
 	st.loading = true
 	return cmd
+}
+
+// eagerSectionViews are the section tabs Init fetches up front so their tab-bar
+// badge is correct from launch. switchTarget re-fetches exactly these (the rest
+// lazy-load on first visit), so the list MUST mirror initialModel's loading:true
+// sections (drift coverage is guarded by refresh_test).
+var eagerSectionViews = []viewID{
+	viewConflicts, viewOrphans, viewSelftest, viewDoctor, viewPermissions, viewDrift,
+}
+
+// switchTarget flips the active harness target (claude↔codex), invalidates ALL
+// cached inventory + section data (so stale claude rows never show under codex and
+// vice-versa), resets the current view's filter, and returns the batch that
+// re-fetches the inventory + the eager section badges + the current view if it is
+// a lazy tab. The lazy tabs re-fetch on their next visit via lazyLoadCurrent (their
+// loaded flag is cleared here). Persisting the choice is the caller's job.
+//
+// Pointer receiver: it mutates the shared *sectionState entries + the scalar
+// loading flags, which reach the runtime via the model handleKey returns.
+func (m *model) switchTarget() tea.Cmd {
+	if m.target == "codex" {
+		m.target = "claude"
+	} else {
+		m.target = "codex"
+	}
+	// Drop any active filter so a query from the old target's rows does not carry over.
+	m.clearFilter()
+
+	// Invalidate the Inventory tab: empty the data + tree, mark both fetches in flight.
+	m.loading = true
+	m.detailLoading = true
+	m.inv = Inventory{}
+	m.err = nil
+	m.detailData = DetailData{}
+	m.detailErr = nil
+	m.tree = newTreeModel(DetailData{})
+
+	// Invalidate every section: empty list, drop the summary, clear loaded so a lazy
+	// tab re-fetches on its next visit. The eager sections are marked in flight below.
+	eager := make(map[viewID]bool, len(eagerSectionViews))
+	for _, v := range eagerSectionViews {
+		eager[v] = true
+	}
+	for v, st := range m.sections {
+		if st == nil {
+			continue
+		}
+		st.list = newSectionModel(nil)
+		st.summaryKey, st.summaryArgs = "", nil
+		st.err = nil
+		st.loaded = false
+		st.loading = eager[v]
+	}
+	// The rollback action maps a selected row to this raw list — it must not survive
+	// a target switch (it belongs to the old target's snapshot store).
+	m.snapshotData = nil
+
+	// Re-fetch the inventory + the eager section badges (mirrors Init), plus the
+	// current view if it is a lazy tab not in the eager set.
+	cmds := []tea.Cmd{fetchCmd(m.cliPath, m.target), fetchDetailCmd(m.cliPath, m.target)}
+	for _, v := range eagerSectionViews {
+		cmds = append(cmds, sectionFetchCmd(v, m.cliPath, m.target))
+	}
+	if lazy := m.lazyLoadCurrent(); lazy != nil {
+		cmds = append(cmds, lazy)
+	}
+	return tea.Batch(cmds...)
 }
 
 // selectedSnapshot returns the Snapshot under the Snapshots-tab cursor by mapping
@@ -679,14 +753,14 @@ func (m model) Init() tea.Cmd {
 	// tabs (config / hooks / audit) are NOT fetched here; lazyLoadCurrent fetches
 	// them on first visit, so startup spawns 8 node processes instead of 11.
 	return tea.Batch(
-		fetchCmd(m.cliPath),
-		fetchDetailCmd(m.cliPath),
-		fetchConflictsCmd(m.cliPath),
-		fetchOrphansCmd(m.cliPath),
-		fetchSelftestCmd(m.cliPath),
-		fetchDoctorCmd(m.cliPath),
-		fetchPermissionsCmd(m.cliPath),
-		fetchDriftCmd(m.cliPath),
+		fetchCmd(m.cliPath, m.target),
+		fetchDetailCmd(m.cliPath, m.target),
+		fetchConflictsCmd(m.cliPath, m.target),
+		fetchOrphansCmd(m.cliPath, m.target),
+		fetchSelftestCmd(m.cliPath), // target-AGNOSTIC
+		fetchDoctorCmd(m.cliPath, m.target),
+		fetchPermissionsCmd(m.cliPath, m.target),
+		fetchDriftCmd(m.cliPath, m.target),
 		m.spinner.Tick,
 		blinkTick(blinkOpenInterval),
 	)
@@ -877,8 +951,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.writeStatus = tr("write.rollback.done")
 		m.writeOK = true
 		// Re-read the counts (the live tree changed) and the snapshot list (the safety
-		// snapshot added one). Both are pure reads.
-		return m, tea.Batch(fetchCmd(m.cliPath), fetchSnapshotsCmd(m.cliPath))
+		// snapshot added one). Both are pure reads. (Rollback is claude-only in slice
+		// 1, so m.target is always claude here.)
+		return m, tea.Batch(fetchCmd(m.cliPath, m.target), fetchSnapshotsCmd(m.cliPath, m.target))
 	case writeResultMsg:
 		m.writeRunning = false
 		if msg.err != nil {
@@ -1117,6 +1192,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "r":
 		return m, m.refreshCurrent()
 	case "w":
+		if m.target == "codex" {
+			// Codex is read-only in slice 1 — every write action no-ops with a toast.
+			// (The guard is a no-op when target=="claude", so the Claude path below is
+			// byte-identical to before.)
+			m.writeStatus = tr("write.codexReadOnly")
+			m.writeOK = false
+			return m, nil
+		}
 		if !m.writesEnabled {
 			// Writes are opt-in and currently off — tell the user how to enable.
 			m.writeStatus = tr("write.disabledHint")
@@ -1167,6 +1250,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// modal only when removeMsg arrives. Only skill/agent/command rows are removable
 		// (plugins toggle via "w"; mcp/marketplace are not remove kinds). A non-removable
 		// or empty selection gets a hint.
+		if m.target == "codex" {
+			// Codex is read-only in slice 1 — delete no-ops with a toast (byte-identical
+			// Claude path when target=="claude").
+			m.writeStatus = tr("write.codexReadOnly")
+			m.writeOK = false
+			return m, nil
+		}
 		if !m.writesEnabled {
 			m.writeStatus = tr("write.disabledHint")
 			m.writeOK = false
@@ -1197,11 +1287,25 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.writeOK = true
 		return m, saveConfigCmd(m.uiConfig())
+	case "T":
+		// Flip the active harness target (claude↔codex), persist the choice, and
+		// re-fetch fresh per-target data (switchTarget invalidates all caches first so
+		// stale rows never show under the other target). Mirrors W/L as a capital-letter
+		// mode toggle. Codex is read-only in slice 1 (the w/x/a writes no-op under it).
+		cmd := m.switchTarget()
+		return m, tea.Batch(saveConfigCmd(m.uiConfig()), cmd)
 	case "a":
 		// Active doctor probes (Doctor tab only): side-effecting (spawns node/claude
 		// + a transient governed-dir write), so gated behind write mode like "w",
 		// then confirmed in the modal.
 		if m.currentView != viewDoctor {
+			return m, nil
+		}
+		if m.target == "codex" {
+			// Codex is read-only in slice 1 — the active probe (a governed-dir write)
+			// no-ops with a toast (byte-identical Claude path when target=="claude").
+			m.writeStatus = tr("write.codexReadOnly")
+			m.writeOK = false
 			return m, nil
 		}
 		if !m.writesEnabled {
@@ -1504,6 +1608,7 @@ func main() {
 	cfg := loadConfig() // restore TUI preferences chosen on a previous launch
 	m.lang = cfg.lang()
 	m.writesEnabled = cfg.WritesEnabled
+	m.target = cfg.target()
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
@@ -1524,12 +1629,14 @@ func main() {
 // two-pane LAYOUT (bordered tree + bordered detail) plus counts bar is always
 // rendered.
 func runSnapshot(cliPath string) int {
-	inv, err := fetchInventory(cliPath)
+	// Headless render uses the claude default (no T switcher in a non-TTY pipe);
+	// targetArgs("") returns nil, so the read line is byte-identical to before.
+	inv, err := fetchInventory(cliPath, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "snapshot error: %v\n", err)
 		return 1
 	}
-	data, detailErr := fetchDetail(cliPath)
+	data, detailErr := fetchDetail(cliPath, "")
 
 	m := model{ // loading=false, err=nil → inventory content path
 		inv:     inv,
@@ -1572,7 +1679,9 @@ func runSnapshot(cliPath string) int {
 // runProbe fetches the inventory and prints it as plain text for non-TTY
 // verification. Returns the process exit code (0 ok, 1 on fetch error).
 func runProbe(cliPath string) int {
-	inv, err := fetchInventory(cliPath)
+	// Headless probe uses the claude default (targetArgs("") returns nil → the read
+	// line is byte-identical to before).
+	inv, err := fetchInventory(cliPath, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "probe error: %v\n", err)
 		return 1
