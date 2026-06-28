@@ -131,6 +131,32 @@ type pluginToggleMsg struct {
 	err    error
 }
 
+// skillVisMsg carries the resolved per-skill visibility action ready for the
+// confirm modal — built by prepareSkillVisCmd AFTER a dry-run of the chosen
+// state. err set ⇒ a refusal / exec failure (shown in the status bar, no modal);
+// alreadyInState set ⇒ the skill is already in the chosen state (a status-bar
+// toast, no modal); otherwise action holds the real --apply command plus the
+// preview confirmView renders.
+type skillVisMsg struct {
+	action         writeAction
+	alreadyInState bool
+	name, state    string
+	err            error
+}
+
+// skillVisStates is the fixed set of skill-visibility states the picker offers,
+// in display order. They are engine enum values passed verbatim to
+// `skill visibility <name> <state>` — NOT translated (see visPickerView).
+var skillVisStates = []string{"on", "name-only", "user-invocable-only", "off"}
+
+// visPicker is the small modal that lets the user choose one of the four
+// skillVisStates for the selected skill before the dry-run runs. cursor indexes
+// skillVisStates; name is the skill being edited.
+type visPicker struct {
+	name   string
+	cursor int
+}
+
 // previewTickMsg is the debounced signal to load the file-body preview for the
 // currently selected Inventory tree node. gen must match model.previewGen at
 // delivery time; stale ticks (from a still-scrolling cursor) are discarded.
@@ -286,6 +312,12 @@ type model struct {
 	writeStatus   string
 	writeOK       bool
 	writesEnabled bool // opt-in: write actions (the "w" key) are live only when true
+
+	// visPick holds the per-skill visibility picker when open (nil = no picker).
+	// While set, handleKey routes to the picker overlay (arrow keys move the cursor,
+	// Enter launches the dry-run for the chosen state → m.pending; Esc/n/q cancels).
+	// It is mutually exclusive with pending — the picker leads INTO the confirm modal.
+	visPick *visPicker
 
 	// snapshotData is the last-fetched snapshot list, kept so the rollback action can
 	// map the selected Snapshots-tab row (by its id) back to the full record for the
@@ -781,6 +813,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a := msg.action
 		m.pending = &a // open the confirm modal with the resolved preview
 		return m, nil
+	case skillVisMsg:
+		// The dry-run of the chosen state finished. writeRunning was set when the
+		// picker's Enter launched it.
+		m.writeRunning = false
+		if msg.err != nil {
+			// Refusal / exec failure: surface it in the status bar, open no modal.
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		if msg.alreadyInState {
+			// Already in the chosen state: a status-bar toast, no modal.
+			m.writeStatus = tf("write.skillVis.already", msg.name, msg.state)
+			m.writeOK = true
+			return m, nil
+		}
+		a := msg.action
+		m.pending = &a // open the confirm modal with the resolved preview
+		return m, nil
 	case rollbackPrepMsg:
 		// The rollback dry-run preflight finished (writeRunning set when "w" launched it).
 		m.writeRunning = false
@@ -925,6 +976,33 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// The skill-visibility picker swallows keys while open: up/k and down/j move the
+	// cursor over the four states, Enter launches the dry-run for the chosen state
+	// (which opens the confirm modal via skillVisMsg), n/Esc/q cancels. It is checked
+	// BEFORE pending and the writeRunning guard because the picker itself does no
+	// write — it only leads INTO the confirm flow once Enter resolves a dry-run.
+	if m.visPick != nil {
+		switch msg.String() {
+		case "up", "k":
+			if m.visPick.cursor > 0 {
+				m.visPick.cursor--
+			}
+		case "down", "j":
+			if m.visPick.cursor < len(skillVisStates)-1 {
+				m.visPick.cursor++
+			}
+		case "enter":
+			state := skillVisStates[m.visPick.cursor]
+			name := m.visPick.name
+			m.visPick = nil
+			m.writeRunning = true
+			m.writeStatus = ""
+			return m, prepareSkillVisCmd(m.cliPath, name, state)
+		case "n", "esc", "q":
+			m.visPick = nil
+		}
+		return m, nil
+	}
 	// A pending write action shows a confirm modal that swallows keys: y/Enter runs
 	// it, n/Esc/q cancels. Nothing else acts while it is up (mirrors splash/help).
 	// The engine's assertWritable gate — not this modal — is the real safety
@@ -1032,6 +1110,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.writeRunning = true
 				m.writeStatus = ""
 				return m, preparePluginToggleCmd(m.cliPath, node.plug.Key)
+			} else if ok && node.kind == kindSkill && node.comp != nil {
+				// A skill row opens the visibility picker (Claude-only, 4-state). The
+				// dry-run runs only after the user picks a state and presses Enter.
+				m.visPick = &visPicker{name: node.comp.Name}
+				return m, nil
 			}
 			m.writeStatus = tr("write.plugin.selectHint")
 			m.writeOK = false
@@ -1317,6 +1400,9 @@ func (m model) View() string {
 	}
 	if m.showHelp {
 		return helpView(m.width, m.height)
+	}
+	if m.visPick != nil {
+		return visPickerView(m)
 	}
 	if m.pending != nil {
 		return confirmView(m)
