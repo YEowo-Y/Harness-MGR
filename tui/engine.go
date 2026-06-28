@@ -626,6 +626,50 @@ func fetchSkillVisDry(cliPath, name, state string) (ConfigEditResult, []Diagnost
 	return parseConfigEdit(data)
 }
 
+// RemoveResult mirrors the flat `result` object of a `remove <kind>:<name>
+// --format json` run. Target is the engine-resolved absolute path of the file
+// (agent/command) or directory (skill) that would be / was deleted; Status is
+// "dry-run" | "refused" | "removed" | "failed"; Applied is true only on a real
+// --apply; SnapshotId carries the auto-snapshot id after a successful apply.
+type RemoveResult struct {
+	Status     string `json:"status"`
+	Ok         bool   `json:"ok"`
+	DryRun     bool   `json:"dryRun"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	Target     string `json:"target"`
+	Applied    bool   `json:"applied"`
+	SnapshotId string `json:"snapshotId"`
+}
+
+type removeEnvelope struct {
+	Result      RemoveResult `json:"result"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+}
+
+// parseRemove unmarshals a raw `remove --format json` envelope into its result plus
+// the top-level diagnostics. Pure function — no exec, never panics.
+func parseRemove(data []byte) (RemoveResult, []Diagnostic, error) {
+	var env removeEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return RemoveResult{}, nil, fmt.Errorf("parsing remove JSON: %w", err)
+	}
+	return env.Result, env.Diagnostics, nil
+}
+
+// fetchRemoveDry runs a DRY-RUN `remove <kind>:<name> --format json` (NO --apply,
+// so it writes NOTHING) and returns the parsed result plus the top-level
+// diagnostics. It uses runJSONCapture because a refusal (target-not-found /
+// wrong-type / symlink) exits non-zero while still printing the envelope on stdout
+// (result.ok/status, not the exit code, is the signal). Never panics.
+func fetchRemoveDry(cliPath, kind, name string) (RemoveResult, []Diagnostic, error) {
+	data, err := runJSONCapture(cliPath, "remove", kind+":"+name, "--format", "json")
+	if err != nil {
+		return RemoveResult{}, nil, err
+	}
+	return parseRemove(data)
+}
+
 // parseConflicts unmarshals a raw `conflicts --format json` envelope into a
 // ConflictCluster slice. Pure function — no exec, never panics.
 func parseConflicts(data []byte) ([]ConflictCluster, error) {
