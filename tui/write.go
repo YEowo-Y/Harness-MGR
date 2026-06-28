@@ -59,6 +59,11 @@ type writeAction struct {
 	// --apply command run on confirm. Mirrors the plugin field, but the target state
 	// is chosen in the visibility picker before the dry-run runs.
 	skillVis *skillVisInfo
+	// remove, when non-nil, marks a component-delete action (Inventory tab):
+	// confirmView composes its title/body from this preview AND renders the modal in
+	// danger red (a destructive delete). args still hold the real --apply delete run
+	// on confirm; refetch is fetchCmd so the deleted row vanishes from the tree.
+	remove *removeInfo
 }
 
 // rollbackInfo carries what the confirm modal needs to describe a resolved
@@ -99,6 +104,16 @@ type skillVisInfo struct {
 	before string
 	after  string
 	line   int
+}
+
+// removeInfo carries what the confirm modal needs to describe a resolved component
+// delete, derived from the dry-run preview. kind is "skill"|"agent"|"command";
+// target is the engine-resolved absolute path (a FILE for agent/command, a whole
+// DIRECTORY for skill — the skill case adds a folder warning in the modal).
+type removeInfo struct {
+	kind   string
+	name   string
+	target string
 }
 
 // writeActionFor returns the write action available on view v, or ok=false when the
@@ -279,6 +294,46 @@ func prepareSkillVisCmd(cliPath, name, state string) tea.Cmd {
 	}
 }
 
+// ── Component delete / remove (Inventory tab) ───────────────────────────────
+
+// buildRemoveAction builds the confirm-gated DELETE action from a resolved remove
+// intent. args are the REAL --apply command run on confirm; remove holds the
+// preview confirmView renders in danger red. Pure — no exec.
+//
+// refetch is fetchCmd (re-reads the inventory) ON PURPOSE — UNLIKE the idempotent
+// plugin / skill-visibility toggles whose change is invisible in the tree, a delete
+// makes the row VANISH, so re-reading the inventory is the honest feedback that the
+// delete succeeded.
+func buildRemoveAction(info removeInfo) writeAction {
+	return writeAction{
+		id:      "remove",
+		doneKey: "write.remove.done",
+		hintKey: "write.remove.hint",
+		args:    []string{"remove", info.kind + ":" + info.name, "--apply", "--format", "json"},
+		remove:  &info,
+		refetch: fetchCmd,
+	}
+}
+
+// prepareRemoveCmd is the off-thread PROBE half of the remove confirm-apply flow.
+// It dry-runs the delete to resolve + validate the target path WITHOUT writing, and
+// returns a removeMsg with a ready-to-confirm action — or an err (target not found
+// / wrong type / symlink refusal / exec failure) the handler surfaces in the status
+// bar WITHOUT opening a modal. It NEVER writes (dry-run only); the real delete
+// happens only after the user confirms the returned action.
+func prepareRemoveCmd(cliPath, kind, name string) tea.Cmd {
+	return func() tea.Msg {
+		preview, diags, err := fetchRemoveDry(cliPath, kind, name)
+		if err != nil {
+			return removeMsg{err: err}
+		}
+		if !preview.Ok {
+			return removeMsg{err: refusalError(diags)}
+		}
+		return removeMsg{action: buildRemoveAction(removeInfo{kind: kind, name: name, target: preview.Target})}
+	}
+}
+
 // ── Snapshot rollback (Snapshots tab) ──────────────────────────────────────
 
 // buildRollbackAction builds the confirm-gated rollback action. On confirm the
@@ -453,6 +508,25 @@ func skillVisConfirmText(info skillVisInfo) (title, body string) {
 	return title, body
 }
 
+// removeConfirmText composes the confirm modal's title + body for a component
+// delete from its dry-run preview. The name + engine-resolved target path are
+// engine DATA shown verbatim; only the surrounding prose is translated. A skill
+// delete adds a whole-folder warning. The modal renders in danger red (see
+// confirmView). Called at render time on the UI thread, so reading uiLang via
+// tr/tf is race-free.
+func removeConfirmText(info removeInfo) (title, body string) {
+	title = tr("write.remove.title")
+	body = tf("write.remove.willDelete", info.name)
+	if info.target != "" {
+		body += "\n\n" + tr("write.remove.pathLabel") + "\n" + info.target
+	}
+	if info.kind == "skill" {
+		body += "\n\n" + tr("write.remove.folderWarn")
+	}
+	body += "\n\n" + tr("write.remove.reversible")
+	return title, body
+}
+
 // confirmView renders the centered confirm modal for m.pending, mirroring
 // helpView's overlay. An amber border + title signal a state-changing action.
 func confirmView(m model) string {
@@ -479,6 +553,9 @@ func confirmView(m model) string {
 		titleText, bodyText = pluginConfirmText(*a.plugin)
 	case a.skillVis != nil:
 		titleText, bodyText = skillVisConfirmText(*a.skillVis)
+	case a.remove != nil:
+		titleText, bodyText = removeConfirmText(*a.remove)
+		accentCol = colorRed // a destructive delete → danger styling (same red as a drifted rollback)
 	case a.rollback != nil:
 		titleText, bodyText = rollbackConfirmText(*a.rollback)
 		if a.rollback.drifted {
