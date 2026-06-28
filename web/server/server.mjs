@@ -76,12 +76,19 @@ const READ_COMMANDS = Object.freeze(
  *   disable / enable   → plugin on/off (Claude settings.json map / Codex config.toml),
  *                        and an mcp server on/off (Codex config.toml only)
  *   skill:visibility   → a Claude skill's 4-state skillOverrides value (name + state)
+ *   remove             → delete a user component (skill / agent / command) — DESTRUCTIVE but
+ *                        reversible (auto-snapshot + rollback). `spec:true` means the engine
+ *                        takes a `<kind>:<name>` positional (not --type+name); `capability`
+ *                        names the per-target gate axis (removeKindsFor, not writeKindsFor).
  *
  * Note: a command's `kinds` set is the COMMAND-level allowlist; the per-TARGET capability
  * (which of those kinds the resolved target actually supports) is a SECOND gate enforced by
- * writeKindsFor() below. e.g. disable/enable accept `mcp` here, but writeKindsFor advertises
- * mcp only for Codex — Claude's mcp toggle delegates to the `claude` CLI + a stash (a
- * different, non-snapshot mechanism) and is deliberately NOT surfaced through this channel.
+ * writeKindsFor() / removeKindsFor() below. e.g. disable/enable accept `mcp` here, but
+ * writeKindsFor advertises mcp only for Codex — Claude's mcp toggle delegates to the `claude`
+ * CLI + a stash (a different, non-snapshot mechanism) and is deliberately NOT surfaced here;
+ * likewise remove accepts skill/agent/command here but removeKindsFor advertises them only for
+ * Claude (Codex remove leaves orphaned [[skills.config]] entries that need the engine's
+ * --prune-config flag — deferred from this channel).
  */
 const WRITE_SPEC = Object.freeze({
   disable: { kinds: new Set(["plugin", "mcp"]) },
@@ -90,6 +97,7 @@ const WRITE_SPEC = Object.freeze({
     kinds: new Set(["skill"]),
     states: new Set(["on", "name-only", "user-invocable-only", "off"]),
   },
+  remove: { kinds: new Set(["skill", "agent", "command"]), spec: true, capability: "remove" },
 });
 
 /**
@@ -186,6 +194,20 @@ function writeKindsFor(descriptor) {
   return kinds;
 }
 
+/**
+ * The component kinds the web may DELETE on a given target — a SEPARATE capability axis from
+ * writeKindsFor (remove is a destructive OPERATION on a component, not a state flip on a kind,
+ * so it is advertised + enforced independently). Consumed by BOTH /api/status (to advertise as
+ * `removeKinds`) and /api/write (to enforce for a `capability:'remove'` command):
+ *   claude → skill / agent / command (the engine's `remove <kind>:<name>`, auto-snapshot + reversible)
+ *   codex  → [] (deferred — a codex skill remove leaves orphaned [[skills.config]] entries that
+ *            need the engine's --prune-config flag, a UX not surfaced through this channel yet)
+ */
+function removeKindsFor(descriptor) {
+  if (descriptor && descriptor.id === "claude") return ["skill", "agent", "command"];
+  return [];
+}
+
 const app = new Hono();
 
 // DNS-rebinding guard: a browser pointed at this server always sends a
@@ -210,12 +232,15 @@ app.get("/api/status", async (c) => {
   // target. Empty = read-only for this target. Computed by the shared writeKindsFor() so
   // the advertised set is identical to what /api/write enforces.
   const writeKinds = writeKindsFor(cfg.descriptor);
+  // removeKinds is a SEPARATE capability axis (destructive component delete) — see removeKindsFor.
+  const removeKinds = removeKindsFor(cfg.descriptor);
   return c.json({
     version: PKG.version,
     target,
     configDir: cfg.configDir,
     targets: ["claude", "codex"],
     writeKinds,
+    removeKinds,
     diagnostics: cfg.diagnostics,
   });
 });
@@ -324,10 +349,10 @@ app.post("/api/write/:cmd", async (c) => {
   if (name.length === 0) {
     return c.json({ error: "name-required", message: "a component name is required" }, 400);
   }
-  // A stateful command (skill:visibility) requires a `state` from its frozen enum; a
-  // binary command (enable/disable) takes just the name. positionals mirror the CLI:
-  // [name] or [name, state].
-  const positionals = [name];
+  // positionals mirror the CLI. A `spec:true` command (remove) takes a single
+  // "<kind>:<name>" string (the engine reads positionals[0], not --type). A stateful
+  // command (skill:visibility) takes [name, state]; a binary command (enable/disable) [name].
+  const positionals = spec.spec ? [`${kind}:${name}`] : [name];
   if (spec.states) {
     const state = typeof body?.state === "string" ? body.state : "";
     if (!spec.states.has(state)) {
@@ -341,12 +366,16 @@ app.post("/api/write/:cmd", async (c) => {
   const apply = body?.apply === true;
 
   const cfg = await resolveTargetAndConfig({ target });
-  // Per-TARGET capability gate (the second factor beyond the command-level WRITE_SPEC.kinds):
-  // the engine command `disable --type mcp` would, for a Claude target, route to the
-  // `claude`-CLI-delegating mcp toggle (a different mechanism). Refuse any kind the resolved
-  // target does not advertise, so this channel can never reach an unsupported write path —
-  // and the rejection matches exactly what /api/status told the UI was writable.
-  if (!writeKindsFor(cfg.descriptor).includes(kind)) {
+  // Per-TARGET capability gate (the second factor beyond the command-level WRITE_SPEC.kinds).
+  // The axis depends on the command: a `capability:'remove'` command gates on removeKindsFor,
+  // every other (toggle) command on writeKindsFor. e.g. `disable --type mcp` for a Claude target
+  // would route to the `claude`-CLI-delegating mcp toggle (a different mechanism), and `remove`
+  // is Claude-only. Refuse any kind the resolved target does not advertise, so this channel can
+  // never reach an unsupported write path — and the rejection matches exactly what /api/status
+  // told the UI was writable/removable.
+  const capableKinds =
+    spec.capability === "remove" ? removeKindsFor(cfg.descriptor) : writeKindsFor(cfg.descriptor);
+  if (!capableKinds.includes(kind)) {
     return c.json(
       { error: "kind-not-supported-for-target", message: `${kind} write is not supported for target ${target}` },
       400,
@@ -395,6 +424,6 @@ const port = Number(process.env.CLAUDE_MGR_WEB_PORT) || DEFAULT_PORT;
 serve({ fetch: app.fetch, hostname: HOST, port }, (info) => {
   // eslint-disable-next-line no-console
   console.log(
-    `claude-mgr web API → http://${HOST}:${info.port}  (read + writes: plugin / skill-visibility / codex-mcp)`,
+    `claude-mgr web API → http://${HOST}:${info.port}  (read + writes: plugin / skill-visibility / codex-mcp / remove)`,
   );
 });
