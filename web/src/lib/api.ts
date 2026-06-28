@@ -33,6 +33,9 @@ export interface StatusInfo {
   targets: TargetId[];
   /** item kinds the write channel may toggle on this target ([] = read-only here) */
   writeKinds: string[];
+  /** component kinds the web may DELETE on this target ([] = no remove here) — a SEPARATE
+   * capability axis from writeKinds (destructive operation, not a state flip) */
+  removeKinds: string[];
   /** resolution diagnostics (e.g. the missing-hooks-lib fallback warn) */
   diagnostics: Diagnostic[];
 }
@@ -290,11 +293,15 @@ export interface WriteResult {
   desired?: boolean | null;
   /** skill:visibility: the desired 4-state value */
   state?: string | null;
+  /** For the toggle commands this is the target id (claude/codex); for `remove` it is the
+   * ABSOLUTE PATH of the file/dir the engine resolved + would delete. */
   target: string | null;
   diff: WriteDiff | null;
   alreadyInState: boolean;
   applied: boolean;
   snapshotId: string | null;
+  /** remove only: whether the apply lock was acquired (null on dry-run / toggle commands) */
+  lockAcquired?: boolean | null;
 }
 
 export interface WriteEnvelope {
