@@ -54,6 +54,12 @@ type writeAction struct {
 	// i18n runs in the off-thread prepare Cmd). args still hold the real --apply
 	// command run on confirm.
 	plugin *pluginToggleInfo
+	// mcp, when non-nil, marks a codex per-server MCP enable/disable action (Inventory
+	// tab, codex target): confirmView composes its title/body from this preview. args
+	// hold the real --apply toggle run on confirm. Mirrors the plugin field exactly (a
+	// binary toggle whose direction the dry-run probe decides), but writes config.toml
+	// mcp_servers `enabled` rather than settings.json enabledPlugins.
+	mcp *mcpToggleInfo
 	// rollback, when non-nil, marks a snapshot-rollback action: confirmView composes
 	// its title/body from this preview and renders the modal in danger (red) styling
 	// when the live tree drifted. The on-confirm work runs via the run field (a
@@ -284,6 +290,110 @@ func preparePluginToggleCmd(cliPath, target, key string) tea.Cmd {
 		}
 		return pluginToggleMsg{action: buildPluginToggleAction(info)}
 	}
+}
+
+// ── Codex MCP enable/disable (Inventory tab, codex target) ─────────────────
+
+// mcpToggleInfo carries what the confirm modal needs to describe a resolved codex
+// MCP server enable/disable, all derived from the dry-run preview. desired is the
+// direction (true = enable, false = disable) the probe picked; before/after/line are
+// the engine's config.toml diff fragments (before is "" for an INSERT — a disable on
+// a server with no `enabled` key inserts `enabled = false`). No override field: codex
+// config.toml has no settings.local-style precedence layer (unlike the plugin toggle).
+type mcpToggleInfo struct {
+	server  string
+	desired bool
+	before  string
+	after   string
+	line    int
+}
+
+// buildMcpToggleAction builds the confirm-gated apply action from a resolved codex
+// MCP toggle intent. args are the REAL --apply toggle run on confirm; mcp holds the
+// preview confirmView renders. Pure — no exec. Mirrors buildPluginToggleAction.
+//
+// refetch is nil ON PURPOSE: the inventory tree does not display a codex MCP server's
+// enabled state (it comes from config.toml, not the discovered server fields), so a
+// refetch would show no visible change AND reset the tree's expand/cursor state (same
+// reasoning as the plugin/skill toggles). The status-bar toast is the feedback instead.
+func buildMcpToggleAction(info mcpToggleInfo) writeAction {
+	verb := "disable"
+	if info.desired {
+		verb = "enable"
+	}
+	return writeAction{
+		id:      "mcp-toggle",
+		doneKey: "write.mcp.done",
+		hintKey: "write.mcp.hint",
+		args:    []string{verb, "--type", "mcp", info.server, "--apply", "--format", "json"},
+		mcp:     &info,
+	}
+}
+
+// prepareMcpToggleCmd is the off-thread PROBE half of the codex MCP confirm-apply
+// flow. It dry-runs an `enable` to learn the authoritative config.toml state
+// (AlreadyInState ⇒ already enabled, which is also the default for a server with no
+// `enabled` key), picks the OPPOSITE verb, fetches that direction's preview, and
+// returns an mcpToggleMsg with a ready-to-confirm action — or an err (refusal / exec
+// failure) the handler surfaces in the status bar WITHOUT opening a modal. It NEVER
+// writes (dry-run only); the real toggle happens only after the user confirms. Mirrors
+// preparePluginToggleCmd, but --type mcp against config.toml.
+func prepareMcpToggleCmd(cliPath, target, server string) tea.Cmd {
+	return func() tea.Msg {
+		// Probe with an enable dry-run: AlreadyInState ⇒ the server is already enabled.
+		probe, pdiags, err := fetchMcpToggleDry(cliPath, target, server, true)
+		if err != nil {
+			return mcpToggleMsg{err: err}
+		}
+		if !probe.Ok {
+			return mcpToggleMsg{err: refusalError(pdiags)}
+		}
+		desired := !probe.AlreadyInState // flip whatever the current state is
+
+		preview := probe
+		if !desired {
+			// The probe was an enable; fetch the disable-direction preview instead.
+			d, ddiags, derr := fetchMcpToggleDry(cliPath, target, server, false)
+			if derr != nil {
+				return mcpToggleMsg{err: derr}
+			}
+			if !d.Ok {
+				return mcpToggleMsg{err: refusalError(ddiags)}
+			}
+			preview = d
+		}
+
+		info := mcpToggleInfo{server: server, desired: desired}
+		if preview.Diff != nil {
+			info.before, info.after, info.line = preview.Diff.Before, preview.Diff.After, preview.Diff.Line
+		}
+		return mcpToggleMsg{action: buildMcpToggleAction(info)}
+	}
+}
+
+// mcpToggleConfirmText composes the confirm modal's title + body for a codex MCP
+// server enable/disable from its dry-run preview. The server name and config.toml diff
+// fragments are engine DATA (shown verbatim); only the surrounding prose is translated.
+// Called at render time on the UI thread, so reading uiLang via tr/tf is race-free.
+// Mirrors pluginConfirmText but names config.toml + Codex (no settings.local override
+// caveat). Reuses write.plugin.change for the diff-line label.
+func mcpToggleConfirmText(info mcpToggleInfo) (title, body string) {
+	if info.desired {
+		title = tr("write.mcp.enableTitle")
+		body = tf("write.mcp.willEnable", info.server)
+	} else {
+		title = tr("write.mcp.disableTitle")
+		body = tf("write.mcp.willDisable", info.server)
+	}
+	if info.after != "" {
+		change := info.before + "  →  " + info.after
+		if info.before == "" {
+			change = "+ " + info.after // an INSERT: the table had no enabled key yet
+		}
+		body += "\n\n" + tf("write.plugin.change", "config.toml", info.line) + "\n" + change
+	}
+	body += "\n\n" + tr("write.mcp.reversible")
+	return title, body
 }
 
 // ── Codex skill enable/disable flip (Inventory tab, codex target) ───────────
@@ -748,6 +858,8 @@ func confirmView(m model) string {
 	switch {
 	case a.plugin != nil:
 		titleText, bodyText = pluginConfirmText(*a.plugin)
+	case a.mcp != nil:
+		titleText, bodyText = mcpToggleConfirmText(*a.mcp)
 	case a.skillVis != nil:
 		titleText, bodyText = skillVisConfirmText(*a.skillVis)
 	case a.skillFlip != nil:
