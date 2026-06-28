@@ -104,10 +104,10 @@ func TestRefreshNoopWhileInventoryLoading(t *testing.T) {
 // TestSectionFetchCmdNilForInventory verifies that sectionFetchCmd returns nil
 // for non-section views and non-nil for section views.
 func TestSectionFetchCmdNilForInventory(t *testing.T) {
-	if got := sectionFetchCmd(viewInventory, "x"); got != nil {
+	if got := sectionFetchCmd(viewInventory, "x", "claude"); got != nil {
 		t.Fatal("sectionFetchCmd(viewInventory) should return nil")
 	}
-	if got := sectionFetchCmd(viewDrift, "x"); got == nil {
+	if got := sectionFetchCmd(viewDrift, "x", "claude"); got == nil {
 		t.Fatal("sectionFetchCmd(viewDrift) should return non-nil")
 	}
 }
@@ -120,7 +120,7 @@ func TestSectionFetchCmdCoversAllSectionViews(t *testing.T) {
 		if !isSectionView(v) {
 			continue
 		}
-		if sectionFetchCmd(v, "x") == nil {
+		if sectionFetchCmd(v, "x", "claude") == nil {
 			t.Errorf("sectionFetchCmd(%v) is nil but isSectionView(%v) is true", v, v)
 		}
 	}
