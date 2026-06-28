@@ -634,6 +634,31 @@ func fetchPluginToggleDry(cliPath, target, key string, desired bool) (ConfigEdit
 	return parseConfigEdit(data)
 }
 
+// fetchSkillFlipDry runs a DRY-RUN `enable|disable --type skill <name> --format
+// json` (NO --apply, so it writes NOTHING) and returns the parsed result plus the
+// top-level diagnostics. It is the probe/preview half of the codex skill-flip
+// confirm-apply flow (Inventory tab, codex target). The codex skill flip reuses the
+// EXACT config-edit envelope the plugin toggle does (verified against the live
+// engine): the result's AlreadyInState reveals the authoritative config.toml state
+// and Diff carries the before→after preview. The skill is resolved by NAME against
+// config.toml's [[skills.config]] name-keyed blocks; a name with no matching block
+// (or an ambiguous one) refuses with an error-severity diagnostic that the prepare
+// path surfaces in the status bar (no modal). It uses runJSONCapture because a
+// refusal exits non-zero while still printing the envelope on stdout. Never panics.
+// target scopes the probe to a harness (always "codex" in practice — the Claude
+// skill row opens the 4-state visibility picker instead, a different operation).
+func fetchSkillFlipDry(cliPath, target, name string, desired bool) (ConfigEditResult, []Diagnostic, error) {
+	verb := "disable"
+	if desired {
+		verb = "enable"
+	}
+	data, err := runJSONCapture(cliPath, target, verb, "--type", "skill", name, "--format", "json")
+	if err != nil {
+		return ConfigEditResult{}, nil, err
+	}
+	return parseConfigEdit(data)
+}
+
 // fetchSkillVisDry runs a DRY-RUN `skill visibility <name> <state> --format json`
 // (NO --apply, so it writes NOTHING) and returns the parsed result plus the
 // top-level diagnostics. It is the probe/preview half of the Inventory tab's
@@ -651,20 +676,36 @@ func fetchSkillVisDry(cliPath, name, state string) (ConfigEditResult, []Diagnost
 	return parseConfigEdit(data)
 }
 
+// PrunedEntry is one config.toml [[skills.config]] entry that a
+// `remove … --prune-config` run would prune alongside the skill directory. Field
+// is "name" or "path" (which key matched the deleted skill); Value is the literal
+// matched value. Engine DATA shown verbatim. Present only on a --prune-config run
+// (absent → nil on a plain remove, which encoding/json leaves as a nil slice).
+type PrunedEntry struct {
+	Field string `json:"field"`
+	Value string `json:"value"`
+}
+
 // RemoveResult mirrors the flat `result` object of a `remove <kind>:<name>
 // --format json` run. Target is the engine-resolved absolute path of the file
 // (agent/command) or directory (skill) that would be / was deleted; Status is
 // "dry-run" | "refused" | "removed" | "failed"; Applied is true only on a real
 // --apply; SnapshotId carries the auto-snapshot id after a successful apply.
+// Pruned/PrunedCount are populated ONLY on a codex `--prune-config` run (the engine
+// adds them to the same envelope): the orphaned [[skills.config]] entries that the
+// same atomic snapshot would also remove. A plain remove omits them (Pruned nil,
+// PrunedCount 0) — encoding/json ignores the absent fields.
 type RemoveResult struct {
-	Status     string `json:"status"`
-	Ok         bool   `json:"ok"`
-	DryRun     bool   `json:"dryRun"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-	Target     string `json:"target"`
-	Applied    bool   `json:"applied"`
-	SnapshotId string `json:"snapshotId"`
+	Status      string        `json:"status"`
+	Ok          bool          `json:"ok"`
+	DryRun      bool          `json:"dryRun"`
+	Kind        string        `json:"kind"`
+	Name        string        `json:"name"`
+	Target      string        `json:"target"`
+	Applied     bool          `json:"applied"`
+	SnapshotId  string        `json:"snapshotId"`
+	Pruned      []PrunedEntry `json:"pruned"`
+	PrunedCount int           `json:"prunedCount"`
 }
 
 type removeEnvelope struct {
@@ -682,14 +723,21 @@ func parseRemove(data []byte) (RemoveResult, []Diagnostic, error) {
 	return env.Result, env.Diagnostics, nil
 }
 
-// fetchRemoveDry runs a DRY-RUN `remove <kind>:<name> --format json` (NO --apply,
-// so it writes NOTHING) and returns the parsed result plus the top-level
-// diagnostics. It uses runJSONCapture because a refusal (target-not-found /
-// wrong-type / symlink) exits non-zero while still printing the envelope on stdout
-// (result.ok/status, not the exit code, is the signal). Never panics.
-// target scopes the dry-run to a harness ("codex" or the claude default).
-func fetchRemoveDry(cliPath, target, kind, name string) (RemoveResult, []Diagnostic, error) {
-	data, err := runJSONCapture(cliPath, target, "remove", kind+":"+name, "--format", "json")
+// fetchRemoveDry runs a DRY-RUN `remove <kind>:<name> [--prune-config] --format
+// json` (NO --apply, so it writes NOTHING) and returns the parsed result plus the
+// top-level diagnostics. It uses runJSONCapture because a refusal (target-not-found
+// / wrong-type / symlink) exits non-zero while still printing the envelope on stdout
+// (result.ok/status, not the exit code, is the signal). Never panics. target scopes
+// the dry-run to a harness ("codex" or the claude default). prune adds
+// --prune-config (codex-skill-only): the dry-run then also reports the orphaned
+// [[skills.config]] entries (result.pruned/prunedCount) the one atomic snapshot
+// would remove with the skill.
+func fetchRemoveDry(cliPath, target, kind, name string, prune bool) (RemoveResult, []Diagnostic, error) {
+	args := []string{"remove", kind + ":" + name, "--format", "json"}
+	if prune {
+		args = append(args, "--prune-config")
+	}
+	data, err := runJSONCapture(cliPath, target, args...)
 	if err != nil {
 		return RemoveResult{}, nil, err
 	}
