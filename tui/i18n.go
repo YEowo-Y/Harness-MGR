@@ -62,10 +62,11 @@ var translations = map[string][2]string{
 	"status.help":    {"help", "帮助"},
 	"status.quit":    {"quit", "退出"},
 
-	// Target switcher (T) — the codex badge shown in the status bar when the active
-	// harness is codex (claude, the default, shows no badge). "codex" is an engine
-	// identifier shown verbatim in both langs.
-	"status.targetCodex": {"codex", "codex"},
+	// Target switcher (T) — the persistent status-bar badge naming the active harness
+	// (BOTH are shown; claude teal, codex amber). The names are engine identifiers
+	// shown verbatim in both langs.
+	"status.targetClaude": {"claude", "claude"},
+	"status.targetCodex":  {"codex", "codex"},
 	// Transient toast shown after the T switcher flips the active target (verbless →
 	// looked up via tr). The harness name is an engine identifier kept verbatim.
 	"status.switchedToClaude": {"switched to claude", "已切换到 claude"},
