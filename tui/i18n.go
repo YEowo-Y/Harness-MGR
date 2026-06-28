@@ -66,6 +66,10 @@ var translations = map[string][2]string{
 	// harness is codex (claude, the default, shows no badge). "codex" is an engine
 	// identifier shown verbatim in both langs.
 	"status.targetCodex": {"codex", "codex"},
+	// Transient toast shown after the T switcher flips the active target (verbless →
+	// looked up via tr). The harness name is an engine identifier kept verbatim.
+	"status.switchedToClaude": {"switched to claude", "已切换到 claude"},
+	"status.switchedToCodex":  {"switched to codex", "已切换到 codex"},
 
 	// Counts overview bar labels (looked up by the English plural label).
 	"count.skills":       {"skills", "技能"},
@@ -155,7 +159,7 @@ var translations = map[string][2]string{
 	"write.disabledHint": {"writes disabled — press W to enable", "写入已关闭 — 按 W 开启"},
 	// Codex is read-only in slice 1 — every write entry point (w/x/a/rollback) shows
 	// this toast and no-ops under the codex target.
-	"write.codexReadOnly": {"codex is read-only here — writes arrive in a later update", "codex 此处为只读 — 写入将在后续版本支持"},
+	"write.codexReadOnly": {"codex is read-only", "codex 为只读"},
 
 	"write.activeProbe.title":    {"Run active probes?", "运行主动探针?"},
 	"write.activeProbe.body":     {"Runs the 3 active doctor checks: they spawn node/claude and write a transient probe file into ~/.claude/agents that is immediately removed. Nothing else is modified.", "运行 3 项主动体检:会启动 node/claude,并向 ~/.claude/agents 写入一个临时探针文件(随即删除)。不改动其它任何东西。"},
