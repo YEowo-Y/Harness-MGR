@@ -240,18 +240,28 @@ func TestSelftestTargetAgnostic(t *testing.T) {
 
 // ── status bar surfaces the target indicator + T hint ─────────────────────────
 
-// TestStatusBarShowsTargetIndicator verifies the bottom bar shows the amber codex
-// badge ONLY under the codex target — claude (the default) carries no badge.
+// TestStatusBarShowsTargetIndicator verifies the bottom bar shows a PERSISTENT
+// target badge naming the active harness — both claude and codex (not codex-only).
 func TestStatusBarShowsTargetIndicator(t *testing.T) {
-	// Claude (the default) carries NO target badge — a clean bar.
 	m := loadedModel(120, 30)
-	if out := statusBarView(m); strings.Contains(out, tr("status.targetCodex")) {
-		t.Errorf("claude bar should carry no codex badge:\n%s", out)
+	if out := statusBarView(m); !strings.Contains(out, tr("status.targetClaude")) {
+		t.Fatalf("claude bar should show the claude badge %q:\n%s", tr("status.targetClaude"), out)
 	}
-	// Codex shows the "T codex" badge.
 	m.target = "codex"
 	if out := statusBarView(m); !strings.Contains(out, tr("status.targetCodex")) {
 		t.Fatalf("codex bar should show the codex badge %q:\n%s", tr("status.targetCodex"), out)
+	}
+}
+
+// TestTKeyCaseInsensitive verifies both lowercase t and uppercase T flip the target
+// (case-insensitive like the H/D/S tab jumps).
+func TestTKeyCaseInsensitive(t *testing.T) {
+	for _, key := range []string{"t", "T"} {
+		m := loadedModel(120, 30)
+		mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
+		if got := mm.(model).target; got != "codex" {
+			t.Errorf("%q should flip claude→codex, got %q", key, got)
+		}
 	}
 }
 
@@ -286,7 +296,9 @@ func TestStatusBarFitsOneLineAt120(t *testing.T) {
 // claude but hidden under codex (delete no-ops there), even on Inventory with write
 // mode on.
 func TestCodexSuppressesDeleteHint(t *testing.T) {
-	m := loadedModel(120, 30)
+	// Wide enough that the persistent target badge + the x-delete hint both fit
+	// without the width clip dropping the rightmost hint.
+	m := loadedModel(160, 30)
 	m.writesEnabled = true
 	m.currentView = viewInventory
 	if out := statusBarView(m); !strings.Contains(out, tr("write.remove.hint")) {
