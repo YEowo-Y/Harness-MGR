@@ -122,57 +122,119 @@ func TestTKeyResetsFilter(t *testing.T) {
 	}
 }
 
-// ── codex is read-only: w / x / a no-op with the toast ────────────────────────
+// ── codex writes (slice 2a): w / x are LIVE; the active probe stays gated ──────
 
-// TestCodexWNoop verifies that under the codex target, "w" no-ops with the
-// read-only toast and opens no modal — even with write mode on.
-func TestCodexWNoop(t *testing.T) {
+// TestCodexDriftWOpensModal verifies that under codex the Drift "w" opens the
+// drift-update confirm modal (slice 2a makes codex drift-update live) — the slice-1
+// read-only no-op is gone. On confirm the write routes through runWriteCmd under
+// --target codex.
+func TestCodexDriftWOpensModal(t *testing.T) {
 	m := loadedModel(120, 30)
 	m.target = "codex"
-	m.writesEnabled = true // prove the codex guard precedes the write-mode gate
-	// On the Drift tab "w" would otherwise open the drift-update modal.
+	m.writesEnabled = true
+	// Jump to the Drift tab (key "9").
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("9")})
 	m = mm.(model)
 	if m.currentView != viewDrift {
 		t.Fatalf("currentView = %v, want viewDrift", m.currentView)
 	}
-	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	mm, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	m = mm.(model)
-	if m.pending != nil {
-		t.Fatal("codex: w must not open a confirm modal")
-	}
-	if m.writeRunning {
-		t.Fatal("codex: w must not start a write")
-	}
-	if cmd != nil {
-		t.Fatal("codex: w must return no command")
-	}
-	if m.writeStatus != tr("write.codexReadOnly") {
-		t.Fatalf("codex: writeStatus = %q, want %q", m.writeStatus, tr("write.codexReadOnly"))
-	}
-	if m.writeOK {
-		t.Fatal("codex: writeOK should be false for the read-only toast")
+	if m.pending == nil || m.pending.id != "drift-update" {
+		t.Fatal("codex: w on Drift should open the drift-update modal (slice 2a)")
 	}
 }
 
-// TestCodexXNoop verifies that under codex, "x" (component delete) no-ops with the
-// read-only toast on the Inventory tab — even with write mode on and a removable
-// row selected.
-func TestCodexXNoop(t *testing.T) {
+// TestCodexXStartsRemove verifies that under codex "x" on a removable row launches
+// the remove dry-run (slice 2a makes codex remove live) — the slice-1 no-op is gone.
+// The dry-run runs under --target codex; the modal opens only when removeMsg arrives.
+func TestCodexXStartsRemove(t *testing.T) {
 	m := loadedModel(120, 30)
 	m.target = "codex"
 	m.writesEnabled = true
-	// loadedModel lands on Inventory with a skill row under the cursor (removable).
+	m = selectFirstSkill(m)
+	if node, ok := m.tree.selectedNode(); !ok || node.kind != kindSkill {
+		t.Fatalf("selectFirstSkill did not land on a skill (ok=%v kind=%v)", ok, node.kind)
+	}
 	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = mm.(model)
-	if m.pending != nil || m.writeRunning {
-		t.Fatal("codex: x must not start a delete")
+	if !m.writeRunning {
+		t.Fatal("codex: x should start the remove dry-run (writeRunning true)")
+	}
+	if m.pending != nil {
+		t.Fatal("codex: x must not open a modal until removeMsg returns")
+	}
+	if cmd == nil {
+		t.Fatal("codex: x should return the remove dry-run cmd")
+	}
+}
+
+// TestCodexPluginWStartsDryRun verifies that under codex "w" on a plugin row
+// launches the toggle dry-run probe (slice 2a) under --target codex — mirrors the
+// claude path, proving removing the codex guard did not regress plugin toggle.
+func TestCodexPluginWStartsDryRun(t *testing.T) {
+	m := loadedModel(120, 30)
+	m.target = "codex"
+	m.writesEnabled = true
+	m = selectFirstPlugin(m)
+	if node, ok := m.tree.selectedNode(); !ok || node.kind != kindPlugin {
+		t.Fatalf("selectFirstPlugin did not land on a plugin (ok=%v kind=%v)", ok, node.kind)
+	}
+	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m = mm.(model)
+	if !m.writeRunning {
+		t.Fatal("codex: w on a plugin should start the dry-run probe")
+	}
+	if m.pending != nil {
+		t.Fatal("codex: w must not open a modal until pluginToggleMsg returns")
+	}
+	if cmd == nil {
+		t.Fatal("codex: w on a plugin should return the probe cmd")
+	}
+}
+
+// TestCodexSkillWShowsTodo verifies that under codex "w" on a skill row does NOT
+// open the Claude 4-state visibility picker (a different operation) — codex skills
+// flip via a binary enable/disable, which is slice 2b. Until then it shows a hint.
+func TestCodexSkillWShowsTodo(t *testing.T) {
+	m := loadedModel(120, 30)
+	m.target = "codex"
+	m.writesEnabled = true
+	m = selectFirstSkill(m)
+	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m = mm.(model)
+	if m.visPick != nil {
+		t.Fatal("codex: w on a skill must NOT open the Claude visibility picker")
 	}
 	if cmd != nil {
-		t.Fatal("codex: x must return no command")
+		t.Fatal("codex: w on a skill (2b TODO) should return no command")
 	}
-	if m.writeStatus != tr("write.codexReadOnly") {
-		t.Fatalf("codex: writeStatus = %q, want %q", m.writeStatus, tr("write.codexReadOnly"))
+	if m.writeStatus != tr("write.skill.codexTodo") {
+		t.Fatalf("codex: writeStatus = %q, want %q", m.writeStatus, tr("write.skill.codexTodo"))
+	}
+	if m.writeOK {
+		t.Fatal("codex: writeOK should be false for the 2b-TODO hint")
+	}
+}
+
+// TestCodexWOnSnapshotsLaunchesPreflight verifies that under codex "w" on a snapshot
+// row launches the rollback dry-run preflight (slice 2a makes codex rollback live) —
+// the slice-1 no-op is gone. The preflight + the safety snapshot + the restore all
+// run under --target codex; the modal opens only when rollbackPrepMsg arrives.
+func TestCodexWOnSnapshotsLaunchesPreflight(t *testing.T) {
+	m := loadSnapshotsModel(t)
+	m.target = "codex"
+	m.writesEnabled = true
+	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
+	m = mm.(model)
+	if !m.writeRunning {
+		t.Fatal("codex: w on a snapshot should start the rollback preflight (writeRunning true)")
+	}
+	if m.pending != nil {
+		t.Fatal("codex: w must not open a modal until rollbackPrepMsg returns")
+	}
+	if cmd == nil {
+		t.Fatal("codex: w on a snapshot should return the preflight cmd")
 	}
 }
 
@@ -267,8 +329,9 @@ func TestTKeyCaseInsensitive(t *testing.T) {
 
 // TestStatusBarFitsOneLineAt120 pins the Medium-fix invariant: the status bar must
 // stay a SINGLE line at the canonical 120-col width across the target × write-mode ×
-// tab combinations that previously pushed it to two lines. The codex badge is
-// codex-only and the x-delete hint is suppressed under codex precisely to hold this.
+// tab combinations that previously pushed it to two lines. The persistent target
+// badge and the x-delete hint are shown under BOTH targets; the width clip
+// (MaxWidth(m.width-2) in statusBarView) is what holds the bar to one line.
 func TestStatusBarFitsOneLineAt120(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -292,10 +355,10 @@ func TestStatusBarFitsOneLineAt120(t *testing.T) {
 	}
 }
 
-// TestCodexSuppressesDeleteHint verifies the "x delete" hint is advertised under
-// claude but hidden under codex (delete no-ops there), even on Inventory with write
-// mode on.
-func TestCodexSuppressesDeleteHint(t *testing.T) {
+// TestCodexShowsDeleteHint verifies the "x delete" hint is advertised under BOTH
+// targets on Inventory with write mode on — slice 2a makes codex remove live, so
+// advertising it under codex is now honest (the slice-1 suppression is gone).
+func TestCodexShowsDeleteHint(t *testing.T) {
 	// Wide enough that the persistent target badge + the x-delete hint both fit
 	// without the width clip dropping the rightmost hint.
 	m := loadedModel(160, 30)
@@ -305,8 +368,8 @@ func TestCodexSuppressesDeleteHint(t *testing.T) {
 		t.Fatalf("claude Inventory+writes should advertise the x-delete hint:\n%s", out)
 	}
 	m.target = "codex"
-	if out := statusBarView(m); strings.Contains(out, tr("write.remove.hint")) {
-		t.Errorf("codex must not advertise the x-delete hint (delete no-ops under codex):\n%s", out)
+	if out := statusBarView(m); !strings.Contains(out, tr("write.remove.hint")) {
+		t.Errorf("codex Inventory+writes should ALSO advertise the x-delete hint (remove is live in slice 2a):\n%s", out)
 	}
 }
 
