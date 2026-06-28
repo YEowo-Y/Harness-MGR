@@ -62,6 +62,11 @@ var translations = map[string][2]string{
 	"status.help":    {"help", "帮助"},
 	"status.quit":    {"quit", "退出"},
 
+	// Target switcher (T) — the codex badge shown in the status bar when the active
+	// harness is codex (claude, the default, shows no badge). "codex" is an engine
+	// identifier shown verbatim in both langs.
+	"status.targetCodex": {"codex", "codex"},
+
 	// Counts overview bar labels (looked up by the English plural label).
 	"count.skills":       {"skills", "技能"},
 	"count.agents":       {"agents", "智能体"},
@@ -113,6 +118,7 @@ var translations = map[string][2]string{
 	"help.dismiss":  {"? / Esc / q to close", "? / Esc / q 关闭"},
 	"help.filter":   {"filter items", "过滤条目"},
 	"help.refresh":  {"refresh this tab", "刷新本页"},
+	"help.target":   {"switch target", "切换目标"},
 
 	// Filter bar (/).
 	"filter.label": {"filter:", "过滤:"},
@@ -147,6 +153,9 @@ var translations = map[string][2]string{
 	"write.modeOn":       {"write mode enabled", "写入模式已开启"},
 	"write.modeOff":      {"write mode disabled", "写入模式已关闭"},
 	"write.disabledHint": {"writes disabled — press W to enable", "写入已关闭 — 按 W 开启"},
+	// Codex is read-only in slice 1 — every write entry point (w/x/a/rollback) shows
+	// this toast and no-ops under the codex target.
+	"write.codexReadOnly": {"codex is read-only here — writes arrive in a later update", "codex 此处为只读 — 写入将在后续版本支持"},
 
 	"write.activeProbe.title":    {"Run active probes?", "运行主动探针?"},
 	"write.activeProbe.body":     {"Runs the 3 active doctor checks: they spawn node/claude and write a transient probe file into ~/.claude/agents that is immediately removed. Nothing else is modified.", "运行 3 项主动体检:会启动 node/claude,并向 ~/.claude/agents 写入一个临时探针文件(随即删除)。不改动其它任何东西。"},
