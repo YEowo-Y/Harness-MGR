@@ -144,6 +144,16 @@ type skillVisMsg struct {
 	err            error
 }
 
+// removeMsg carries the resolved component-delete action ready for the confirm
+// modal — built by prepareRemoveCmd AFTER a dry-run that resolves + validates the
+// target path. err set ⇒ a refusal (target not found / wrong type / symlink) or
+// exec failure (shown in the status bar, no modal); otherwise action holds the real
+// --apply delete plus the preview confirmView renders in danger red.
+type removeMsg struct {
+	action writeAction
+	err    error
+}
+
 // skillVisStates is the fixed set of skill-visibility states the picker offers,
 // in display order. They are engine enum values passed verbatim to
 // `skill visibility <name> <state>` — NOT translated (see visPickerView).
@@ -832,6 +842,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a := msg.action
 		m.pending = &a // open the confirm modal with the resolved preview
 		return m, nil
+	case removeMsg:
+		// The remove dry-run finished (writeRunning set when "x" launched it).
+		m.writeRunning = false
+		if msg.err != nil {
+			// Refusal (not found / wrong type / symlink) or exec failure: status bar, no modal.
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		a := msg.action
+		m.pending = &a // open the RED confirm modal with the resolved target preview
+		return m, nil
 	case rollbackPrepMsg:
 		// The rollback dry-run preflight finished (writeRunning set when "w" launched it).
 		m.writeRunning = false
@@ -1136,6 +1158,33 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if wa, ok := writeActionFor(m.currentView); ok {
 			m.pending = &wa
+		}
+		return m, nil
+	case "x":
+		// Remove (DELETE) the selected component — a destructive but reversible write,
+		// Inventory tab only. Gated behind write mode like "w". Launches an off-thread
+		// dry-run that resolves + validates the target path and opens the RED confirm
+		// modal only when removeMsg arrives. Only skill/agent/command rows are removable
+		// (plugins toggle via "w"; mcp/marketplace are not remove kinds). A non-removable
+		// or empty selection gets a hint.
+		if !m.writesEnabled {
+			m.writeStatus = tr("write.disabledHint")
+			m.writeOK = false
+			return m, nil
+		}
+		if m.currentView == viewInventory {
+			if node, ok := m.tree.selectedNode(); ok && node.comp != nil &&
+				(node.kind == kindSkill || node.kind == kindAgent || node.kind == kindCommand) {
+				m.writeRunning = true
+				m.writeStatus = ""
+				// node.comp.Kind is the engine string node.kind was derived from
+				// (tree.go componentKind), so the spec kind always matches the guarded
+				// row kind — they can never disagree about what is being deleted.
+				return m, prepareRemoveCmd(m.cliPath, node.comp.Kind, node.comp.Name)
+			}
+			m.writeStatus = tr("write.remove.selectHint")
+			m.writeOK = false
+			return m, nil
 		}
 		return m, nil
 	case "W":
