@@ -16,6 +16,7 @@ import { useGsap } from "@/lib/motion";
 import { PluginWriteControl } from "@/components/PluginWriteControl";
 import { SkillVisibilityControl } from "@/components/SkillVisibilityControl";
 import { McpWriteControl } from "@/components/McpWriteControl";
+import { RemoveControl } from "@/components/RemoveControl";
 import type { KindConfig, RenderCtx } from "@/lib/kinds";
 import type { InventoryItem, TargetId } from "@/lib/api";
 
@@ -36,6 +37,7 @@ export function ItemInspector({
   shadow,
   target,
   writeKinds,
+  removeKinds,
   onRefresh,
   onClose,
 }: {
@@ -43,14 +45,23 @@ export function ItemInspector({
   config: KindConfig;
   shadow: ShadowInfo | null;
   target: TargetId;
-  /** item kinds the server will let us write on this target */
+  /** item kinds the server will let us write (toggle) on this target */
   writeKinds: string[];
+  /** component kinds the server will let us DELETE on this target (separate axis) */
+  removeKinds: string[];
   /** bump the data after a successful write so the inventory reflects it */
   onRefresh: () => void;
   onClose: () => void;
 }) {
   const { t } = useLang();
   const ctx: RenderCtx = { t, target };
+
+  // Whether a toggle write control applies to this kind on this target (the exclusive chain
+  // below). Remove is a separate axis; the read-only note shows only when NEITHER applies.
+  const hasToggle =
+    (config.type === "plugin" && writeKinds.includes("plugin")) ||
+    (config.type === "skill" && writeKinds.includes("skill")) ||
+    (config.type === "mcp" && writeKinds.includes("mcp"));
 
   // Slide + fade in on open and whenever the selected item changes.
   const ref = useGsap<HTMLElement>(
@@ -164,15 +175,24 @@ export function ItemInspector({
 
       </div>
 
-      {/* action footer — docked actions (industry-standard); the body scrolls above it */}
-      <div className="shrink-0 border-t border-hair px-4 py-3">
+      {/* action footer — docked actions (industry-standard); the body scrolls above it. A
+          toggle control (writeKinds) and the destructive remove control (removeKinds, a
+          separate axis) can BOTH apply to one kind (e.g. a Claude skill gets visibility +
+          remove); they stack. The read-only note shows only when neither is available. */}
+      <div className="flex shrink-0 flex-col gap-3 border-t border-hair px-4 py-3">
         {config.type === "plugin" && writeKinds.includes("plugin") ? (
           <PluginWriteControl item={item} target={target} onRefresh={onRefresh} />
         ) : config.type === "skill" && writeKinds.includes("skill") ? (
           <SkillVisibilityControl item={item} target={target} onRefresh={onRefresh} />
         ) : config.type === "mcp" && writeKinds.includes("mcp") ? (
           <McpWriteControl item={item} target={target} onRefresh={onRefresh} />
-        ) : (
+        ) : null}
+
+        {removeKinds.includes(config.type) && (
+          <RemoveControl item={item} kind={config.type} target={target} onRefresh={onRefresh} />
+        )}
+
+        {!hasToggle && !removeKinds.includes(config.type) && (
           <div className="flex flex-col gap-1.5 text-[11px] leading-relaxed text-i42">
             <p>{t("inspector.actionsP2")}</p>
             {config.shadowKind === "skill" && <p>{t("inspector.contentDeferred")}</p>}
