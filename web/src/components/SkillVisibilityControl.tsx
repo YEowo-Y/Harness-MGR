@@ -156,12 +156,13 @@ export function SkillVisibilityControl({
             <>
               <div className="rounded-md border border-hair bg-bg px-3 py-2 font-mono text-[12px] leading-relaxed">
                 <div className="mb-1 text-[11px] text-i42">
-                  {t("write.line", { line: preview.diff.line })}
+                  {/* skill visibility is Claude-only → always settings.json (skillOverrides) */}
+                  {t("write.line", { line: preview.diff.line, file: "settings.json" })}
                 </div>
                 {preview.diff.before && <div className="text-danger">- {preview.diff.before}</div>}
                 <div className="text-ok">+ {preview.diff.after}</div>
               </div>
-              <p className="text-[12px] leading-relaxed text-i42">{t("write.reversible")}</p>
+              <p className="text-[12px] leading-relaxed text-i42">{t("write.reversible", { file: "settings.json" })}</p>
             </>
           )}
           <div className="flex items-center gap-2">
