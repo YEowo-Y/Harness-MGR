@@ -145,10 +145,11 @@ func TestCodexDriftWOpensModal(t *testing.T) {
 	}
 }
 
-// TestCodexXStartsRemove verifies that under codex "x" on a removable row launches
-// the remove dry-run (slice 2a makes codex remove live) — the slice-1 no-op is gone.
-// The dry-run runs under --target codex; the modal opens only when removeMsg arrives.
-func TestCodexXStartsRemove(t *testing.T) {
+// TestCodexXOnSkillOpensPicker verifies that under codex "x" on a SKILL row opens
+// the delete picker (slice 2b: a codex skill delete can also prune its orphaned
+// config.toml entries, so the user chooses delete-only vs delete+prune first). The
+// picker itself does no write — the dry-run launches from its Enter.
+func TestCodexXOnSkillOpensPicker(t *testing.T) {
 	m := loadedModel(120, 30)
 	m.target = "codex"
 	m.writesEnabled = true
@@ -158,14 +159,17 @@ func TestCodexXStartsRemove(t *testing.T) {
 	}
 	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
 	m = mm.(model)
-	if !m.writeRunning {
-		t.Fatal("codex: x should start the remove dry-run (writeRunning true)")
+	if m.removePick == nil {
+		t.Fatal("codex: x on a skill should open the delete picker (delete-only / delete+prune)")
+	}
+	if m.writeRunning {
+		t.Fatal("codex: the picker does no write — writeRunning must stay false until Enter")
 	}
 	if m.pending != nil {
-		t.Fatal("codex: x must not open a modal until removeMsg returns")
+		t.Fatal("codex: x must not open a modal until a picker choice resolves the dry-run")
 	}
-	if cmd == nil {
-		t.Fatal("codex: x should return the remove dry-run cmd")
+	if cmd != nil {
+		t.Fatal("codex: opening the picker dispatches no command")
 	}
 }
 
@@ -193,27 +197,31 @@ func TestCodexPluginWStartsDryRun(t *testing.T) {
 	}
 }
 
-// TestCodexSkillWShowsTodo verifies that under codex "w" on a skill row does NOT
-// open the Claude 4-state visibility picker (a different operation) — codex skills
-// flip via a binary enable/disable, which is slice 2b. Until then it shows a hint.
-func TestCodexSkillWShowsTodo(t *testing.T) {
+// TestCodexSkillWStartsFlip verifies that under codex "w" on a skill row launches
+// the binary enable/disable FLIP dry-run (slice 2b) — NOT the Claude 4-state
+// visibility picker (a different operation). The dry-run runs under --target codex;
+// the confirm modal opens only when skillFlipMsg arrives.
+func TestCodexSkillWStartsFlip(t *testing.T) {
 	m := loadedModel(120, 30)
 	m.target = "codex"
 	m.writesEnabled = true
 	m = selectFirstSkill(m)
+	if node, ok := m.tree.selectedNode(); !ok || node.kind != kindSkill {
+		t.Fatalf("selectFirstSkill did not land on a skill (ok=%v kind=%v)", ok, node.kind)
+	}
 	mm, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("w")})
 	m = mm.(model)
 	if m.visPick != nil {
 		t.Fatal("codex: w on a skill must NOT open the Claude visibility picker")
 	}
-	if cmd != nil {
-		t.Fatal("codex: w on a skill (2b TODO) should return no command")
+	if !m.writeRunning {
+		t.Fatal("codex: w on a skill should start the flip dry-run (writeRunning true)")
 	}
-	if m.writeStatus != tr("write.skill.codexTodo") {
-		t.Fatalf("codex: writeStatus = %q, want %q", m.writeStatus, tr("write.skill.codexTodo"))
+	if m.pending != nil {
+		t.Fatal("codex: w must not open a modal until skillFlipMsg returns")
 	}
-	if m.writeOK {
-		t.Fatal("codex: writeOK should be false for the 2b-TODO hint")
+	if cmd == nil {
+		t.Fatal("codex: w on a skill should return the flip dry-run cmd")
 	}
 }
 
