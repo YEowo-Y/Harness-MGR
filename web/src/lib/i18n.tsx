@@ -66,6 +66,8 @@ const EN = {
   "write.done": "Applied.",
   "write.snapshot": "Snapshot {id} — roll back with: rollback {id}",
   "write.failed": "Could not complete the change.",
+  "write.vis.current": "Current visibility",
+  "write.vis.set": "Set to",
 
   // shared
   "common.loading": "Loading…",
@@ -223,6 +225,8 @@ const ZH: Record<StringKey, string> = {
   "write.done": "已应用。",
   "write.snapshot": "快照 {id} —— 回滚命令：rollback {id}",
   "write.failed": "操作未能完成。",
+  "write.vis.current": "当前可见性",
+  "write.vis.set": "设为",
 
   "common.loading": "加载中…",
   "common.filter": "筛选…",
