@@ -27,6 +27,7 @@ export function Dashboard({
   activeKind,
   reloadKey,
   writeKinds,
+  removeKinds,
   onRefresh,
 }: {
   target: TargetId;
@@ -34,6 +35,7 @@ export function Dashboard({
   activeKind: KindKey;
   reloadKey: number;
   writeKinds: string[];
+  removeKinds: string[];
   onRefresh: () => void;
 }) {
   const { t } = useLang();
@@ -218,6 +220,7 @@ export function Dashboard({
             shadow={shadow}
             target={target}
             writeKinds={writeKinds}
+            removeKinds={removeKinds}
             onRefresh={onRefresh}
             onClose={() => setSelected(null)}
           />
