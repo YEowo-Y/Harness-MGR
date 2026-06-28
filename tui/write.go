@@ -128,7 +128,10 @@ func writeActionFor(v viewID) (writeAction, bool) {
 			doneKey:  "write.drift.done",
 			hintKey:  "write.drift.hint",
 			args:     []string{"drift", "--update", "--format", "json"},
-			refetch:  fetchDriftCmd,
+			// Writes are claude-only in slice 1, so the post-write refetch uses the
+			// claude default. (The refetch field is target-LESS; codex writes — and
+			// their refetch — arrive in slice 2.)
+			refetch: func(cli string) tea.Cmd { return fetchDriftCmd(cli, "") },
 		}, true
 	default:
 		return writeAction{}, false
@@ -145,7 +148,9 @@ func activeProbeAction() writeAction {
 		titleKey: "write.activeProbe.title",
 		bodyKey:  "write.activeProbe.body",
 		hintKey:  "write.activeProbe.hint",
-		run:      fetchDoctorActiveCmd,
+		// Active probes are claude-only in slice 1 (the "a" entry point no-ops in
+		// codex), so the run uses the claude default.
+		run: func(cli string) tea.Cmd { return fetchDoctorActiveCmd(cli, "") },
 	}
 }
 
@@ -311,7 +316,9 @@ func buildRemoveAction(info removeInfo) writeAction {
 		hintKey: "write.remove.hint",
 		args:    []string{"remove", info.kind + ":" + info.name, "--apply", "--format", "json"},
 		remove:  &info,
-		refetch: fetchCmd,
+		// Writes are claude-only in slice 1, so the post-delete refetch uses the
+		// claude default (see writeActionFor's note).
+		refetch: func(cli string) tea.Cmd { return fetchCmd(cli, "") },
 	}
 }
 
@@ -408,7 +415,7 @@ func runRollbackCmd(cliPath, id string, drifted bool) tea.Cmd {
 		// Capture the envelope and ASSERT a real snapshot was written — a
 		// write-gate-unavailable run can exit 0 with ok:false and nothing captured,
 		// which would silently make this rollback NON-undoable. Refuse in that case.
-		out, err := runJSON(cliPath, "snapshot", "--apply", "--format", "json")
+		out, err := runJSON(cliPath, "", "snapshot", "--apply", "--format", "json")
 		if err != nil {
 			return rollbackResultMsg{err: fmt.Errorf("safety snapshot failed; rollback aborted: %w", err)}
 		}
@@ -419,7 +426,7 @@ func runRollbackCmd(cliPath, id string, drifted bool) tea.Cmd {
 		if drifted {
 			args = append(args, "--force")
 		}
-		if _, err := runJSON(cliPath, args...); err != nil {
+		if _, err := runJSON(cliPath, "", args...); err != nil {
 			return rollbackResultMsg{err: err}
 		}
 		return rollbackResultMsg{err: nil}
@@ -457,7 +464,7 @@ type writeResultMsg struct {
 // reached ONLY from the confirm modal's y/enter branch.
 func runWriteCmd(cliPath string, a writeAction) tea.Cmd {
 	return func() tea.Msg {
-		_, err := runJSON(cliPath, a.args...)
+		_, err := runJSON(cliPath, "", a.args...)
 		return writeResultMsg{action: a, err: err}
 	}
 }
