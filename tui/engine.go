@@ -609,6 +609,23 @@ func fetchPluginToggleDry(cliPath, key string, desired bool) (ConfigEditResult, 
 	return parseConfigEdit(data)
 }
 
+// fetchSkillVisDry runs a DRY-RUN `skill visibility <name> <state> --format json`
+// (NO --apply, so it writes NOTHING) and returns the parsed result plus the
+// top-level diagnostics. It is the probe/preview half of the Inventory tab's
+// per-skill visibility confirm-apply flow. It reuses ConfigEditResult — the
+// fields the picker needs are AlreadyInState (the chosen state is already set ⇒
+// no-op) and Diff (the before→after preview for the confirm modal). It uses
+// runJSONCapture because a refusal exits non-zero while still printing the
+// envelope on stdout (the result's ok/status, not the exit code, is the signal).
+// Never panics.
+func fetchSkillVisDry(cliPath, name, state string) (ConfigEditResult, []Diagnostic, error) {
+	data, err := runJSONCapture(cliPath, "skill", "visibility", name, state, "--format", "json")
+	if err != nil {
+		return ConfigEditResult{}, nil, err
+	}
+	return parseConfigEdit(data)
+}
+
 // parseConflicts unmarshals a raw `conflicts --format json` envelope into a
 // ConflictCluster slice. Pure function — no exec, never panics.
 func parseConflicts(data []byte) ([]ConflictCluster, error) {
