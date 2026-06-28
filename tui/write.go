@@ -121,9 +121,14 @@ type skillVisInfo struct {
 // skill enable/disable flip, all derived from the dry-run preview. desired is the
 // direction (true = enable, false = disable) the probe picked; before/after/line
 // are the engine's config.toml diff fragments (before is "" for an INSERT, though a
-// skills.config block always carries enabled so a flip is normally a replace).
+// skills.config block always carries enabled so a flip is normally a replace). path
+// is "" when the skill resolved by NAME (the apply uses the bare-name positional) or
+// the skill's absolute path when it resolved by --path (a path-keyed entry with no
+// name block — the apply then selects by --path). name is still the display name in
+// the modal either way (it is the skill's name, just not how config.toml keys it).
 type skillFlipInfo struct {
 	name    string
+	path    string
 	desired bool
 	before  string
 	after   string
@@ -297,30 +302,69 @@ func buildSkillFlipAction(info skillFlipInfo) writeAction {
 	if info.desired {
 		verb = "enable"
 	}
+	// Select by --path for a path-keyed skill (no name block), else by the bare-name
+	// positional — the SAME selector the dry-run probe resolved with, so apply targets
+	// the exact entry the modal previewed.
+	args := []string{verb, "--type", "skill"}
+	if info.path != "" {
+		args = append(args, "--path", info.path)
+	} else {
+		args = append(args, info.name)
+	}
+	args = append(args, "--apply", "--format", "json")
 	return writeAction{
 		id:        "skill-flip",
 		doneKey:   "write.skillFlip.done",
 		hintKey:   "write.skillFlip.hint",
-		args:      []string{verb, "--type", "skill", info.name, "--apply", "--format", "json"},
+		args:      args,
 		skillFlip: &info,
 	}
+}
+
+// toConfigTomlPath converts a discovered skill path to the forward-slash form Codex
+// stores in config.toml's [[skills.config]] path entries. The engine's --path skill
+// selector compares the path LITERALLY (never normalizes), and inventory paths arrive
+// with the OS separator (backslashes on Windows), so a raw Windows path would never
+// match a `path = "C:/Users/…"` entry — the flip would refuse despite the entry
+// existing. Dogfood-confirmed: the backslash form refuses, the forward-slash form
+// resolves. Pure; idempotent on an already-forward-slash path.
+func toConfigTomlPath(p string) string {
+	return strings.ReplaceAll(p, "\\", "/")
 }
 
 // prepareSkillFlipCmd is the off-thread PROBE half of the codex skill-flip
 // confirm-apply flow. It dry-runs an `enable` to learn the authoritative
 // config.toml state (AlreadyInState ⇒ already enabled), picks the OPPOSITE verb,
 // fetches that direction's preview, and returns a skillFlipMsg with a
-// ready-to-confirm action — or an err (refusal: the skill has no [[skills.config]]
-// entry, or the name is ambiguous / exec failure) the handler surfaces in the
-// status bar WITHOUT opening a modal. It NEVER writes (dry-run only); the real flip
-// happens only after the user confirms the returned action. Mirrors
-// preparePluginToggleCmd exactly, but --type skill against config.toml.
-func prepareSkillFlipCmd(cliPath, target, name string) tea.Cmd {
+// ready-to-confirm action — or an err (refusal / exec failure) the handler surfaces
+// in the status bar WITHOUT opening a modal. It NEVER writes (dry-run only); the real
+// flip happens only after the user confirms the returned action. Mirrors
+// preparePluginToggleCmd, but --type skill against config.toml.
+//
+// SELECTOR: it probes by NAME first (byte-identical to before for a skill that has a
+// [[skills.config]] name block). When the name doesn't cleanly resolve — no name
+// block, or an ambiguous one — and the row carries an absolute path, it retries by
+// --path, the engine's unique disambiguator. This covers the ~51% of codex skills
+// that are path-keyed only. selPath tracks which selector won so the direction
+// re-probe and the apply args use the SAME one. If neither resolves, the path (or
+// name) refusal surfaces as a status-bar toast — fail-closed, no modal.
+func prepareSkillFlipCmd(cliPath, target, name, path string) tea.Cmd {
 	return func() tea.Msg {
 		// Probe with an enable dry-run: AlreadyInState ⇒ the skill is already enabled.
-		probe, pdiags, err := fetchSkillFlipDry(cliPath, target, name, true)
+		// Name first; fall back to --path on a name refusal when the row has a path.
+		selPath := ""
+		probe, pdiags, err := fetchSkillFlipDry(cliPath, target, name, "", true)
 		if err != nil {
 			return skillFlipMsg{err: err}
+		}
+		if !probe.Ok && path != "" {
+			// config.toml stores forward-slash paths; normalize so the engine's literal
+			// --path compare matches (dogfood: the raw backslash form refuses).
+			selPath = toConfigTomlPath(path)
+			probe, pdiags, err = fetchSkillFlipDry(cliPath, target, "", selPath, true)
+			if err != nil {
+				return skillFlipMsg{err: err}
+			}
 		}
 		if !probe.Ok {
 			return skillFlipMsg{err: refusalError(pdiags)}
@@ -329,8 +373,9 @@ func prepareSkillFlipCmd(cliPath, target, name string) tea.Cmd {
 
 		preview := probe
 		if !desired {
-			// The probe was an enable; fetch the disable-direction preview instead.
-			d, ddiags, derr := fetchSkillFlipDry(cliPath, target, name, false)
+			// The probe was an enable; fetch the disable-direction preview with the
+			// SAME selector (selPath != "" ⇒ --path, else the bare name).
+			d, ddiags, derr := fetchSkillFlipDry(cliPath, target, name, selPath, false)
 			if derr != nil {
 				return skillFlipMsg{err: derr}
 			}
@@ -340,7 +385,7 @@ func prepareSkillFlipCmd(cliPath, target, name string) tea.Cmd {
 			preview = d
 		}
 
-		info := skillFlipInfo{name: name, desired: desired}
+		info := skillFlipInfo{name: name, path: selPath, desired: desired}
 		if preview.Diff != nil {
 			info.before, info.after, info.line = preview.Diff.Before, preview.Diff.After, preview.Diff.Line
 		}
