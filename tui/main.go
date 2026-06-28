@@ -1287,12 +1287,14 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// visibility picker (settings.json skillOverrides). Codex: launch the
 				// binary enable/disable FLIP (config.toml [[skills.config]] enabled) — an
 				// off-thread dry-run probe that decides direction and opens the confirm
-				// modal when skillFlipMsg arrives (mirrors the plugin toggle). A skill
-				// with no config entry refuses at probe time → a status-bar toast.
+				// modal when skillFlipMsg arrives (mirrors the plugin toggle). The probe
+				// resolves by name first, then by the row's --path (so a path-keyed skill
+				// with no name block still flips); a skill in NEITHER form refuses at probe
+				// time → a status-bar toast.
 				if m.target == "codex" {
 					m.writeRunning = true
 					m.writeStatus = ""
-					return m, prepareSkillFlipCmd(m.cliPath, m.target, node.comp.Name)
+					return m, prepareSkillFlipCmd(m.cliPath, m.target, node.comp.Name, node.comp.Path)
 				}
 				// The dry-run runs only after the user picks a state and presses Enter.
 				m.visPick = &visPicker{name: node.comp.Name}
