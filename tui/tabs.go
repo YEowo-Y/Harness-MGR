@@ -960,14 +960,20 @@ func snapshotDetail(s Snapshot, width int) string {
 }
 
 // tabActionHint returns the contextual action-key hint for a tab's special
-// action, or "" for tabs with none. Stateless (depends only on view) and shown
-// regardless of write mode so the action is always discoverable; pressing it
-// with writes off surfaces the existing "press W to enable" guidance.
-func tabActionHint(view viewID) string {
+// action, or "" for tabs with none. Shown regardless of write mode so the action
+// is always discoverable; pressing it with writes off surfaces the existing
+// "press W to enable" guidance. target keeps the hint HONEST: the Doctor active
+// probe stays gated under codex (slice 2a), so its hint is hidden there, while the
+// Drift "w update" + Snapshots "w rollback" hints remain (those writes are live
+// under codex).
+func tabActionHint(view viewID, target string) string {
 	sep := lipgloss.NewStyle().Foreground(tabDim).Render(" · ")
 	dim := lipgloss.NewStyle().Foreground(labelGray)
 	switch {
 	case view == viewDoctor:
+		if target == "codex" {
+			return "" // active probes no-op under codex — do not advertise them
+		}
 		return sep + keyStyle.Render("a") + dim.Render(" "+tr("write.activeProbe.hint"))
 	case view == viewSnapshots:
 		// The rollback action is item-based (not a writeActionFor entry), so its hint
@@ -985,7 +991,7 @@ func tabActionHint(view viewID) string {
 // the tab label plus a summary string (e.g. "3 conflicts" or "2 hard · 0 soft"),
 // padded to the terminal width. Mirrors the countsBarView style: Padding(0,1)
 // with a fixed Width when known.
-func sectionSummaryBar(view viewID, st *sectionState, termWidth int) string {
+func sectionSummaryBar(view viewID, st *sectionState, termWidth int, target string) string {
 	label := tabLabel(view)
 	summary := st.summaryText()
 	text := label
@@ -997,7 +1003,7 @@ func sectionSummaryBar(view viewID, st *sectionState, termWidth int) string {
 	} else {
 		text = lipgloss.NewStyle().Bold(true).Foreground(accent).Render(label)
 	}
-	text += tabActionHint(view)
+	text += tabActionHint(view, target)
 
 	// MaxHeight(1) keeps this a strict one-line bar — on a very narrow terminal the
 	// label+summary+hint can't soft-wrap to a second row (matches filterBarView).
