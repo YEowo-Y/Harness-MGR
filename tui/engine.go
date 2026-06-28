@@ -634,6 +634,29 @@ func fetchPluginToggleDry(cliPath, target, key string, desired bool) (ConfigEdit
 	return parseConfigEdit(data)
 }
 
+// fetchMcpToggleDry runs a DRY-RUN `enable|disable --type mcp <server> --format json`
+// (NO --apply, so it writes NOTHING) and returns the parsed result plus the top-level
+// diagnostics. It is the probe/preview half of the codex MCP enable/disable flow
+// (Inventory tab, codex target). It reuses the SAME config-edit envelope the plugin
+// toggle decodes: AlreadyInState reveals the authoritative config.toml state (an
+// mcp_servers table with no `enabled` key is enabled-by-default, so an enable probe
+// reports AlreadyInState=true) and Diff carries the before→after preview (a disable
+// INSERTs `enabled = false`, so its before is ""). It uses runJSONCapture because a
+// refusal exits non-zero while still printing the envelope on stdout. Never panics.
+// target scopes the probe to a harness (always "codex" in practice — Claude MCP uses a
+// different claude-CLI delegate mechanism not surfaced here).
+func fetchMcpToggleDry(cliPath, target, server string, desired bool) (ConfigEditResult, []Diagnostic, error) {
+	verb := "disable"
+	if desired {
+		verb = "enable"
+	}
+	data, err := runJSONCapture(cliPath, target, verb, "--type", "mcp", server, "--format", "json")
+	if err != nil {
+		return ConfigEditResult{}, nil, err
+	}
+	return parseConfigEdit(data)
+}
+
 // fetchSkillFlipDry runs a DRY-RUN `enable|disable --type skill <selector> --format
 // json` (NO --apply, so it writes NOTHING) and returns the parsed result plus the
 // top-level diagnostics. It is the probe/preview half of the codex skill-flip
