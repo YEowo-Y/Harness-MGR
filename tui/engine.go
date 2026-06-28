@@ -634,25 +634,36 @@ func fetchPluginToggleDry(cliPath, target, key string, desired bool) (ConfigEdit
 	return parseConfigEdit(data)
 }
 
-// fetchSkillFlipDry runs a DRY-RUN `enable|disable --type skill <name> --format
+// fetchSkillFlipDry runs a DRY-RUN `enable|disable --type skill <selector> --format
 // json` (NO --apply, so it writes NOTHING) and returns the parsed result plus the
 // top-level diagnostics. It is the probe/preview half of the codex skill-flip
 // confirm-apply flow (Inventory tab, codex target). The codex skill flip reuses the
 // EXACT config-edit envelope the plugin toggle does (verified against the live
 // engine): the result's AlreadyInState reveals the authoritative config.toml state
-// and Diff carries the before→after preview. The skill is resolved by NAME against
-// config.toml's [[skills.config]] name-keyed blocks; a name with no matching block
-// (or an ambiguous one) refuses with an error-severity diagnostic that the prepare
-// path surfaces in the status bar (no modal). It uses runJSONCapture because a
-// refusal exits non-zero while still printing the envelope on stdout. Never panics.
-// target scopes the probe to a harness (always "codex" in practice — the Claude
-// skill row opens the 4-state visibility picker instead, a different operation).
-func fetchSkillFlipDry(cliPath, target, name string, desired bool) (ConfigEditResult, []Diagnostic, error) {
+// and Diff carries the before→after preview. The skill is selected by NAME (a bare
+// positional matching config.toml's [[skills.config]] name blocks) when path is "",
+// or by `--path <absolute path>` when path is non-empty. The path selector is unique
+// per entry — it covers the ~51% of codex skills that are path-keyed only (no name
+// block) and is the engine's own disambiguator for an ambiguous name. A selector that
+// matches nothing (or, for a name, an ambiguous set) refuses with an error-severity
+// diagnostic that the prepare path surfaces in the status bar (no modal). It uses
+// runJSONCapture because a refusal exits non-zero while still printing the envelope on
+// stdout. Never panics. target scopes the probe to a harness (always "codex" in
+// practice — the Claude skill row opens the 4-state visibility picker instead, a
+// different operation).
+func fetchSkillFlipDry(cliPath, target, name, path string, desired bool) (ConfigEditResult, []Diagnostic, error) {
 	verb := "disable"
 	if desired {
 		verb = "enable"
 	}
-	data, err := runJSONCapture(cliPath, target, verb, "--type", "skill", name, "--format", "json")
+	args := []string{verb, "--type", "skill"}
+	if path != "" {
+		args = append(args, "--path", path) // unique selector for a path-keyed skill
+	} else {
+		args = append(args, name)
+	}
+	args = append(args, "--format", "json")
+	data, err := runJSONCapture(cliPath, target, args...)
 	if err != nil {
 		return ConfigEditResult{}, nil, err
 	}
