@@ -466,8 +466,9 @@ func parseRollback(data []byte) (RollbackResult, []Diagnostic, error) {
 // diagnostics. It uses runJSONCapture because a refused-drift (exit 3) or
 // archive-corrupt (exit 4) preflight exits non-zero while still printing the
 // envelope — the result's status, not the exit code, is the signal. Never panics.
-func fetchRollbackDry(cliPath, id string) (RollbackResult, []Diagnostic, error) {
-	data, err := runJSONCapture(cliPath, "", "rollback", id, "--format", "json")
+// target scopes the preflight to a harness ("codex" or the claude default).
+func fetchRollbackDry(cliPath, target, id string) (RollbackResult, []Diagnostic, error) {
+	data, err := runJSONCapture(cliPath, target, "rollback", id, "--format", "json")
 	if err != nil {
 		return RollbackResult{}, nil, err
 	}
@@ -620,12 +621,13 @@ func runJSONCapture(cliPath string, target string, args ...string) ([]byte, erro
 // plus the top-level diagnostics. It is the probe/preview half of the Inventory
 // confirm-apply flow: the result's AlreadyInState reveals the authoritative
 // settings.json state and Diff carries the before→after preview. Never panics.
-func fetchPluginToggleDry(cliPath, key string, desired bool) (ConfigEditResult, []Diagnostic, error) {
+// target scopes the probe to a harness ("codex" or the claude default).
+func fetchPluginToggleDry(cliPath, target, key string, desired bool) (ConfigEditResult, []Diagnostic, error) {
 	verb := "disable"
 	if desired {
 		verb = "enable"
 	}
-	data, err := runJSONCapture(cliPath, "", verb, "--type", "plugin", key, "--format", "json")
+	data, err := runJSONCapture(cliPath, target, verb, "--type", "plugin", key, "--format", "json")
 	if err != nil {
 		return ConfigEditResult{}, nil, err
 	}
@@ -685,8 +687,9 @@ func parseRemove(data []byte) (RemoveResult, []Diagnostic, error) {
 // diagnostics. It uses runJSONCapture because a refusal (target-not-found /
 // wrong-type / symlink) exits non-zero while still printing the envelope on stdout
 // (result.ok/status, not the exit code, is the signal). Never panics.
-func fetchRemoveDry(cliPath, kind, name string) (RemoveResult, []Diagnostic, error) {
-	data, err := runJSONCapture(cliPath, "", "remove", kind+":"+name, "--format", "json")
+// target scopes the dry-run to a harness ("codex" or the claude default).
+func fetchRemoveDry(cliPath, target, kind, name string) (RemoveResult, []Diagnostic, error) {
+	data, err := runJSONCapture(cliPath, target, "remove", kind+":"+name, "--format", "json")
 	if err != nil {
 		return RemoveResult{}, nil, err
 	}
@@ -947,8 +950,9 @@ func fetchDoctor(cliPath string, target string) (DoctorReport, error) {
 // It NEVER runs at startup or on a passive refresh; only an explicit, confirmed
 // user action reaches it. Distinct from fetchDoctor, which stays passive. Never
 // panics: exec/timeout/JSON errors are returned. target scopes the run to a
-// harness; in codex mode the active-probe entry point is gated off (slice 1
-// keeps codex read-only), so this is only ever reached with the claude default.
+// harness; the active-probe entry point stays gated under codex (it writes a
+// transient ~/.claude governed-dir file), so this is only ever reached with the
+// claude default even though other codex writes are now live.
 func fetchDoctorActive(cliPath string, target string) (DoctorReport, error) {
 	data, err := runJSON(cliPath, target, "doctor", "--active-probes", "--format", "json")
 	if err != nil {
