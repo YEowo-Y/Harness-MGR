@@ -51,10 +51,13 @@ export function auditCommand(ctx) {
  * commands, hooks) and compares it to the persisted lockfile baseline.
  *
  * Read-only by default — DRY-RUN-BY-DEFAULT. With `--update` it RE-WRITES the
- * baseline lockfile into the REAL governed `.mgr-state` via `assertWritable`, so
- * using `--config-dir` to point at a fixture will emit a `lockfile-write-failed`
- * or `write-outside-target` warn (the write is correctly rejected) while status
- * reporting still works. The real write is validated by dogfooding, not fixtures.
+ * baseline lockfile into `.mgr-state` through the ACTIVE target's gate
+ * (`resolveAssertWritable(paths, ctx)`, like snapshotCommand): for Codex a
+ * `--config-dir` sandbox write SUCCEEDS (the gate is bound to ctx.configDir —
+ * validated by drift-config-dir-roundtrip.test.mjs); for Claude (home-bound, no
+ * writeSurface) a `--config-dir` write is still refused with `lockfile-write-failed`
+ * / `write-outside-target` while status reporting works (Claude writes stay
+ * home-bound by design — validated by dogfooding, not fixtures).
  *
  * Flags:
  *   `args.update`  (optional boolean) re-writes the lockfile to lock in the current
@@ -88,7 +91,20 @@ export async function driftCommand(ctx) {
 
   // DRY-RUN-BY-DEFAULT: only --update writes/refreshes the baseline lockfile.
   if (ctx.args && ctx.args.update) {
-    const w = probeState.writeLockfile(mgrStateDir, state);
+    // Bind the lockfile write gate to the ACTIVE target like snapshotCommand does:
+    // Codex needs a gate bound to its own config dir (the bare paths.assertWritable is
+    // bound to ~/.claude and would reject a ~/.codex/.mgr-state write as
+    // write-outside-target); Claude has no writeSurface so resolveAssertWritable
+    // returns that same bare gate — byte-identical to before. paths.mjs is already
+    // loaded transitively by the probe-state import above, so this resolves from the
+    // module cache; on any load/resolve failure we fall back to writeLockfile's
+    // default (the bare gate).
+    let writeOpts;
+    try {
+      const paths = await import('../paths.mjs');
+      writeOpts = { assertWritableFn: resolveAssertWritable(paths, ctx) };
+    } catch { writeOpts = undefined; }
+    const w = probeState.writeLockfile(mgrStateDir, state, writeOpts);
     for (const d of w.diagnostics) diagnostics.push(d);
     // Add one info noting the baseline was (re)written, unless a write error occurred.
     if (!w.diagnostics.some((d) => d.severity === 'error' || d.severity === 'warn')) {
