@@ -64,17 +64,34 @@ const READ_COMMANDS = Object.freeze(
 );
 
 /**
- * The ONLY commands the write channel (POST /api/write) may run — frozen, and in the
- * P2 pilot limited to the plugin enable/disable toggle. Every call still goes through
- * the engine's two-factor gate: a request WITHOUT `apply` is a dry-run preview (no
- * gate, no write); `apply:true` routes through resolveWriteIntent → snapshot → the
- * byte-preserving editor → reversible rollback. The engine, not this server,
+ * The ONLY commands the write channel (POST /api/write) may run — a frozen PER-COMMAND
+ * spec. Each entry pins the item KIND(s) the command accepts and, for a stateful command,
+ * the exact set of valid `state` values; the handler validates against this before the
+ * engine is touched (so e.g. `enable` can never be aimed at a skill). Every call still
+ * goes through the engine's two-factor gate: a request WITHOUT `apply` is a dry-run
+ * preview (no gate, no write); `apply:true` routes through resolveWriteIntent → snapshot
+ * → the byte-preserving editor → reversible rollback. The engine, not this server,
  * enforces the write semantics — we only surface them.
+ *
+ *   disable / enable   → plugin on/off (Claude settings.json map / Codex config.toml)
+ *   skill:visibility   → a Claude skill's 4-state skillOverrides value (name + state)
  */
-const WRITE_COMMANDS = Object.freeze(new Set(["disable", "enable"]));
+const WRITE_SPEC = Object.freeze({
+  disable: { kinds: new Set(["plugin"]) },
+  enable: { kinds: new Set(["plugin"]) },
+  "skill:visibility": {
+    kinds: new Set(["skill"]),
+    states: new Set(["on", "name-only", "user-invocable-only", "off"]),
+  },
+});
 
-/** The write channel is restricted to this kind in the pilot. */
-const WRITE_KINDS = Object.freeze(new Set(["plugin"]));
+/**
+ * A frozen Set of the valid write commands — the membership test the handler gates on.
+ * A plain-object `WRITE_SPEC[cmd]` read would treat INHERITED keys (__proto__,
+ * constructor, hasOwnProperty…) as truthy specs and reach a TypeError, so we mirror the
+ * READ channel's proto-safe `.has()` check before ever reading the spec.
+ */
+const WRITE_COMMANDS = Object.freeze(new Set(Object.keys(WRITE_SPEC)));
 
 /**
  * A write request MUST carry this header. A browser only attaches a custom header to
@@ -163,9 +180,12 @@ app.get("/api/status", async (c) => {
     return c.json({ error: "unknown-target", message: "target must be claude or codex" }, 400);
   }
   const cfg = await resolveTargetAndConfig({ target });
-  // writeKinds tells the UI which item kinds it may offer a write toggle for on this
-  // target. Empty = read-only for this target. P2 pilot: plugin enable/disable only.
-  const writeKinds = pluginWriteSupported(cfg.descriptor) ? ["plugin"] : [];
+  // writeKinds tells the UI which item kinds it may offer a write control for on this
+  // target. Empty = read-only for this target. plugin = enable/disable (either target,
+  // when supported); skill = the 4-state visibility override (Claude settings.json only).
+  const writeKinds = [];
+  if (pluginWriteSupported(cfg.descriptor)) writeKinds.push("plugin");
+  if (cfg.descriptor && cfg.descriptor.id === "claude") writeKinds.push("skill");
   return c.json({
     version: PKG.version,
     target,
@@ -236,20 +256,23 @@ app.get("/api/events", (c) => {
   });
 });
 
-// Write channel (P2 pilot — plugin enable/disable only). SEPARATE from the read API:
-// its own frozen WRITE_COMMANDS allowlist, a required custom header (CSRF guard), and
-// a POST verb. The dir is STILL resolved server-side from `target` (never the client),
-// and every apply routes through the engine's two-factor gate → auto-snapshot →
-// reversible rollback. A request without `apply:true` is a dry-run preview.
+// Write channel. SEPARATE from the read API: its own frozen WRITE_SPEC allowlist, a
+// required custom header (CSRF guard), and a POST verb. The dir is STILL resolved
+// server-side from `target` (never the client), and every apply routes through the
+// engine's two-factor gate → auto-snapshot → reversible rollback. A request without
+// `apply:true` is a dry-run preview.
 // NOTE: the server does NOT require a preceding dry-run — `apply:true` is accepted on
 // the first request. The preview-then-confirm flow is a CLIENT UX affordance, not a
 // server-enforced control. Write safety rests on the localhost + custom-header (CSRF)
 // boundary keeping callers same-origin, plus the engine's gate/snapshot/reversibility.
 app.post("/api/write/:cmd", async (c) => {
   const cmd = c.req.param("cmd");
+  // Proto-safe membership test FIRST (an inherited key like __proto__ must get the same
+  // clean 403, never a TypeError-500), then read the validated spec by own-key.
   if (!WRITE_COMMANDS.has(cmd)) {
     return c.json({ error: "command-not-allowed", message: `not a write command: ${cmd}` }, 403);
   }
+  const spec = WRITE_SPEC[cmd];
   // CSRF guard: a cross-origin page cannot attach this custom header without a CORS
   // preflight we never grant, so only the same-origin app can reach the write path.
   if (c.req.header(WRITE_HEADER) === undefined) {
@@ -267,22 +290,36 @@ app.post("/api/write/:cmd", async (c) => {
     return c.json({ error: "unknown-target", message: "target must be claude or codex" }, 400);
   }
   const kind = typeof body?.type === "string" ? body.type : "";
-  if (!WRITE_KINDS.has(kind)) {
+  if (!spec.kinds.has(kind)) {
     return c.json(
-      { error: "kind-not-allowed", message: `write is limited to: ${[...WRITE_KINDS].join(", ")}` },
+      { error: "kind-not-allowed", message: `${cmd} is limited to: ${[...spec.kinds].join(", ")}` },
       400,
     );
   }
   const name = typeof body?.name === "string" ? body.name : "";
   if (name.length === 0) {
-    return c.json({ error: "name-required", message: "a plugin name is required" }, 400);
+    return c.json({ error: "name-required", message: "a component name is required" }, 400);
+  }
+  // A stateful command (skill:visibility) requires a `state` from its frozen enum; a
+  // binary command (enable/disable) takes just the name. positionals mirror the CLI:
+  // [name] or [name, state].
+  const positionals = [name];
+  if (spec.states) {
+    const state = typeof body?.state === "string" ? body.state : "";
+    if (!spec.states.has(state)) {
+      return c.json(
+        { error: "state-not-allowed", message: `state must be one of: ${[...spec.states].join(", ")}` },
+        400,
+      );
+    }
+    positionals.push(state);
   }
   const apply = body?.apply === true;
 
   const cfg = await resolveTargetAndConfig({ target });
   const args = Object.create(null);
   args.type = kind;
-  args.positionals = [name];
+  args.positionals = positionals;
   args.apply = apply;
   const out = await COMMANDS[cmd]({
     configDir: cfg.configDir,
