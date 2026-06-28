@@ -42,6 +42,7 @@ const EN = {
   // sidebar
   "sidebar.target": "Target",
   "sidebar.readonly": "read-only",
+  "sidebar.writeEnabled": "write-enabled",
   "sidebar.reload": "Reload",
   "sidebar.toggleTheme": "Toggle theme",
   "sidebar.toggleLang": "Switch language",
@@ -218,6 +219,7 @@ const ZH: Record<StringKey, string> = {
 
   "sidebar.target": "目标",
   "sidebar.readonly": "只读",
+  "sidebar.writeEnabled": "可写入",
   "sidebar.reload": "刷新",
   "sidebar.toggleTheme": "切换主题",
   "sidebar.toggleLang": "切换语言",
