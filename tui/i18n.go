@@ -5,7 +5,7 @@ import "fmt"
 // ── UI localization (Tier-1 chrome only) ────────────────────────────────────
 //
 // Translates the main interface chrome — tab bar, status bar, counts bar, splash,
-// "coming soon" placeholders, empty states, section summary bars, AND the
+// empty states, section summary bars, AND the
 // detail-pane section/field labels (the detail.* keys) — between English and
 // Simplified Chinese. Only engine DATA (component/event/plugin names, file paths,
 // raw JSON values, the engine's English explanation sentence) deliberately stays
@@ -83,9 +83,6 @@ var translations = map[string][2]string{
 	// Splash.
 	"splash.tagline": {"agent harness configuration governance · read-only", "智能体框架配置治理 · 只读"},
 	"splash.nav":     {"← → select · Enter enter", "← → 选择 · Enter 进入"},
-
-	// "coming soon" placeholder tabs.
-	"placeholder.comingSoon": {"coming soon", "即将推出"},
 
 	// Empty states.
 	"empty.selectObject":     {"select an object", "请在左侧选择一项"},
