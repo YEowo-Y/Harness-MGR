@@ -108,6 +108,46 @@ func TestMcpToggleConfirmTextEnable(t *testing.T) {
 	if !strings.Contains(body, tf("write.mcp.willEnable", "context7")) {
 		t.Fatalf("enable body missing the willEnable line:\n%s", body)
 	}
+	// An enable carries no loader-unverified caveat (enabling sets a verifiable
+	// enabled=true), so the modal must NOT show it.
+	if strings.Contains(body, tr("write.mcp.unverifiedCaveat")) {
+		t.Fatalf("enable body must NOT show the unverified caveat:\n%s", body)
+	}
+}
+
+// mcpLoaderUnverified detects the engine's config-edit-mcp-loader-unverified caveat,
+// which the live disable envelope carries (an INSERT of enabled=false) and the enable
+// envelope does not.
+func TestMcpLoaderUnverifiedDetectsCaveat(t *testing.T) {
+	_, ddiags, err := parseConfigEdit([]byte(mcpDisableInsertJSON))
+	if err != nil {
+		t.Fatalf("parseConfigEdit(disable) error: %v", err)
+	}
+	if !mcpLoaderUnverified(ddiags) {
+		t.Fatalf("disable diags should carry the loader-unverified caveat: %+v", ddiags)
+	}
+	_, ediags, err := parseConfigEdit([]byte(mcpEnableAlreadyJSON))
+	if err != nil {
+		t.Fatalf("parseConfigEdit(enable) error: %v", err)
+	}
+	if mcpLoaderUnverified(ediags) {
+		t.Fatalf("enable diags must NOT carry the loader-unverified caveat: %+v", ediags)
+	}
+}
+
+// When the dry-run flagged the loader-unverified caveat, the disable modal surfaces it
+// (in both languages) so the user knows to restart Codex and confirm.
+func TestMcpToggleConfirmTextUnverifiedCaveat(t *testing.T) {
+	for _, lang := range []language{langEN, langZH} {
+		uiLang = lang
+		_, body := mcpToggleConfirmText(mcpToggleInfo{
+			server: "context7", desired: false, before: "", after: "enabled = false", line: 2122, unverified: true,
+		})
+		if !strings.Contains(body, tr("write.mcp.unverifiedCaveat")) {
+			t.Fatalf("[%v] disable body missing the unverified caveat:\n%s", lang, body)
+		}
+	}
+	uiLang = langEN
 }
 
 // ── mcpToggleMsg handling ─────────────────────────────────────────────────────
@@ -257,7 +297,8 @@ func TestMcpToggleI18nParity(t *testing.T) {
 	keys := []string{
 		"write.mcp.enableTitle", "write.mcp.disableTitle",
 		"write.mcp.willEnable", "write.mcp.willDisable",
-		"write.mcp.reversible", "write.mcp.done", "write.mcp.hint", "write.mcp.claudeHint",
+		"write.mcp.reversible", "write.mcp.unverifiedCaveat",
+		"write.mcp.done", "write.mcp.hint", "write.mcp.claudeHint",
 	}
 	for _, k := range keys {
 		pair, ok := translations[k]
