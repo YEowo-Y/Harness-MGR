@@ -168,6 +168,19 @@ var translations = map[string][2]string{
 	"write.plugin.hint":          {"toggle plugin", "切换插件"},
 	"write.plugin.selectHint":    {"select a plugin row, then press w to toggle it", "请先选中一个插件行,再按 w 切换启用/停用"},
 
+	// Per-skill visibility confirm-apply flow (Inventory tab, Claude-only). The
+	// skill name, the chosen state (an engine enum value), and the before→after diff
+	// fragments are engine DATA shown verbatim; only the surrounding prose is
+	// translated. The state strings ("on"/"name-only"/…) stay English everywhere.
+	"write.skillVis.title":      {"Set skill visibility", "设置技能可见性"},
+	"write.skillVis.pickHint":   {"↑/↓ choose · enter confirm · esc cancel", "↑/↓ 选择 · enter 确认 · esc 取消"},
+	"write.skillVis.setTitle":   {"Set skill visibility", "设置技能可见性"},
+	"write.skillVis.willSet":    {"Set %s visibility to %s", "将技能 %s 的可见性设为 %s"},
+	"write.skillVis.reversible": {"Writes settings.json. Reversible — an auto-snapshot is taken first.", "将写入 settings.json。可回滚 —— 写入前会自动快照。"},
+	"write.skillVis.already":    {"%s is already %s", "技能 %s 已是 %s"},
+	"write.skillVis.done":       {"visibility updated", "可见性已更新"},
+	"write.skillVis.hint":       {"press w to set visibility", "按 w 设置可见性"},
+
 	// Snapshot rollback confirm-apply flow (Snapshots tab). The reason/id are engine
 	// DATA shown verbatim; only the surrounding prose is translated. A drifted
 	// rollback leads with driftWarn and the modal turns red.
