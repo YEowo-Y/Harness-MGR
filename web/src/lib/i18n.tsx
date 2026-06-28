@@ -76,6 +76,8 @@ const EN = {
   "write.mcp.disable": "Disable server",
   "write.mcp.line": "config.toml · line {line}",
   "write.mcp.reversible": "Edits config.toml. Reversible — an auto-snapshot is taken first.",
+  "write.mcp.unverifiedCaveat":
+    "Disabling can't be verified live on this machine. After applying, restart Codex and confirm this server is gone — if it still loads, roll back the snapshot.",
   // remove channel — delete a component (skill / agent / command), DESTRUCTIVE but reversible
   "remove.title": "Remove component",
   "remove.action": "Remove…",
@@ -253,6 +255,8 @@ const ZH: Record<StringKey, string> = {
   "write.mcp.disable": "禁用服务",
   "write.mcp.line": "config.toml · 第 {line} 行",
   "write.mcp.reversible": "将修改 config.toml。可回滚 —— 写入前会自动快照。",
+  "write.mcp.unverifiedCaveat":
+    "本机无法实时验证停用是否生效。落盘后请重启 Codex 确认该服务器已消失 —— 若仍加载,回滚上面的快照。",
   "remove.title": "删除组件",
   "remove.action": "删除…",
   "remove.pathLabel": "将删除",
