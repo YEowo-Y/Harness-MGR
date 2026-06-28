@@ -38,6 +38,10 @@ export function PluginWriteControl({
   // Toggle verb is the OPPOSITE of the current state; the dry-run corrects us if the
   // displayed state is stale (it reports alreadyInState from the authoritative file).
   const verb: "enable" | "disable" = item.enabled ? "disable" : "enable";
+  // The plugin toggle writes settings.json on Claude but config.toml on Codex (the engine
+  // flips plugins.*.enabled there) — label the preview diff + reversible note with the real
+  // target file, not a hardcoded settings.json.
+  const file = target === "codex" ? "config.toml" : "settings.json";
 
   async function runPreview() {
     setPhase("loading");
@@ -113,11 +117,11 @@ export function PluginWriteControl({
           ) : (
             <>
               <div className="rounded-md border border-hair bg-bg px-3 py-2 font-mono text-[12px] leading-relaxed">
-                <div className="mb-1 text-[11px] text-i42">{t("write.line", { line: preview.diff.line })}</div>
+                <div className="mb-1 text-[11px] text-i42">{t("write.line", { line: preview.diff.line, file })}</div>
                 {preview.diff.before && <div className="text-danger">- {preview.diff.before}</div>}
                 <div className="text-ok">+ {preview.diff.after}</div>
               </div>
-              <p className="text-[12px] leading-relaxed text-i42">{t("write.reversible")}</p>
+              <p className="text-[12px] leading-relaxed text-i42">{t("write.reversible", { file })}</p>
             </>
           )}
           <div className="flex items-center gap-2">
