@@ -744,7 +744,20 @@ func statusBarView(m model) string {
 
 	dim := lipgloss.NewStyle().Foreground(statusDim)
 	sep := lipgloss.NewStyle().Foreground(tabDim).Render(" · ")
-	hint := keyStyle.Render("Enter") + dim.Render(" "+tr("status.expand")) +
+	// Target indicator (PERSISTENT — always shown for BOTH harnesses): the active
+	// agent harness, color-coded (claude teal / codex amber) so the current mode is
+	// visible at a glance at all times. Placed FIRST so the width clip below (which
+	// truncates the least-important hints from the right on narrow terminals) can
+	// never cut it.
+	targetStyle := dim.Foreground(accent)
+	targetName := tr("status.targetClaude")
+	if m.target == "codex" {
+		targetStyle = dim.Foreground(colorCommand)
+		targetName = tr("status.targetCodex")
+	}
+	hint := keyStyle.Render("T") + targetStyle.Render(" "+targetName) +
+		sep +
+		keyStyle.Render("Enter") + dim.Render(" "+tr("status.expand")) +
 		sep +
 		keyStyle.Render("j/k") + dim.Render(" "+tr("status.move")) +
 		sep +
@@ -762,15 +775,6 @@ func statusBarView(m model) string {
 		modeLabel = tr("status.writesOn")
 	}
 	hint += sep + keyStyle.Render("W") + modeStyle.Render(" "+modeLabel)
-	// Target indicator: shown ONLY in codex (the non-default harness), in a distinct
-	// amber accent. Claude is the default — its bar carries no badge, so the amber
-	// "T codex" both signals "you've switched" unmistakably AND keeps the common claude
-	// bar on ONE line at the 120-col default width (the always-on badge would overflow
-	// it on Inventory+write-mode). The T switcher itself is always listed on the help
-	// screen, so it stays discoverable from claude.
-	if m.target == "codex" {
-		hint += sep + keyStyle.Render("T") + dim.Foreground(colorCommand).Render(" "+tr("status.targetCodex"))
-	}
 	// On the Inventory tab with writes enabled, advertise the "x delete" action so the
 	// component-remove write is discoverable next to the W mode indicator (mirrors how
 	// section tabs surface their "w <verb>" via tabActionHint). NOT under codex, where
@@ -784,6 +788,13 @@ func statusBarView(m model) string {
 		sep +
 		keyStyle.Render("q") + dim.Render(" "+tr("status.quit"))
 
+	// Clip the hint to the content width (m.width minus the 1-col padding each side)
+	// so an over-long bar truncates the least-important rightmost hints instead of
+	// wrapping to a second line. The persistent target badge is first, so it always
+	// survives the clip.
+	if m.width > 0 {
+		hint = lipgloss.NewStyle().MaxWidth(m.width - 2).Render(hint)
+	}
 	return style.Render(hint)
 }
 
