@@ -131,6 +131,16 @@ type pluginToggleMsg struct {
 	err    error
 }
 
+// mcpToggleMsg carries the resolved codex MCP enable/disable action ready for the
+// confirm modal — built by prepareMcpToggleCmd AFTER a dry-run probe of the
+// authoritative config.toml state. err set ⇒ a probe/refusal failure (shown in the
+// status bar, no modal); otherwise action holds the real --apply command plus the
+// preview confirmView renders. Mirrors pluginToggleMsg.
+type mcpToggleMsg struct {
+	action writeAction
+	err    error
+}
+
 // skillVisMsg carries the resolved per-skill visibility action ready for the
 // confirm modal — built by prepareSkillVisCmd AFTER a dry-run of the chosen
 // state. err set ⇒ a refusal / exec failure (shown in the status bar, no modal);
@@ -926,6 +936,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a := msg.action
 		m.pending = &a // open the confirm modal with the resolved preview
 		return m, nil
+	case mcpToggleMsg:
+		// The codex MCP dry-run probe finished (writeRunning set when "w" launched it).
+		// Mirrors the pluginToggleMsg handler.
+		m.writeRunning = false
+		if msg.err != nil {
+			// Refusal / exec failure: surface it in the status bar, open no modal.
+			m.writeStatus = tr("write.failed") + ": " + msg.err.Error()
+			m.writeOK = false
+			return m, nil
+		}
+		a := msg.action
+		m.pending = &a // open the confirm modal with the resolved MCP toggle preview
+		return m, nil
 	case skillVisMsg:
 		// The dry-run of the chosen state finished. writeRunning was set when the
 		// picker's Enter launched it.
@@ -1298,6 +1321,19 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				// The dry-run runs only after the user picks a state and presses Enter.
 				m.visPick = &visPicker{name: node.comp.Name}
+				return m, nil
+			} else if ok && node.kind == kindMcp && node.mcp != nil {
+				// An MCP row's "w" toggles enable/disable. Codex: config.toml mcp_servers
+				// (an off-thread dry-run probe decides direction, mirroring the plugin
+				// toggle, then opens the confirm modal when mcpToggleMsg arrives). Claude
+				// MCP uses a different claude-CLI delegate mechanism not surfaced here.
+				if m.target == "codex" {
+					m.writeRunning = true
+					m.writeStatus = ""
+					return m, prepareMcpToggleCmd(m.cliPath, m.target, node.mcp.Name)
+				}
+				m.writeStatus = tr("write.mcp.claudeHint")
+				m.writeOK = false
 				return m, nil
 			}
 			m.writeStatus = tr("write.plugin.selectHint")
