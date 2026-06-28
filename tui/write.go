@@ -298,14 +298,31 @@ func preparePluginToggleCmd(cliPath, target, key string) tea.Cmd {
 // MCP server enable/disable, all derived from the dry-run preview. desired is the
 // direction (true = enable, false = disable) the probe picked; before/after/line are
 // the engine's config.toml diff fragments (before is "" for an INSERT — a disable on
-// a server with no `enabled` key inserts `enabled = false`). No override field: codex
-// config.toml has no settings.local-style precedence layer (unlike the plugin toggle).
+// a server with no `enabled` key inserts `enabled = false`). unverified is set when the
+// dry-run carried the engine's config-edit-mcp-loader-unverified caveat (a disable: the
+// modal then warns that Codex must be restarted to confirm the server is actually gone).
+// No override field: codex config.toml has no settings.local-style precedence layer.
 type mcpToggleInfo struct {
-	server  string
-	desired bool
-	before  string
-	after   string
-	line    int
+	server     string
+	desired    bool
+	before     string
+	after      string
+	line       int
+	unverified bool
+}
+
+// mcpLoaderUnverified reports whether the dry-run diagnostics include the engine's
+// config-edit-mcp-loader-unverified caveat. The engine emits it when DISABLING a codex
+// MCP server (an INSERT of `enabled = false`): Codex's docs say this disables the
+// server, but there is no live disabled instance to confirm against on this machine, so
+// the user must restart Codex and verify after applying. Mirrors pluginToggleOverride.
+func mcpLoaderUnverified(diags []Diagnostic) bool {
+	for _, d := range diags {
+		if d.Code == "config-edit-mcp-loader-unverified" {
+			return true
+		}
+	}
+	return false
 }
 
 // buildMcpToggleAction builds the confirm-gated apply action from a resolved codex
@@ -350,7 +367,7 @@ func prepareMcpToggleCmd(cliPath, target, server string) tea.Cmd {
 		}
 		desired := !probe.AlreadyInState // flip whatever the current state is
 
-		preview := probe
+		preview, diags := probe, pdiags
 		if !desired {
 			// The probe was an enable; fetch the disable-direction preview instead.
 			d, ddiags, derr := fetchMcpToggleDry(cliPath, target, server, false)
@@ -360,10 +377,10 @@ func prepareMcpToggleCmd(cliPath, target, server string) tea.Cmd {
 			if !d.Ok {
 				return mcpToggleMsg{err: refusalError(ddiags)}
 			}
-			preview = d
+			preview, diags = d, ddiags
 		}
 
-		info := mcpToggleInfo{server: server, desired: desired}
+		info := mcpToggleInfo{server: server, desired: desired, unverified: mcpLoaderUnverified(diags)}
 		if preview.Diff != nil {
 			info.before, info.after, info.line = preview.Diff.Before, preview.Diff.After, preview.Diff.Line
 		}
@@ -393,6 +410,9 @@ func mcpToggleConfirmText(info mcpToggleInfo) (title, body string) {
 		body += "\n\n" + tf("write.plugin.change", "config.toml", info.line) + "\n" + change
 	}
 	body += "\n\n" + tr("write.mcp.reversible")
+	if info.unverified {
+		body += "\n\n" + tr("write.mcp.unverifiedCaveat")
+	}
 	return title, body
 }
 
