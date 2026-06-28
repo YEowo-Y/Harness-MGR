@@ -676,10 +676,21 @@ func statusBarView(m model) string {
 		modeLabel = tr("status.writesOn")
 	}
 	hint += sep + keyStyle.Render("W") + modeStyle.Render(" "+modeLabel)
+	// Target indicator: shown ONLY in codex (the non-default harness), in a distinct
+	// amber accent. Claude is the default — its bar carries no badge, so the amber
+	// "T codex" both signals "you've switched" unmistakably AND keeps the common claude
+	// bar on ONE line at the 120-col default width (the always-on badge would overflow
+	// it on Inventory+write-mode). The T switcher itself is always listed on the help
+	// screen, so it stays discoverable from claude.
+	if m.target == "codex" {
+		hint += sep + keyStyle.Render("T") + dim.Foreground(colorCommand).Render(" "+tr("status.targetCodex"))
+	}
 	// On the Inventory tab with writes enabled, advertise the "x delete" action so the
 	// component-remove write is discoverable next to the W mode indicator (mirrors how
-	// section tabs surface their "w <verb>" via tabActionHint).
-	if m.currentView == viewInventory && m.writesEnabled {
+	// section tabs surface their "w <verb>" via tabActionHint). NOT under codex, where
+	// delete no-ops (slice 1 keeps codex read-only) — advertising it there would both
+	// mislead and push the bar past one line.
+	if m.currentView == viewInventory && m.writesEnabled && m.target != "codex" {
 		hint += sep + keyStyle.Render("x") + dim.Render(" "+tr("write.remove.hint"))
 	}
 	hint += sep +
@@ -1105,6 +1116,7 @@ func helpView(width, height int) string {
 		{"w", tr("help.write")},
 		{"a", tr("help.activeProbe")},
 		{"W", tr("help.writeMode")},
+		{"T", tr("help.target")},
 		{"?", tr("help.help")},
 		{"q / Esc", tr("status.quit")},
 	}
