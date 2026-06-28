@@ -38,6 +38,16 @@ function firstError(diags: Diagnostic[]): string | null {
   return d ? d.message : null;
 }
 
+/**
+ * True when the dry-run carried the engine's config-edit-mcp-loader-unverified caveat —
+ * emitted on a DISABLE (an INSERT of `enabled = false`) because Codex's docs say this
+ * disables the server but there is no live disabled instance to confirm against on this
+ * machine. The preview then warns the user to restart Codex and verify.
+ */
+function loaderUnverified(diags: Diagnostic[]): boolean {
+  return diags.some((d) => d.code === "config-edit-mcp-loader-unverified");
+}
+
 export function McpWriteControl({
   item,
   target,
@@ -61,6 +71,8 @@ export function McpWriteControl({
   const [pending, setPending] = useState<Verb | null>(null);
   const [preview, setPreview] = useState<WriteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Set when the disable dry-run carried the engine's loader-unverified caveat.
+  const [unverified, setUnverified] = useState(false);
 
   async function runPreview(verb: Verb) {
     setPending(verb);
@@ -74,6 +86,7 @@ export function McpWriteControl({
         setPhase("error");
         return;
       }
+      setUnverified(loaderUnverified(env.diagnostics));
       setPreview(env.result);
       setPhase("preview");
     } catch (e) {
@@ -107,6 +120,7 @@ export function McpWriteControl({
     setPending(null);
     setPreview(null);
     setError(null);
+    setUnverified(false);
   }
 
   return (
@@ -156,6 +170,12 @@ export function McpWriteControl({
                 <div className="text-ok">+ {preview.diff.after}</div>
               </div>
               <p className="text-[12px] leading-relaxed text-i42">{t("write.mcp.reversible")}</p>
+              {unverified && (
+                <p className="flex items-start gap-1.5 text-[12px] leading-relaxed text-warn">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>{t("write.mcp.unverifiedCaveat")}</span>
+                </p>
+              )}
             </>
           )}
           <div className="flex items-center gap-2">
