@@ -1287,11 +1287,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.writeOK = true
 		return m, saveConfigCmd(m.uiConfig())
-	case "T":
+	case "t", "T":
 		// Flip the active harness target (claude↔codex), persist the choice, and
 		// re-fetch fresh per-target data (switchTarget invalidates all caches first so
-		// stale rows never show under the other target). Mirrors W/L as a capital-letter
-		// mode toggle. Codex is read-only in slice 1 (the w/x/a writes no-op under it).
+		// stale rows never show under the other target). Case-insensitive like the H/D/S
+		// tab jumps. Codex is read-only in slice 1 (the w/x/a writes no-op under it).
 		cmd := m.switchTarget()
 		// Confirm the flip with a transient status-bar toast naming the NEW target
 		// (switchTarget already set m.target). The toast clears on the next key like
