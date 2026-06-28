@@ -286,7 +286,10 @@ export interface WriteResult {
   dryRun: boolean;
   kind: string | null;
   name: string | null;
-  desired: boolean | null;
+  /** plugin enable/disable: the desired boolean */
+  desired?: boolean | null;
+  /** skill:visibility: the desired 4-state value */
+  state?: string | null;
   target: string | null;
   diff: WriteDiff | null;
   alreadyInState: boolean;
@@ -303,17 +306,18 @@ export interface WriteEnvelope {
 }
 
 /**
- * Call the write channel. `verb` is 'disable' | 'enable'; `apply:false` is a dry-run
- * preview (no write), `apply:true` performs the gated, snapshot-backed write. The
+ * Call the write channel. `verb` is the engine command — 'disable' | 'enable' (binary,
+ * plugin) or 'skill:visibility' (a `state` from the 4-state enum). `apply:false` is a
+ * dry-run preview (no write), `apply:true` performs the gated, snapshot-backed write. The
  * custom header is what makes this reachable only from the same-origin app. A non-2xx
  * still returns its JSON envelope (refusals carry diagnostics) — only a transport/JSON
- * failure throws.
+ * failure throws. The verb is URL-encoded so a ':' command (skill:visibility) routes.
  */
 export async function writeCommand(
-  verb: "disable" | "enable",
-  body: { target: TargetId; type: "plugin"; name: string; apply: boolean },
+  verb: string,
+  body: { target: TargetId; type: string; name: string; state?: string; apply: boolean },
 ): Promise<WriteEnvelope> {
-  const res = await fetch(`/api/write/${verb}`, {
+  const res = await fetch(`/api/write/${encodeURIComponent(verb)}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
