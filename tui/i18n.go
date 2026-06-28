@@ -164,9 +164,9 @@ var translations = map[string][2]string{
 	"write.plugin.change":         {"Change in %s (line %d):", "改动(%s 第 %d 行):"},
 	"write.plugin.reversible":     {"An auto-snapshot is taken first, so rollback can undo it. Restart Claude Code for it to take effect.", "落盘前会自动快照,可用 rollback 撤销。改动需重启 Claude Code 生效。"},
 	"write.plugin.overrideCaveat": {"Note: settings.local.json also sets this plugin and takes precedence — the effective state may not change.", "注意:settings.local.json 也设置了该插件且优先级更高 —— 实际生效状态可能不变。"},
-	"write.plugin.done":          {"plugin updated — restart Claude Code", "插件已更新 —— 重启 Claude Code 生效"},
-	"write.plugin.hint":          {"toggle plugin", "切换插件"},
-	"write.plugin.selectHint":    {"select a plugin row, then press w to toggle it", "请先选中一个插件行,再按 w 切换启用/停用"},
+	"write.plugin.done":           {"plugin updated — restart Claude Code", "插件已更新 —— 重启 Claude Code 生效"},
+	"write.plugin.hint":           {"toggle plugin", "切换插件"},
+	"write.plugin.selectHint":     {"select a plugin row, then press w to toggle it", "请先选中一个插件行,再按 w 切换启用/停用"},
 
 	// Per-skill visibility confirm-apply flow (Inventory tab, Claude-only). The
 	// skill name, the chosen state (an engine enum value), and the before→after diff
@@ -181,6 +181,19 @@ var translations = map[string][2]string{
 	"write.skillVis.done":       {"visibility updated", "可见性已更新"},
 	"write.skillVis.hint":       {"press w to set visibility", "按 w 设置可见性"},
 
+	// Component delete / remove confirm-apply flow (Inventory tab, skill/agent/command).
+	// The component name and the engine-resolved target path are engine DATA shown
+	// verbatim; only the surrounding prose is translated. The modal renders in danger
+	// red (a destructive delete); only willDelete carries a format verb (%s).
+	"write.remove.title":      {"Delete component", "删除组件"},
+	"write.remove.willDelete": {"Permanently delete «%s»?", "永久删除「%s」?"},
+	"write.remove.pathLabel":  {"Will delete:", "将删除:"},
+	"write.remove.folderWarn": {"This is a skill — the entire folder is removed.", "这是一个 skill —— 会删除整个文件夹。"},
+	"write.remove.reversible": {"Reversible — an auto-snapshot is taken first, so a rollback can undo it.", "可回滚 —— 会先自动快照,之后可用 rollback 撤销。"},
+	"write.remove.done":       {"component removed", "已删除组件"},
+	"write.remove.hint":       {"delete", "删除"},
+	"write.remove.selectHint": {"select a skill, agent, or command row, then press x to delete it", "请先选中一个 skill / agent / command 行,再按 x 删除"},
+
 	// Snapshot rollback confirm-apply flow (Snapshots tab). The reason/id are engine
 	// DATA shown verbatim; only the surrounding prose is translated. A drifted
 	// rollback leads with driftWarn and the modal turns red.
@@ -192,7 +205,7 @@ var translations = map[string][2]string{
 	"write.rollback.done":         {"rolled back — restart Claude Code", "已回滚 —— 重启 Claude Code 生效"},
 	"write.rollback.hint":         {"roll back", "回滚"},
 	"write.rollback.selectHint":   {"select a snapshot row, then press w to roll back", "请先选中一个快照行,再按 w 回滚"},
-	"help.activeProbe":           {"run active doctor probes", "运行主动体检探针"},
+	"help.activeProbe":            {"run active doctor probes", "运行主动体检探针"},
 
 	"summary.drifted":         {"%d added · %d modified · %d removed", "%d 新增 · %d 修改 · %d 删除"},
 	"summary.driftClean":      {"clean · matches baseline", "无偏移 · 与基线一致"},
