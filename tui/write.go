@@ -54,6 +54,11 @@ type writeAction struct {
 	// when the live tree drifted. The on-confirm work runs via the run field (a
 	// two-step safety-snapshot-then-rollback orchestration), not args.
 	rollback *rollbackInfo
+	// skillVis, when non-nil, marks a per-skill visibility action (Inventory tab):
+	// confirmView composes its title/body from this preview. args still hold the real
+	// --apply command run on confirm. Mirrors the plugin field, but the target state
+	// is chosen in the visibility picker before the dry-run runs.
+	skillVis *skillVisInfo
 }
 
 // rollbackInfo carries what the confirm modal needs to describe a resolved
@@ -81,6 +86,19 @@ type pluginToggleInfo struct {
 	after    string
 	line     int
 	override bool
+}
+
+// skillVisInfo carries what the confirm modal needs to describe a resolved
+// per-skill visibility change, all derived from the dry-run preview. state is the
+// chosen engine enum value ("on"|"name-only"|"user-invocable-only"|"off");
+// before/after/line are the engine's diff fragments (before is "" for an INSERT
+// when the skill has no override yet).
+type skillVisInfo struct {
+	name   string
+	state  string
+	before string
+	after  string
+	line   int
 }
 
 // writeActionFor returns the write action available on view v, or ok=false when the
@@ -162,12 +180,15 @@ func firstErrorMessage(diags []Diagnostic) string {
 }
 
 // refusalError turns a refusal's diagnostics into an error — its first error
-// message, or a generic fallback when none is present.
+// message, or a generic fallback when none is present. Shared by the plugin
+// toggle and the skill-visibility prepare paths, so the fallback is action-neutral
+// (the engine always emits an error-severity diagnostic on a real refusal, so the
+// fallback is a defensive last resort rather than the usual message).
 func refusalError(diags []Diagnostic) error {
 	if msg := firstErrorMessage(diags); msg != "" {
 		return errors.New(msg)
 	}
-	return errors.New("plugin toggle refused")
+	return errors.New("write refused")
 }
 
 // preparePluginToggleCmd is the off-thread PROBE half of the plugin confirm-apply
@@ -207,6 +228,54 @@ func preparePluginToggleCmd(cliPath, key string) tea.Cmd {
 			info.before, info.after, info.line = preview.Diff.Before, preview.Diff.After, preview.Diff.Line
 		}
 		return pluginToggleMsg{action: buildPluginToggleAction(info)}
+	}
+}
+
+// ── Skill visibility (Inventory tab) ────────────────────────────────────────
+
+// buildSkillVisAction builds the confirm-gated apply action from a resolved
+// visibility intent. args are the REAL --apply command run on confirm; skillVis
+// holds the preview confirmView renders. Pure — no exec.
+//
+// refetch is nil ON PURPOSE: the inventory tree does not display a skill's
+// visibility, so a refetch would show no visible change AND reset the tree's
+// expand/cursor state (same reasoning as the plugin toggle). The status-bar toast
+// is the feedback instead.
+func buildSkillVisAction(info skillVisInfo) writeAction {
+	return writeAction{
+		id:       "skill-visibility",
+		doneKey:  "write.skillVis.done",
+		hintKey:  "write.skillVis.hint",
+		args:     []string{"skill", "visibility", info.name, info.state, "--apply", "--format", "json"},
+		skillVis: &info,
+	}
+}
+
+// prepareSkillVisCmd is the off-thread PROBE half of the skill-visibility
+// confirm-apply flow. The target state was already chosen in the picker, so it
+// dry-runs THAT state directly (no probe-then-flip like the binary plugin
+// toggle): AlreadyInState ⇒ a no-op the handler reports as a status-bar toast;
+// otherwise it builds a ready-to-confirm action carrying the diff preview. It
+// returns a skillVisMsg with an err (refusal / exec failure) the handler surfaces
+// in the status bar WITHOUT opening a modal. It NEVER writes (dry-run only); the
+// real write happens only after the user confirms the returned action.
+func prepareSkillVisCmd(cliPath, name, state string) tea.Cmd {
+	return func() tea.Msg {
+		preview, diags, err := fetchSkillVisDry(cliPath, name, state)
+		if err != nil {
+			return skillVisMsg{err: err}
+		}
+		if !preview.Ok {
+			return skillVisMsg{err: refusalError(diags)}
+		}
+		if preview.AlreadyInState {
+			return skillVisMsg{alreadyInState: true, name: name, state: state}
+		}
+		info := skillVisInfo{name: name, state: state}
+		if preview.Diff != nil {
+			info.before, info.after, info.line = preview.Diff.Before, preview.Diff.After, preview.Diff.Line
+		}
+		return skillVisMsg{action: buildSkillVisAction(info)}
 	}
 }
 
@@ -364,6 +433,26 @@ func pluginConfirmText(p pluginToggleInfo) (title, body string) {
 	return title, body
 }
 
+// skillVisConfirmText composes the confirm modal's title + body for a per-skill
+// visibility change from its dry-run preview. The skill name, the chosen state
+// (an engine enum value), and the diff fragments are engine DATA shown verbatim;
+// only the surrounding prose is translated. Called at render time on the UI
+// thread, so reading uiLang via tr/tf is race-free. Reuses write.plugin.change
+// for the diff line label.
+func skillVisConfirmText(info skillVisInfo) (title, body string) {
+	title = tr("write.skillVis.setTitle")
+	body = tf("write.skillVis.willSet", info.name, info.state)
+	if info.after != "" {
+		change := info.before + "  →  " + info.after
+		if info.before == "" {
+			change = "+ " + info.after // an INSERT: the skill had no override yet
+		}
+		body += "\n\n" + tf("write.plugin.change", "settings.json", info.line) + "\n" + change
+	}
+	body += "\n\n" + tr("write.skillVis.reversible")
+	return title, body
+}
+
 // confirmView renders the centered confirm modal for m.pending, mirroring
 // helpView's overlay. An amber border + title signal a state-changing action.
 func confirmView(m model) string {
@@ -388,6 +477,8 @@ func confirmView(m model) string {
 	switch {
 	case a.plugin != nil:
 		titleText, bodyText = pluginConfirmText(*a.plugin)
+	case a.skillVis != nil:
+		titleText, bodyText = skillVisConfirmText(*a.skillVis)
 	case a.rollback != nil:
 		titleText, bodyText = rollbackConfirmText(*a.rollback)
 		if a.rollback.drifted {
@@ -411,6 +502,48 @@ func confirmView(m model) string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(accentCol).
+		Padding(1, 3).
+		Render(b.String())
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
+}
+
+// visPickerView renders the centered skill-visibility picker for m.visPick,
+// mirroring confirmView's amber overlay. It lists the four skillVisStates (engine
+// enum values shown verbatim — NOT translated), the cursor row marked with a
+// "▸ " accent prefix and brightened, the rest dimmed, plus a footer key hint.
+func visPickerView(m model) string {
+	width, height := m.width, m.height
+	if width < 1 || height < 1 {
+		return ""
+	}
+	if m.visPick == nil {
+		return dashboardView(m)
+	}
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorOrange)
+	nameStyle := lipgloss.NewStyle().Foreground(labelGray)
+	dim := lipgloss.NewStyle().Foreground(statusDim)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(glyph("✎", "!") + " " + tr("write.skillVis.title")))
+	b.WriteString("\n\n")
+	b.WriteString(nameStyle.Render(m.visPick.name))
+	b.WriteString("\n\n")
+
+	for i, state := range skillVisStates {
+		if i == m.visPick.cursor {
+			row := keyStyle.Bold(true).Render(glyph("▸", ">") + " " + state)
+			b.WriteString(row)
+		} else {
+			b.WriteString(dim.Render("  " + state))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n" + lipgloss.NewStyle().Foreground(configGray).Render(tr("write.skillVis.pickHint")))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorOrange).
 		Padding(1, 3).
 		Render(b.String())
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
