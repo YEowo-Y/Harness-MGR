@@ -161,7 +161,7 @@ const EN = {
   "inspector.codexCoexist":
     "Codex components with the same name coexist — codex does not shadow (unverified).",
   "inspector.actionsP2":
-    "Write actions (disable / visibility / remove) arrive in P2 — this view is read-only.",
+    "No web write actions for this item — read-only here.",
   "inspector.contentDeferred":
     "Full SKILL.md preview is deferred (it needs a dedicated file-read endpoint outside the frozen read allowlist).",
 
@@ -327,7 +327,7 @@ const ZH: Record<StringKey, string> = {
   "inspector.shadowed":
     "属于一个 {kind} 名称冲突（共 {count} 个同名）—— 由加载顺序决定胜出者。",
   "inspector.codexCoexist": "Codex 同名组件共存 —— codex 不发生遮蔽（未核验）。",
-  "inspector.actionsP2": "写操作（禁用 / 可见性 / 删除）将在 P2 阶段提供 —— 本视图为只读。",
+  "inspector.actionsP2": "此条目没有网页端写操作 —— 此处为只读。",
   "inspector.contentDeferred":
     "完整 SKILL.md 预览暂缓（它需要一个独立的文件读取端点，超出当前冻结的只读白名单）。",
 
