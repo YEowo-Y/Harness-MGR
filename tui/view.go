@@ -37,9 +37,6 @@ var (
 
 	keyStyle = lipgloss.NewStyle().Foreground(accent) // key hints in teal
 
-	// Placeholder text for not-yet-built tabs.
-	placeholderStyle = lipgloss.NewStyle().Foreground(configGray).Italic(true)
-
 	// Detail-pane styles. Labels are dim so they recede; values are brighter so
 	// they stand out — a color hierarchy within each row. (The per-type detail
 	// title color is applied inline by detailTitle().)
@@ -60,45 +57,10 @@ var (
 )
 
 // ── Layout ──────────────────────────────────────────────────────────────────
-// The placeholder content card width derives from the terminal width via
-// cardWidth(); the printable inner width derives from that via innerWidth().
 
 const (
-	minCard        = 60
-	maxCard        = 100
-	cardPadX       = 4  // cardStyle horizontal padding (each side)
-	cardBorder     = 2  // rounded border (1 col each side)
 	detailLabelCol = 16 // fixed column width for detail-field labels (aligns values)
 )
-
-// cardWidth clamps the terminal width into [minCard, maxCard], leaving a small
-// margin (width-4) so the bordered card never touches the terminal edges.
-func cardWidth(termWidth int) int {
-	w := termWidth - 4
-	if w < minCard {
-		w = minCard
-	}
-	if w > maxCard {
-		w = maxCard
-	}
-	return w
-}
-
-// innerWidth returns the printable column count inside the card for a given
-// card width: card width − border (2) − horizontal padding (2×4).
-func innerWidth(cardW int) int {
-	return cardW - cardBorder - 2*cardPadX
-}
-
-// cardStyleFor builds the rounded teal content card at the given card width.
-// Used by the placeholder ("coming soon") tabs.
-func cardStyleFor(cardW int) lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(accent).
-		Padding(2, cardPadX).
-		Width(cardW - cardBorder)
-}
 
 // ── Glyph helper ─────────────────────────────────────────────────────────────
 
@@ -209,10 +171,8 @@ func mascotBlockWidth() int {
 // the tab bar and the tree (composed inside contentView so the height math in
 // padContent stays correct).
 func dashboardView(m model) string {
-	cardW := cardWidth(m.width)
-
 	tabBar := tabBarView(m)
-	content := contentView(m, cardW)
+	content := contentView(m)
 	// The / filter bar replaces the status bar while a filter is being typed or
 	// is applied; both are a single chrome line so the height math is unchanged.
 	statusBar := statusBarView(m)
@@ -227,23 +187,26 @@ func dashboardView(m model) string {
 
 // contentView renders the active tab's body. The Inventory tab is the
 // master-detail tree browser (driven by the `--detail` fetch) with a per-type
-// color counts bar stacked above the split. Section tabs (Conflicts, Orphans)
-// render a summary bar above a flat-list split pane. The other tabs remain
-// "coming soon" placeholder cards.
-func contentView(m model, cardW int) string {
+// color counts bar stacked above the split. Every other tab is a section tab
+// (isSectionView covers the whole enum besides viewInventory) and renders a
+// summary bar above a flat-list split pane.
+func contentView(m model) string {
 	switch {
 	case m.currentView == viewInventory:
 		return lipgloss.JoinVertical(lipgloss.Left, m.headerView(), inventorySplitView(m))
 	case isSectionView(m.currentView):
 		return lipgloss.JoinVertical(lipgloss.Left, m.headerView(), sectionSplitView(m))
 	default:
-		return placeholderView(m.currentView, cardW)
+		// Unreachable: every viewID is viewInventory or a section tab. An empty
+		// string is a safe total-function fallback (no tab is "coming soon" now).
+		return ""
 	}
 }
 
 // headerBarBuilder returns a closure that renders the current tab's counts/
 // summary bar at a given width, plus whether the current tab has such a bar.
-// The Inventory and section tabs do; placeholder tabs do not. Routing both the
+// The Inventory and section tabs — every reachable view — do; the unreachable
+// default returns false. Routing both the
 // header renderer (headerView) and the split-height reservation (splitDims)
 // through one builder lets them rebuild the bar at any width and agree on the
 // same mascot decision.
@@ -288,8 +251,8 @@ func (m model) mascotVisible() bool {
 // compact health lockup), narrowed by mascotBarWidth, and joins the mascot sprite
 // (at its current blink frame) to its right — the lockup fills the band the tall
 // mascot would otherwise leave blank. Otherwise it returns the full-width 1-line
-// bar unchanged — byte-for-byte the prior no-mascot header. Placeholder tabs have
-// no bar and yield "".
+// bar unchanged — byte-for-byte the prior no-mascot header. (A view with no bar —
+// the unreachable headerBarBuilder default — would yield "".)
 func (m model) headerView() string {
 	build, ok := m.headerBarBuilder()
 	if !ok {
@@ -1170,23 +1133,6 @@ func truncate(s string, width int) string {
 	return s[:end] + ell
 }
 
-// ── Placeholder views (Conflicts/Orphans/Config/Hooks/Selftest) ────────────────
-
-// placeholderView renders a dim centered "<tab> — coming soon" message inside a
-// content card visually consistent with the inventory card (same border/padding).
-func placeholderView(v viewID, cardW int) string {
-	inner := innerWidth(cardW)
-	label := strings.ToLower(tabLabel(v))
-
-	title := accentBar(accent) + brandWordmark() +
-		"  " + subtitleStyle.Render(label)
-	msg := placeholderStyle.Render(label + " — " + tr("placeholder.comingSoon"))
-	centered := lipgloss.PlaceHorizontal(inner, lipgloss.Center, msg)
-
-	body := title + "\n\n\n" + centered + "\n\n"
-	return cardStyleFor(cardW).Render(body)
-}
-
 // ── Help overlay ─────────────────────────────────────────────────────────────
 
 // helpView renders the full-screen keyboard-shortcuts overlay shown while
@@ -1232,12 +1178,4 @@ func helpView(width, height int) string {
 		Padding(1, 3).
 		Render(b.String())
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, box)
-}
-
-// ── Card chrome helper ──────────────────────────────────────────────────────────
-
-// accentBar returns "▌ " in the given color, or "| " on no-color terminals.
-// Used by the placeholder card header.
-func accentBar(color lipgloss.Color) string {
-	return lipgloss.NewStyle().Bold(true).Foreground(color).Render(glyph("▌", "|")) + " "
 }
