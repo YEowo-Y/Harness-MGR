@@ -1293,6 +1293,15 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// stale rows never show under the other target). Mirrors W/L as a capital-letter
 		// mode toggle. Codex is read-only in slice 1 (the w/x/a writes no-op under it).
 		cmd := m.switchTarget()
+		// Confirm the flip with a transient status-bar toast naming the NEW target
+		// (switchTarget already set m.target). The toast clears on the next key like
+		// other write-result lines (handleKey blanks m.writeStatus at the top).
+		if m.target == "codex" {
+			m.writeStatus = tr("status.switchedToCodex")
+		} else {
+			m.writeStatus = tr("status.switchedToClaude")
+		}
+		m.writeOK = true
 		return m, tea.Batch(saveConfigCmd(m.uiConfig()), cmd)
 	case "a":
 		// Active doctor probes (Doctor tab only): side-effecting (spawns node/claude
