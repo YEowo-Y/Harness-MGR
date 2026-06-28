@@ -86,9 +86,9 @@ const READ_COMMANDS = Object.freeze(
  * writeKindsFor() / removeKindsFor() below. e.g. disable/enable accept `mcp` here, but
  * writeKindsFor advertises mcp only for Codex — Claude's mcp toggle delegates to the `claude`
  * CLI + a stash (a different, non-snapshot mechanism) and is deliberately NOT surfaced here;
- * likewise remove accepts skill/agent/command here but removeKindsFor advertises them only for
- * Claude (Codex remove leaves orphaned [[skills.config]] entries that need the engine's
- * --prune-config flag — deferred from this channel).
+ * likewise remove accepts skill/agent/command here and removeKindsFor advertises them for BOTH
+ * Claude and Codex — codex skill remove is routed through the engine's --prune-config so the
+ * orphaned [[skills.config]] entries are pruned in the same reversible snapshot (see the handler).
  */
 const WRITE_SPEC = Object.freeze({
   disable: { kinds: new Set(["plugin", "mcp"]) },
@@ -200,11 +200,15 @@ function writeKindsFor(descriptor) {
  * so it is advertised + enforced independently). Consumed by BOTH /api/status (to advertise as
  * `removeKinds`) and /api/write (to enforce for a `capability:'remove'` command):
  *   claude → skill / agent / command (the engine's `remove <kind>:<name>`, auto-snapshot + reversible)
- *   codex  → [] (deferred — a codex skill remove leaves orphaned [[skills.config]] entries that
- *            need the engine's --prune-config flag, a UX not surfaced through this channel yet)
+ *   codex  → skill / agent / command too. agent/command are a plain file delete (agents/<name>.toml,
+ *            prompts/<name>.md); a codex SKILL delete leaves orphaned [[skills.config]] entries, so
+ *            the /api/write handler routes codex+skill through the engine's --prune-config (dir delete
+ *            + config prune in ONE reversible snapshot). All descriptor-driven, ZERO engine change.
  */
 function removeKindsFor(descriptor) {
-  if (descriptor && descriptor.id === "claude") return ["skill", "agent", "command"];
+  if (descriptor && (descriptor.id === "claude" || descriptor.id === "codex")) {
+    return ["skill", "agent", "command"];
+  }
   return [];
 }
 
@@ -385,6 +389,14 @@ app.post("/api/write/:cmd", async (c) => {
   args.type = kind;
   args.positionals = positionals;
   args.apply = apply;
+  // Codex skill remove leaves orphaned [[skills.config]] entries → always route it through the
+  // engine's --prune-config (dir delete + config prune in ONE reversible snapshot, one rollback
+  // restores both). SERVER-DECIDED from (cmd, kind, target); the client never controls this
+  // destructive axis. The engine independently gates --prune-config to codex + skill, so this is
+  // the only (cmd, kind, target) tuple it can apply to.
+  if (cmd === "remove" && kind === "skill" && target === "codex") {
+    args["prune-config"] = true;
+  }
   const out = await COMMANDS[cmd]({
     configDir: cfg.configDir,
     mgrStateDir: cfg.mgrStateDir,
