@@ -252,7 +252,7 @@ func (m model) headerBarBuilder() (func(width int) string, bool) {
 	case m.currentView == viewInventory:
 		return func(w int) string { return countsBarView(m.inv.Result.Counts, w) }, true
 	case isSectionView(m.currentView):
-		return func(w int) string { return sectionSummaryBar(m.currentView, m.sections[m.currentView], w) }, true
+		return func(w int) string { return sectionSummaryBar(m.currentView, m.sections[m.currentView], w, m.target) }, true
 	default:
 		return nil, false
 	}
@@ -777,10 +777,10 @@ func statusBarView(m model) string {
 	hint += sep + keyStyle.Render("W") + modeStyle.Render(" "+modeLabel)
 	// On the Inventory tab with writes enabled, advertise the "x delete" action so the
 	// component-remove write is discoverable next to the W mode indicator (mirrors how
-	// section tabs surface their "w <verb>" via tabActionHint). NOT under codex, where
-	// delete no-ops (slice 1 keeps codex read-only) — advertising it there would both
-	// mislead and push the bar past one line.
-	if m.currentView == viewInventory && m.writesEnabled && m.target != "codex" {
+	// section tabs surface their "w <verb>" via tabActionHint). Shown under BOTH targets
+	// — slice 2a makes codex remove live, so advertising it there is honest. The width
+	// clip below keeps the bar one line even when this pushes it long.
+	if m.currentView == viewInventory && m.writesEnabled {
 		hint += sep + keyStyle.Render("x") + dim.Render(" "+tr("write.remove.hint"))
 	}
 	hint += sep +
