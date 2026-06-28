@@ -1409,8 +1409,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Flip the active harness target (claude↔codex), persist the choice, and
 		// re-fetch fresh per-target data (switchTarget invalidates all caches first so
 		// stale rows never show under the other target). Case-insensitive like the H/D/S
-		// tab jumps. Codex now supports writes (plugin toggle / remove / rollback /
-		// drift-update); only the active probe (a) and the codex skill flip stay gated.
+		// tab jumps. Codex now supports writes (plugin / mcp toggle / skill flip / remove
+		// / rollback / drift-update); only the active probe (a) stays gated.
 		cmd := m.switchTarget()
 		// Confirm the flip with a transient status-bar toast naming the NEW target
 		// (switchTarget already set m.target). The toast clears on the next key like
