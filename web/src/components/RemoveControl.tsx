@@ -17,7 +17,7 @@
  * diagnostic. After a successful apply onRefresh fires (the item then vanishes from the list,
  * which closes the inspector — the natural feedback that the delete worked).
  */
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Trash2, AlertTriangle, Loader2, RotateCcw, Check } from "lucide-react";
 import { useLang } from "@/lib/i18n";
 import {
@@ -50,6 +50,13 @@ export function RemoveControl({
 }) {
   const { t } = useLang();
   const [phase, setPhase] = useState<Phase>("idle");
+  // While the async write runs, move focus to the live-region status node so keyboard/SR focus
+  // is not dropped to <body> when the clicked button unmounts; the region (role=status +
+  // aria-live) announces "Working…". Mirrors the inspector's tabIndex=-1 + outline-none pattern.
+  const loadingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (phase === "loading") loadingRef.current?.focus();
+  }, [phase]);
   const [preview, setPreview] = useState<WriteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The "I understand" gate — the danger button stays disabled until it is checked.
@@ -120,7 +127,7 @@ export function RemoveControl({
       )}
 
       {phase === "loading" && (
-        <div className="inline-flex items-center gap-2 px-1 py-2 text-[13px] text-i60">
+        <div ref={loadingRef} tabIndex={-1} role="status" aria-live="polite" className="inline-flex items-center gap-2 px-1 py-2 text-[13px] text-i60 outline-none">
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
           {t("write.working")}
         </div>
