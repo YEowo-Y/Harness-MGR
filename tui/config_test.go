@@ -55,12 +55,12 @@ func TestLoadLangEmptyPath(t *testing.T) {
 	}
 }
 
-// TestConfigBothFieldsRoundTrip verifies both fields persist together without
-// clobbering each other.
+// TestConfigBothFieldsRoundTrip verifies all three fields (language, writes, target)
+// persist together without clobbering each other.
 func TestConfigBothFieldsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ui.json")
-	saveConfigTo(path, uiConfig{Language: "zh", WritesEnabled: true})
+	saveConfigTo(path, uiConfig{Language: "zh", WritesEnabled: true, Target: "codex"})
 	got := loadConfigFrom(path)
 	if got.lang() != langZH {
 		t.Errorf("lang = %v, want langZH", got.lang())
@@ -68,10 +68,39 @@ func TestConfigBothFieldsRoundTrip(t *testing.T) {
 	if !got.WritesEnabled {
 		t.Error("WritesEnabled = false, want true (writes flag lost on round-trip)")
 	}
-	// Saving the whole doc again with writes off must not lose the language.
-	saveConfigTo(path, uiConfig{Language: "zh", WritesEnabled: false})
+	if got.target() != "codex" {
+		t.Errorf("target = %q, want codex (target lost on round-trip)", got.target())
+	}
+	// Saving the whole doc again with writes off + claude target must not lose the language.
+	saveConfigTo(path, uiConfig{Language: "zh", WritesEnabled: false, Target: "claude"})
 	got = loadConfigFrom(path)
-	if got.lang() != langZH || got.WritesEnabled {
-		t.Errorf("after re-save: lang=%v writes=%v, want langZH/false", got.lang(), got.WritesEnabled)
+	if got.lang() != langZH || got.WritesEnabled || got.target() != "claude" {
+		t.Errorf("after re-save: lang=%v writes=%v target=%q, want langZH/false/claude", got.lang(), got.WritesEnabled, got.target())
+	}
+}
+
+// TestTargetRoundTrip verifies the target field round-trips and defaults to claude
+// for a missing file, an empty value, and any unrecognized value.
+func TestTargetRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ui.json")
+
+	// Missing file defaults to claude.
+	if got := loadConfigFrom(path).target(); got != "claude" {
+		t.Fatalf("missing file: target() = %q, want claude", got)
+	}
+	saveConfigTo(path, uiConfig{Target: "codex"})
+	if got := loadConfigFrom(path).target(); got != "codex" {
+		t.Fatalf("after save codex: target() = %q, want codex", got)
+	}
+	saveConfigTo(path, uiConfig{Target: "claude"})
+	if got := loadConfigFrom(path).target(); got != "claude" {
+		t.Fatalf("after save claude: target() = %q, want claude", got)
+	}
+	// An empty value (older config) and an unknown value both read as claude.
+	if got := (uiConfig{Target: ""}).target(); got != "claude" {
+		t.Fatalf("empty target: target() = %q, want claude", got)
+	}
+	if got := (uiConfig{Target: "gemini"}).target(); got != "claude" {
+		t.Fatalf("unknown target: target() = %q, want claude", got)
 	}
 }
