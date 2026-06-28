@@ -100,12 +100,14 @@ export function Dashboard({
   // (stale-while-revalidate) instead of flashing the spinner.
   const enabledReady = !needsEnabledMap || effective.data != null;
 
-  // Reset selection + filter when the kind / target / data changes, so each kind
-  // starts from a clean, unfiltered table.
+  // Reset selection + filter on a kind/target SWITCH (a different data set), but NOT on a
+  // background live-reload — keep the open inspector and the active filter so a watcher
+  // tick doesn't yank the user out of what they're reading. (A vanished selection is
+  // already safe: the inspector only renders while its item is still in `items`.)
   useEffect(() => {
     setSelected(null);
     setQuery("");
-  }, [activeKind, target, reloadKey]);
+  }, [activeKind, target]);
 
   // path → shadowing facts, from EVERY conflict cluster (skill/agent/command).
   const shadowByPath = useMemo(() => {
