@@ -196,6 +196,95 @@ func TestSkillFlipDoneShowsStatus(t *testing.T) {
 	}
 }
 
+// ── path-keyed selector (the ~51% of codex skills with no name block) ─────────
+
+// A REAL-shaped codex `enable --type skill --path <abs> --format json` dry-run
+// envelope: a path-keyed [[skills.config]] entry (field "path", no name block). The
+// TUI consumes only Ok/AlreadyInState/Diff from the probe, so the flip flows exactly
+// as the name-keyed case once --path resolves it.
+const skillFlipPathJSON = `{"command":"enable","diagnostics":[{"code":"config-edit-dry-run","message":"would set skill at 'C:\\Users\\testuser\\.codex\\skills\\a11y-audit\\SKILL.md' enabled=true in config.toml (auto-snapshot first); re-run with --apply.","phase":"config-edit","severity":"info"}],"result":{"alreadyInState":false,"applied":false,"desired":true,"diff":{"after":"enabled = true","before":"enabled = false","line":611},"dryRun":true,"field":"path","kind":"skill","name":"C:\\Users\\testuser\\.codex\\skills\\a11y-audit\\SKILL.md","ok":true,"snapshotId":null,"status":"dry-run","target":"C:\\Users\\testuser\\.codex\\config.toml"},"version":1}`
+
+func TestSkillFlipPathEnvelopeDecodes(t *testing.T) {
+	r, _, err := parseConfigEdit([]byte(skillFlipPathJSON))
+	if err != nil {
+		t.Fatalf("parseConfigEdit error: %v", err)
+	}
+	if !r.Ok || !r.DryRun || r.AlreadyInState {
+		t.Fatalf("Ok/DryRun/AlreadyInState = %v/%v/%v, want true/true/false", r.Ok, r.DryRun, r.AlreadyInState)
+	}
+	if r.Diff == nil || r.Diff.After != "enabled = true" || r.Diff.Line != 611 {
+		t.Fatalf("Diff = %+v, want after/line = enabled=true/611", r.Diff)
+	}
+}
+
+// toConfigTomlPath normalizes a Windows inventory path (backslashes) to the
+// forward-slash form Codex stores in config.toml, which the engine's literal --path
+// compare requires. Dogfood proved the raw backslash form refuses. Portable (uses
+// strings, not OS-dependent filepath), so this pins the conversion on any platform.
+func TestToConfigTomlPath(t *testing.T) {
+	got := toConfigTomlPath(`C:\Users\testuser\.codex\skills\imagegen\SKILL.md`)
+	want := "C:/Users/testuser/.codex/skills/imagegen/SKILL.md"
+	if got != want {
+		t.Fatalf("toConfigTomlPath = %q, want %q", got, want)
+	}
+	if toConfigTomlPath(want) != want {
+		t.Fatalf("should be idempotent on an already-forward-slash path, got %q", toConfigTomlPath(want))
+	}
+}
+
+// buildSkillFlipAction with a non-empty path selects by --path (the path-keyed apply)
+// instead of the bare-name positional — the name is kept only for the modal display.
+// The path is the forward-slash form prepareSkillFlipCmd resolves it to (it normalizes
+// before storing it in the info), so buildSkillFlipAction emits it verbatim.
+func TestBuildSkillFlipActionByPath(t *testing.T) {
+	const p = "C:/Users/testuser/.codex/skills/imagegen/SKILL.md"
+	a := buildSkillFlipAction(skillFlipInfo{name: "imagegen", path: p, desired: true})
+	want := []string{"enable", "--type", "skill", "--path", p, "--apply", "--format", "json"}
+	if strings.Join(a.args, " ") != strings.Join(want, " ") {
+		t.Fatalf("args = %v, want %v", a.args, want)
+	}
+	if a.skillFlip == nil || a.skillFlip.path != p {
+		t.Fatalf("skillFlip = %+v, want path %q", a.skillFlip, p)
+	}
+	// The bare name must NOT appear as a positional when --path is used (it would
+	// double-select / shadow the path).
+	for _, tok := range a.args {
+		if tok == "imagegen" {
+			t.Fatalf("bare name must not be a positional in a --path flip: %v", a.args)
+		}
+	}
+}
+
+func TestBuildSkillFlipActionByPathDisable(t *testing.T) {
+	const p = "C:/Users/testuser/.codex/skills/imagegen/SKILL.md"
+	a := buildSkillFlipAction(skillFlipInfo{name: "imagegen", path: p, desired: false})
+	want := []string{"disable", "--type", "skill", "--path", p, "--apply", "--format", "json"}
+	if strings.Join(a.args, " ") != strings.Join(want, " ") {
+		t.Fatalf("args = %v, want %v", a.args, want)
+	}
+}
+
+// Guard the name-keyed path stays byte-identical: an empty path ⇒ the bare-name
+// positional, no --path flag (the ~49% of codex skills that DO have a name block).
+func TestBuildSkillFlipActionNameKeepsBareName(t *testing.T) {
+	a := buildSkillFlipAction(skillFlipInfo{name: "review", desired: true}) // path "" by default
+	want := []string{"enable", "--type", "skill", "review", "--apply", "--format", "json"}
+	if strings.Join(a.args, " ") != strings.Join(want, " ") {
+		t.Fatalf("args = %v, want %v", a.args, want)
+	}
+	for _, tok := range a.args {
+		if tok == "--path" {
+			t.Fatalf("a name-keyed flip must not emit --path: %v", a.args)
+		}
+	}
+}
+
+// The name-first → --path fallback inside prepareSkillFlipCmd is exec-dependent (it
+// branches on the live engine's probe result, like the plugin direction-probe), so it
+// is verified first-hand against the real ~/.codex rather than unit-tested. See the
+// session journal for the dogfood evidence (path-keyed skill flips; name-keyed still
+// flips by name).
+
 // ── i18n parity (every write.skillFlip.* key resolves in both languages) ──────
 
 func TestSkillFlipI18nParity(t *testing.T) {
