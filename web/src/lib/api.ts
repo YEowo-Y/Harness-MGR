@@ -302,6 +302,11 @@ export interface WriteResult {
   snapshotId: string | null;
   /** remove only: whether the apply lock was acquired (null on dry-run / toggle commands) */
   lockAcquired?: boolean | null;
+  /** codex skill remove (--prune-config) only: how many orphaned [[skills.config]] entries the
+   * plan also prunes. Present (a number, possibly 0) only on the prune path; absent for plain
+   * remove + the toggle commands. The `pruned` array carries the specific entries. */
+  prunedCount?: number | null;
+  pruned?: { field: string; value: string }[] | null;
 }
 
 export interface WriteEnvelope {
