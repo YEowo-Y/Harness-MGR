@@ -11,7 +11,7 @@ default. Contributions are expected to preserve that posture.
 # entry uses @modelcontextprotocol/sdk, and one test imports it — so install first.
 npm ci
 
-node --test                          # the full test suite (3400+ tests)
+npm test                             # the full root suite (3400+ tests; scoped to test/ so it skips web/)
 node src/cli.mjs selftest --lint     # per-file SLOC ceiling
 node src/cli.mjs selftest --boundary # zero-network import boundary
 ```
@@ -47,7 +47,7 @@ discovery/analysis module, and an oracle test against a committed fixture where 
 
 - Branch from `main`; keep each commit focused and use [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `test:`, `docs:`, `chore:`).
-- Make sure `node --test`, `selftest --lint`, and `selftest --boundary` all pass (CI runs them on
+- Make sure `npm test`, `selftest --lint`, and `selftest --boundary` all pass (CI runs them on
   Linux **and** Windows — this project is Windows-hardened, so don't break path/symlink/BOM handling).
 - Describe what changed and why; link any related issue.
 
