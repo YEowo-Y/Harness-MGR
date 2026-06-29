@@ -24,10 +24,11 @@
  *   4 — auto-snapshot integrity failure during --apply
  *   1 — any other apply failure (spawn failed, write-gate unloadable, unexpected)
  *
- * M2-SAFETY: never STATICALLY imports src/paths.mjs. The write gate
- * (assertWritable) is resolved via DYNAMIC `import()` ONLY on the real --apply
- * path; on import failure the command degrades gracefully. The dry-run path
- * never touches paths.mjs.
+ * NEVER STATICALLY imports src/paths.mjs — the assertWritable gate + dirs are
+ * injected params, keeping this module's static graph paths.mjs-free (the M2-safe
+ * property the boundary self-check enforces). The gate is resolved via DYNAMIC
+ * `import()` ONLY on the real --apply path; on import failure the command degrades
+ * gracefully. The dry-run path never touches paths.mjs.
  *
  * `deps` is the injectable test seam: fake `loadPaths` + `mcpFn` + `env` +
  * `homedirFn` make every path hermetically unit-testable.
@@ -137,7 +138,11 @@ export async function mcpCommand(ctx, deps = {}) {
     };
   }
 
-  // Resolve the write gate ONLY on the real --apply path (M2-safe).
+  // Resolve the write gate ONLY on the real --apply path. paths.mjs is imported
+  // DYNAMICALLY under try/catch so that if its load ever fails the command
+  // degrades instead of crashing (defence-in-depth). (Historically paths.mjs ->
+  // reexport.mjs top-level-awaited and rejected when ~/.claude/hooks/lib was
+  // absent; the resolver is first-party now, so that specific reject is gone.)
   let assertWritable;
   if (intent.enableWrites) {
     try {
@@ -148,7 +153,7 @@ export async function mcpCommand(ctx, deps = {}) {
         result: { status: 'write-unavailable' },
         diagnostics: [{
           severity: 'warn', code: 'mcp-write-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; mcp remove --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; mcp remove --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       };
