@@ -1,7 +1,7 @@
 # Threat model — `claude-mgr`
 
 **Status: revised 2026-06-02 — now covers the Phase-3 write surface as shipped.**
-The original P2.U12 cut documented the read-mostly phase; this revision reflects the
+The original read-mostly cut documented that phase; this revision reflects the
 landed Phase-3 write-side (snapshot / rollback / apply / recover / lock / audit
 writer / gc). The shape of the security model is unchanged — still exactly two
 privileged operations behind two choke points — but governed-config WRITES now
@@ -201,7 +201,7 @@ self-cleans).
   descriptions (2026-06-02 audit P1).
 - **The audit log is metadata-only — on BOTH read and write.** The reader examines
   only metadata for sort/filter ([`src/ops/audit.mjs`](../src/ops/audit.mjs)); the
-  writer ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs), P3.U20) enforces
+  writer ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs)) enforces
   a strict metadata whitelist `{timestamp, command, planVersion, snapshotId,
   exitCode, opCount}` TWICE — on build AND again at the I/O boundary — so file
   contents / before / after / diffs can never reach `audit.log` (plan finding **M3**).
@@ -307,7 +307,7 @@ an `isSafeKey` check (or an equivalent inline guard):
 - Frontmatter maps are built with `Object.create(null)` so a frontmatter key can
   never reach `Object.prototype` ([`src/discovery/frontmatter.mjs`](../src/discovery/frontmatter.mjs),
   `frontmatter.mjs:33-36`). The JSONC parser likewise produces null-prototype
-  objects (P2.U1).
+  objects.
 
 ### 5.6 Resource exhaustion / denial of service
 
@@ -354,7 +354,7 @@ A governance tool must still inspect a *broken* config. Two mechanisms:
   `readAuditLog` treats a missing log as benign and returns empty,
   `audit.mjs:155-158`; `gatherTrackedState` degrades per-file hash failures
   silently, `probe-state.mjs:77-84`). The CLI wraps its whole body so the worst
-  case is a JSON error envelope, never a bare stack (P1.U15).
+  case is a JSON error envelope, never a bare stack.
 - **The defensive load-failure fallback (`missing-hooks-lib`).** Importing
   [`src/paths.mjs`](../src/paths.mjs) is wrapped in try/catch by
   [`src/cli/resolve-config.mjs`](../src/cli/resolve-config.mjs): if that import ever
@@ -393,16 +393,16 @@ A governance tool must still inspect a *broken* config. Two mechanisms:
   `ent.isFile()` / `ent.isDirectory()` gates already covered symlinked flat
   `agents/`/`commands/` `.md` and skill DIR-symlinks. (HARDLINKS are a documented
   residual — see §6.)
-- The JSONC tokenizer (P2.U1/U2) is never-throws, last-wins on duplicate keys with
+- The JSONC tokenizer is never-throws, last-wins on duplicate keys with
   `line:column`, and produces null-prototype values — malformed input becomes
   `errors[]`, never an exception.
 
 ### 5.10 Supply chain — the FIRST runtime npm dependency (MCP SDK carve-out)
 
-**Owner-sanctioned exception (2026-06-10).** P5.U6 added an MCP server
-([`src/mcp/server.mjs`](../src/mcp/server.mjs)) that exposes the four read-only
+**Dependency exception (the optional MCP server).** The MCP server
+([`src/mcp/server.mjs`](../src/mcp/server.mjs)) exposes the four read-only
 commands (inventory / health / conflicts / doctor-passive) as Model Context
-Protocol tools, and the owner decided it uses the **official
+Protocol tools, and uses the **official
 `@modelcontextprotocol/sdk`** rather than a hand-written JSON-RPC stack — the
 project's first runtime npm dependency, a deliberate exception to the
 zero-dependency red line. The exception is bounded by four terms:
@@ -420,7 +420,7 @@ zero-dependency red line. The exception is bounded by four terms:
   stdin/stdout pipes; it opens no listener and no outbound connection.
 - **What the SDK *could* do vs what we import.** The SDK package also ships
   HTTP-based transports and OAuth client helpers that CAN open sockets — that
-  capability exists in `node_modules`, not in our import graph. The P5.U1
+  capability exists in `node_modules`, not in our import graph. The
   zero-network gate (§8) keeps machine-enforcing that **claude-mgr's own
   `src/` opens no sockets**: it scans every `src/**/*.mjs` import (the SDK
   specifiers do not and must not match a network prefix) and every ambient
@@ -455,7 +455,7 @@ detective-only controls today, not a victory lap.
   (`snapshot-tar-wrote-undeclared`) on any undeclared write. A race between the
   spawned process and that check is a documented detective control (plan **P1-7**).
 - **`update <plugin>` delegates a governed mutation to the external `claude` CLI
-  (P4b.U5) — bounded, not syscall-gated.** Unlike every other write, "updating a
+  — bounded, not syscall-gated.** Unlike every other write, "updating a
   plugin" requires refetching code from a marketplace (network + git), which this
   zero-network tool cannot do; so `update --apply` spawns `claude plugin update
   <key>` ([`src/ops/update.mjs`](../src/ops/update.mjs)). That spawn is bounded by
@@ -474,7 +474,7 @@ detective-only controls today, not a victory lap.
   deliberately excluded), so a `rollback` restores the manifest but NOT the downloaded
   code — partial reversibility, surfaced as `update-cache-not-snapshotted`. The
   network I/O is `claude`'s, not the tool's; the zero-network property holds for
-  claude-mgr's own code. **`mcp remove <name>` (P4b.U6) shares this exact boundary:**
+  claude-mgr's own code. **`mcp remove <name>` shares this exact boundary:**
   it delegates `claude mcp remove <name> [--scope ...]` via safeSpawn with its own
   deny-by-default `MCP_REMOVE_SCHEMA` (`allowedFlags:['--scope']`, `positionalPattern`
   `/^[A-Za-z0-9._-]+$/`, `maxArgs:5`); the server NAME is validated TWICE (the engine's
@@ -494,7 +494,7 @@ detective-only controls today, not a victory lap.
   cannot see shared locks held by other readers
   (`probe-access.mjs:8-13`, `:53-56`) — the honest limit for a read-only tool.
 - **Audit-log tamper-evidence is opt-in via `--audit-chain`.** The writer
-  ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs), P3.U20) computes an
+  ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs)) computes an
   optional `prevHash` chain off the prior log bytes; the reader does not yet
   *validate* the chain, and concurrent chained appends may fork unless serialized by
   the apply lock (plan **L2**). Tamper-evidence is therefore present but best-effort.
@@ -548,7 +548,7 @@ detective-only controls today, not a victory lap.
   exactly ONE exact-pinned runtime npm dependency (the MCP SDK, §5.10 — the CLI
   path itself imports only Node stdlib), but it cannot defend a hostile runtime.
 - **Network threats.** **claude-mgr's own code opens no sockets (machine-enforced
-  by the P5.U1 zero-network boundary invariant, §8); the MCP server speaks stdio
+  by the zero-network boundary invariant, §8); the MCP server speaks stdio
   pipes only** — no listener, no outbound connection (§5.10). (The MCP
   `--with-net` resolvability probe envisioned in the plan is *not* implemented;
   `gatherMcpProbes` resolves commands on `PATH` only.)
@@ -577,7 +577,7 @@ trust:
      (`extractAllSpecifiers`, `boundary.mjs:78-86`) — that fails on any forbidden
      import prefix. The regex errs toward **false positives** by design
      (`boundary.mjs:70-73`): noise is safe, a missed forbidden import is not.
-  3. The **zero-network invariant** (P5.U1, `checkZeroNetwork` in
+  3. The **zero-network invariant** (`checkZeroNetwork` in
      [`src/selftest/zero-network.mjs`](../src/selftest/zero-network.mjs)): no
      `src/` module may import a network-capable module (the `node:http`/`net`/
      `tls`/`dgram`/`dns` families plus bare and userland forms like `undici`/`ws`
@@ -590,7 +590,7 @@ trust:
      are documented in the module header.
 - **Per-unit independent security/code review.** Every work unit has a
   *separate* `code-reviewer` pass (never self-approval); Blocker/High findings are
-  fixed before commit. The write-gate change (P2.U7c-1) and each probe received a
+  fixed before commit. The write-gate change and each probe received a
   dedicated security pass that empirically fuzzed traversal, symlink, NTFS-ADS,
   and 8.3-short-name escapes against the real gate.
 - **The never-throws test suite.** Each module has tests asserting it degrades to
@@ -599,7 +599,7 @@ trust:
   (`test/integration/doctor-no-hook-execution.test.mjs`).
 - **The dogfood stability log.** Each unit is exercised against the *real*
   `~/.claude` and the result (e.g. "doctor reports 0 diagnostics across all 25
-  checks; loader probe leaves 0 residue") is recorded in `STABILITY-LOG.md`. The
+  checks; loader probe leaves 0 residue") is recorded in `STABILITY-LOG.jsonl`. The
   30-day gate accumulates this evidence and feeds the expansion of this document.
 
 ---
