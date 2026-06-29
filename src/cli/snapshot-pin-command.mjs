@@ -20,11 +20,14 @@
  *     loaded, so no marker is written.
  *
  * `pinSnapshot` is a CREATE → it REQUIRES the governed-write gate `assertWritable`
- * (fail-safe), which lives in paths.mjs. paths.mjs top-level-awaits and rejects when
- * `~/.claude/hooks/lib` is absent (the M2 constraint), so it is DYNAMICALLY imported
- * (via `deps.loadPaths`) ONLY on the pin --apply path — keeping paths.mjs OUT of the
- * static graph that `selftest --invariants` enforces. An import failure degrades
- * gracefully to a `snapshot-pin-unavailable` warn (mirrors snapshotCommand).
+ * (fail-safe), which lives in paths.mjs. paths.mjs is imported DYNAMICALLY (via
+ * `deps.loadPaths`) ONLY on the pin --apply path so that (a) it stays OUT of the
+ * static graph that `selftest --invariants` enforces and (b) if its load ever fails
+ * the command degrades instead of crashing — defence-in-depth. (Historically
+ * paths.mjs -> reexport.mjs top-level-awaited and rejected when `~/.claude/hooks/lib`
+ * was absent; the resolver is first-party now, so that specific reject is gone.) An
+ * import failure degrades gracefully to a `snapshot-pin-unavailable` warn (mirrors
+ * snapshotCommand).
  *
  * `unpinSnapshot` is a bounded DELETE → no gate, no paths.mjs (mirrors releaseLock /
  * gcSnapshots): the id is validated and the path RECONSTRUCTED, so the unlink is
@@ -59,7 +62,8 @@ function readId(ctx) {
 
 /**
  * Pin a snapshot so `gc` retains it. DRY-RUN BY DEFAULT; the pin WRITE (a CREATE)
- * is behind the two-factor write gate and the M2-safe dynamic paths.mjs import.
+ * is behind the two-factor write gate and the dynamic paths.mjs import that keeps
+ * this module's static graph paths.mjs-free (enforced by the boundary self-check).
  *
  * @param {CommandContext} ctx  { configDir, mgrStateDir, args } (args may be null-proto)
  * @param {{loadPaths?: () => Promise<{assertWritable: Function}>, pinFn?: typeof pinSnapshot, existsFn?: Function, env?: Record<string, string|undefined>}} [deps]
@@ -106,7 +110,7 @@ export async function snapshotPinCommand(ctx, deps = {}) {
     return {
       result: { mode: 'applied', id, pinned: false },
       diagnostics: [{ severity: 'warn', code: 'snapshot-pin-unavailable',
-        message: `~/.claude/hooks/lib unloadable; snapshot pin --apply needs the write gate: ${message}`, phase: 'cli' }],
+        message: `the write gate is unloadable; snapshot pin --apply needs it: ${message}`, phase: 'cli' }],
     };
   }
 
