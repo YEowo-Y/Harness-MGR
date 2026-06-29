@@ -91,8 +91,15 @@ test('non-object cache (array): empty mcpAuth + mcp-auth-cache-malformed warn', 
 test('resolution: good resolves, bad does not, http skipped', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'mgr-probemcp-'));
   try {
-    // Write a file named 'mytool' (no extension) so linux PATH resolution finds it
-    writeFileSync(join(tmp, 'mytool'), '#!/bin/sh\necho hi', 'utf-8');
+    // On Windows the temp dir contains a drive colon (C:\...) which is mangled
+    // when PATH is split on ':' (the POSIX separator). Use the real host platform
+    // so PATH is split correctly, and write a PATHEXT-compatible file on win32.
+    const isWin = process.platform === 'win32';
+    const filename = isWin ? 'mytool.cmd' : 'mytool';
+    writeFileSync(join(tmp, filename), isWin ? '@echo hi' : '#!/bin/sh\necho hi', 'utf-8');
+    const env = isWin
+      ? { PATH: tmp, PATHEXT: '.COM;.EXE;.BAT;.CMD' }
+      : { PATH: tmp };
 
     const { mcpResolution, diagnostics } = gatherMcpProbes({
       configDir: tmp,
@@ -101,8 +108,8 @@ test('resolution: good resolves, bad does not, http skipped', () => {
         { name: 'bad', transport: 'stdio', command: 'nope-xyz-not-real' },
         { name: 'web', transport: 'http', url: 'https://x' },
       ],
-      env: { PATH: tmp },
-      platform: 'linux',
+      env,
+      platform: process.platform,
     });
 
     // http server must not appear
