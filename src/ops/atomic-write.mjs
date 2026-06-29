@@ -56,8 +56,9 @@
  *     `write-not-allowed` and break the write). Do NOT "fix" this by routing the
  *     sidecars through the gate.
  *   - M2-SAFETY: imports ONLY node:fs + src/lib/retry.mjs + src/lib/diagnostic.mjs.
- *     NEVER src/paths.mjs or src/lib/reexport.mjs (both carry a top-level await
- *     that would poison this ops module's M2-safe graph).
+ *     NEVER src/paths.mjs — the assertWritable gate is an injected param, keeping
+ *     this ops module's static graph paths.mjs-free (the M2-safe property the
+ *     boundary self-check enforces).
  *   - NEVER THROWS — the whole body is wrapped; even an unexpected error becomes a
  *     Diagnostic + `{ ok:false }`. Injectable seams make every branch hermetic.
  *   - SINGLE-WRITER assumption: the caller MUST hold the apply lock (lock.mjs) so
