@@ -14,13 +14,22 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
 import { validateSpawnSpec } from '../src/lib/safe-spawn.mjs';
 import {
   resolveTar, probeTarVersion, createSnapshotTar, extractSnapshotTar,
 } from '../src/ops/snapshot-tar.mjs';
 
-const TAR = 'C:\\Windows\\System32\\tar.exe';
-const CWD = 'C:\\Users\\me\\AppData\\Local\\Temp';
+// The tar `exe` and spawn `cwd` flow through validateSpawnSpec, whose exe check is
+// `isAbsolute()` — and isAbsolute is OS-dependent (a `C:\...` literal is NOT absolute
+// under POSIX node:path on Linux CI). So these two must be OS-absolute at runtime:
+// the running node binary (always absolute, always exists) for the exe, and the OS
+// temp dir for the cwd. The archivePath/baseDir/destDir POSITIONALS stay Windows-style
+// `C:\...` literals on purpose — they only ever pass through TAR_PATH_RE (backslash is
+// allowed) and the argv-shape assertions, never through isAbsolute, so they are
+// equally valid string fixtures on either OS.
+const TAR = process.execPath;
+const CWD = tmpdir();
 
 /**
  * A recording spawn seam. Captures the spec it was called with and resolves /
