@@ -11,6 +11,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setComponentEnabled } from '../src/ops/config-edit.mjs';
 
 const FIXTURE = [
@@ -55,7 +57,12 @@ const FIXTURE = [
   'description = "no enabled line here"',
 ].join('\n');
 
-const base = { targetClaudeDir: 'C:\\codex', mgrStateDir: 'C:\\codex\\.mgr-state', configFile: 'config.toml', readFn: () => FIXTURE };
+// Hermetic: readFn/applyFn are injected, so these dirs never touch disk — they only need to be
+// absolute on the host OS. Build them at runtime (sibling .mgr-state under the target dir) so the
+// join()-derived `target` assertion below matches on BOTH Windows and POSIX CI.
+const TARGET_DIR = join(tmpdir(), 'cmgr-config-edit');
+const TARGET_FILE = join(TARGET_DIR, 'config.toml'); // what setComponentEnabled computes for plan.ops[].target
+const base = { targetClaudeDir: TARGET_DIR, mgrStateDir: join(TARGET_DIR, '.mgr-state'), configFile: 'config.toml', readFn: () => FIXTURE };
 const PASS = (p) => p;
 
 test('dry-run disable: previews the flip, writes nothing, builds a one-op config-edit plan', async () => {
@@ -68,7 +75,7 @@ test('dry-run disable: previews the flip, writes nothing, builds a one-op config
   assert.equal(r.plan.ops[0].kind, 'config-edit');
   assert.deepEqual(r.plan.ops[0].selector, { kind: 'plugin', name: 'superpowers@openai-curated' });
   assert.equal(r.plan.ops[0].desired, false);
-  assert.equal(r.plan.ops[0].target, 'C:\\codex\\config.toml');
+  assert.equal(r.plan.ops[0].target, TARGET_FILE);
 });
 
 test('dry-run enable of an already-enabled plugin → alreadyInState (safe no-op), diff null', async () => {
