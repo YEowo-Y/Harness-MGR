@@ -15,6 +15,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { validateSpawnSpec } from '../src/lib/safe-spawn.mjs';
 import {
   resolveTar, probeTarVersion, createSnapshotTar, extractSnapshotTar,
@@ -151,19 +152,19 @@ test('resolveTar: win32 prefers System32 bsdtar (statFn finds it) without touchi
   let pathSearched = false;
   const resolveFn = () => { pathSearched = true; return { resolved: true, path: 'C:\\Program Files\\Git\\usr\\bin\\tar.exe' }; };
   const res = resolveTar({ platform: 'win32', env: { SystemRoot: 'C:\\Windows' }, resolveFn, statFn: () => ({}) });
-  assert.equal(res.tarPath, 'C:\\Windows\\System32\\tar.exe');
+  assert.equal(res.tarPath, join('C:\\Windows', 'System32', 'tar.exe'));
   assert.equal(res.diagnostics.length, 0);
   assert.equal(pathSearched, false, 'PATH search is skipped when System32 tar exists');
 });
 
 test('resolveTar: win32 honors a custom %SystemRoot% for the System32 probe', () => {
   const res = resolveTar({ platform: 'win32', env: { SystemRoot: 'D:\\WinDir' }, resolveFn: () => ({ resolved: false, path: null }), statFn: () => ({}) });
-  assert.equal(res.tarPath, 'D:\\WinDir\\System32\\tar.exe');
+  assert.equal(res.tarPath, join('D:\\WinDir', 'System32', 'tar.exe'));
 });
 
 test('resolveTar: win32 with no SystemRoot env falls back to C:\\Windows for the probe', () => {
   const res = resolveTar({ platform: 'win32', env: {}, resolveFn: () => ({ resolved: false, path: null }), statFn: () => ({}) });
-  assert.equal(res.tarPath, 'C:\\Windows\\System32\\tar.exe');
+  assert.equal(res.tarPath, join('C:\\Windows', 'System32', 'tar.exe'));
 });
 
 test('resolveTar: found on PATH (no System32) → returns the resolved path', () => {
@@ -383,7 +384,7 @@ test('createSnapshotTar: an injected small argvBudget forces multi-chunk with a 
   const spawnFn = makeSpawn({ stdout: '' });
   const files = ['agents/a.md', 'agents/b.md', 'skills/s/SKILL.md', 'commands/c.md', 'settings.json'];
   const res = await createSnapshotTar({
-    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn, argvBudget: 75,
+    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn, argvBudget: Buffer.byteLength(TAR) + 50,
   });
   assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
   assert.ok(spawnFn.calls.length >= 3, `expected >=3 chunks under a tiny budget, got ${spawnFn.calls.length}`);
@@ -418,7 +419,7 @@ test('createSnapshotTar: a FAILED append chunk surfaces tar-create-failed (parti
   spawnFn.calls = calls;
   const files = ['agents/a.md', 'agents/b.md', 'skills/s/SKILL.md', 'commands/c.md'];
   const res = await createSnapshotTar({
-    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn, argvBudget: 75,
+    tarPath: TAR, archivePath: 'C:\\t\\a.tar', baseDir: 'C:\\b', files, cwd: CWD, spawnFn, argvBudget: Buffer.byteLength(TAR) + 50,
   });
   assert.equal(res.ok, false);
   assert.equal(res.archivePath, null);
