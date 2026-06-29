@@ -5,8 +5,8 @@ real-time web UI** for claude-mgr, in an **agent-workstation** style (sidebar sh
 right inspector — the Codex / Claude / Cherry Studio feel). It demonstrates the visual + interaction
 direction — it is **not** the real module and uses **mock data** (no engine wired in yet).
 
-Full design rationale, tokens, architecture, and the phased build plan live in
-`docs/internal/web-ui-design.md`.
+This is the visual prototype only — it captures the look-and-feel and interaction direction;
+the engine is not wired in.
 
 ## What it shows
 
@@ -41,4 +41,4 @@ load. No build step, no dependencies to install.
 
 Mock data + illustrative write flow. The real build wires these screens to the engine's JSON
 (`inventory` / `compare` / `doctor` / `config show-effective` / `conflicts`) and the gated
-snapshot/rollback ops. See `docs/internal/web-ui-design.md` §6–7.
+snapshot/rollback ops.
