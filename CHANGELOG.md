@@ -6,9 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 This tool is pre-1.0 and ships in phases; releases are tracked by the project's stability
 **tags** (`phase-1-stable`, `phase-2-stable`, …) rather than SemVer numbers.
 
-claude-mgr is a **zero-runtime-dependency** Node ESM tool that lives OUTSIDE Claude Code's
-loader. It is **dry-run by default**, Windows-hardened, and makes **no network calls of its
-own**. Every governed-config write is gated, auto-snapshotted, and reversible.
+claude-mgr is a Node ESM tool whose CLI core has **zero runtime dependencies** (the optional
+MCP server adds one exact-pinned dependency, `@modelcontextprotocol/sdk`). It lives OUTSIDE
+Claude Code's loader, is **dry-run by default**, Windows-hardened, and makes **no network
+calls of its own**. Every governed-config write is gated, auto-snapshotted, and reversible.
 
 ---
 
