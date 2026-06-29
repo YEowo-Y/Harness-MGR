@@ -355,15 +355,18 @@ A governance tool must still inspect a *broken* config. Two mechanisms:
   `audit.mjs:155-158`; `gatherTrackedState` degrades per-file hash failures
   silently, `probe-state.mjs:77-84`). The CLI wraps its whole body so the worst
   case is a JSON error envelope, never a bare stack (P1.U15).
-- **The M2 missing-hooks-lib fallback.** Importing
-  [`src/paths.mjs`](../src/paths.mjs) triggers a top-level await (via
-  `lib/reexport.mjs`) that **rejects** when `~/.claude/hooks/lib` is absent.
-  [`src/cli/resolve-config.mjs`](../src/cli/resolve-config.mjs) catches that and
-  degrades to a direct `CLAUDE_CONFIG_DIR`/`~/.claude` fallback plus a single
-  `missing-hooks-lib` warn — **read commands still work; writes stay unavailable
-  until the lib is restored** (`resolve-config.mjs:61-76`, `:84-99`). To keep that
-  fallback intact, every `paths.mjs`-touching probe is **dynamically imported**
-  under try/catch so the static graph stays `paths.mjs`-free: the loader probe in
+- **The defensive load-failure fallback (`missing-hooks-lib`).** Importing
+  [`src/paths.mjs`](../src/paths.mjs) is wrapped in try/catch by
+  [`src/cli/resolve-config.mjs`](../src/cli/resolve-config.mjs): if that import ever
+  throws, the CLI degrades to a direct `CLAUDE_CONFIG_DIR`/`~/.claude` fallback plus a
+  single `missing-hooks-lib` warn — **read commands still work; writes stay unavailable**
+  (`resolve-config.mjs:61-76`, `:84-99`). This once guarded a REAL fault: `paths.mjs` →
+  `lib/reexport.mjs` did a top-level await that **rejected** when `~/.claude/hooks/lib`
+  was absent (breaking CI and fresh clones). The resolver is first-party now
+  (`lib/config-dir.mjs`), so that rejection is gone and the catch is pure
+  defence-in-depth. To keep that fallback intact, every
+  `paths.mjs`-touching probe is **dynamically imported** under try/catch so the static
+  graph stays `paths.mjs`-free: the loader probe in
   [`src/cli/doctor-facts.mjs`](../src/cli/doctor-facts.mjs) (`doctor-facts.mjs:161-168`)
   and `probe-state.mjs` in [`src/cli/ops-commands.mjs`](../src/cli/ops-commands.mjs)
   (`ops-commands.mjs:69-79`). A failed import becomes a `drift-unavailable` /
