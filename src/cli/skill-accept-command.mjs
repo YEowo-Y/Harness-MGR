@@ -136,7 +136,7 @@ async function resolveAcceptGate(enableWrites, loadPaths) {
         result: { status: 'write-unavailable' },
         diagnostics: [{
           severity: 'warn', code: 'skill-accept-write-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; skill accept --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; skill accept --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       },
