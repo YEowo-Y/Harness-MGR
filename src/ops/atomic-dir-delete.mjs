@@ -56,7 +56,9 @@
  *     function). Called FIRST, before any filesystem touch.
  *   - Type check (lstatSync) happens AFTER the gate but BEFORE any rename/delete.
  *   - M2-SAFE: imports ONLY node:fs + src/lib/retry.mjs + src/lib/diagnostic.mjs.
- *     NEVER src/paths.mjs or src/lib/reexport.mjs (top-level await).
+ *     NEVER src/paths.mjs — the assertWritable gate is injected, keeping this
+ *     module's static graph paths.mjs-free (the M2-safe property the boundary
+ *     self-check enforces).
  *   - NEVER THROWS — top-level try/catch backstop; every failure becomes a
  *     Diagnostic + { ok:false }.
  *   - SINGLE-WRITER assumption: caller MUST hold the apply lock (lock.mjs).
