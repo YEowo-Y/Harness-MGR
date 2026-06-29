@@ -15,9 +15,9 @@
  * descriptor.id === 'codex'); a Claude run never touches it.
  *
  * --- M2-safe ---
- * Imports ONLY ./read-toml.mjs + node:path — NEVER paths.mjs (its top-level await
- * would break the missing-hooks-lib fallback). The home dir is passed IN by the
- * caller (resolved via node:os there), not read here.
+ * NEVER imports src/paths.mjs — the home dir is injected by the caller (resolved
+ * via node:os there), keeping this module's static graph paths.mjs-free (the
+ * M2-safe property the boundary self-check enforces).
  *
  * Zero npm dependencies. Node stdlib only. Never throws.
  */
