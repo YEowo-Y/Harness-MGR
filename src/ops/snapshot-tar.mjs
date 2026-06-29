@@ -32,14 +32,14 @@
  * clean failures are a single member too long for any chunk (`tar-path-too-long`)
  * or non-ASCII members that together overflow one chunk (`tar-unicode-overflow`).
  *
- * WINDOWS-PRIMARY / no allowSlashPositionals: on Windows the absolute path
- * positionals are drive-letter paths (`C:\...`), which do NOT begin with `/`, so
- * they are positionals by DEFAULT and a Windows-style mutation token is caught by
- * safe-spawn's default flag gate. We therefore do NOT opt into the slash-flag
- * escape and do NOT register a descriptor in spawn-spec-registry.mjs. POSIX
- * support (`/abs` paths, which would need the slash escape + a registered,
- * guardrail-passing descriptor) is a DEFERRED enhancement — the project is
- * Windows-primary and the OSS hand-rolled-tar fallback was already removed.
+ * CROSS-PLATFORM POSITIONALS: on Windows the absolute path positionals are drive-
+ * letter paths (`C:\...`), which do NOT begin with `/`, so they are positionals by
+ * default. On POSIX they are `/abs` paths, so the tar schema opts into safe-spawn's
+ * allowSlashPositionals (via TAR_SPAWN_SPEC, registered in spawn-spec-registry.mjs):
+ * a `/`-leading token is then validated as a POSITIONAL by TAR_PATH_RE — which is
+ * tightened to require a MULTI-SEGMENT path, so it admits real archive/base/dest
+ * paths while still rejecting the single-segment `/grant`-family Windows mutation
+ * flags the guardrail probes. The `-`/`--` flag families stay deny-by-default.
  *
  * NEVER THROWS: a missing tar, a spawn failure, or a non-zero tar exit becomes a
  * Diagnostic + `{ ok:false }`. Injectable resolveFn / spawnFn / statFn seams make
@@ -75,18 +75,37 @@ const TAR_ALLOWED_FLAGS = Object.freeze(['-c', '-r', '-f', '-x', '-C', '--versio
 
 /**
  * Second-belt positional pattern, applied by safe-spawn to EVERY non-flag token —
- * both the absolute path args (archivePath / baseDir / destDir) and the relative
- * file entries we pass as direct argv (`skills/a/SKILL.md`). The flag gate already
- * rejects `-`/`/`-leading tokens; this additionally FORBIDS any character a shell
- * could weaponise — control chars (incl. newline/CR/tab), quotes, and the
- * pipe/redirect/background/command-sub/glob family (`| & ; < > $ * ?`). It is
- * intentionally permissive on STRUCTURE (relative names have no drive/`/` anchor),
- * so a separate `..`-segment guard (hasTraversal) rejects path traversal — the one
- * structural attack a pure char-class cannot catch. Backslash IS allowed (Windows
- * separators); the dangerous-char class is what neutralises injection.
+ * the absolute path args (archivePath / baseDir / destDir) and the relative file
+ * entries passed as direct argv (`skills/a/SKILL.md`). It FORBIDS any character a
+ * shell could weaponise — control chars (incl. newline/CR/tab), quotes, and the
+ * pipe/redirect/background/command-sub/glob family (`| & ; < > $ * ?`). Backslash
+ * and `/` ARE allowed (path separators); a separate `..`-segment guard (hasTraversal)
+ * rejects traversal — the one structural attack a char-class cannot catch.
+ *
+ * POSIX-SAFE STRUCTURE (so allowSlashPositionals can be enabled — see TAR_SPAWN_SPEC):
+ * a `/`-leading token MUST be MULTI-SEGMENT (contain a second `/`). Real archive /
+ * base / dest paths are always deep (`/tmp/cmgr-xxx/.mgr-state/...`, `/home/u/.claude`),
+ * so this admits them while REJECTING the single-segment `/grant`-family Windows icacls
+ * mutation flags the spawn-spec guardrail probes. Relative members (no leading `/`) and
+ * Windows drive paths (`C:\...`) take the first alternative, unchanged from before.
  * @type {RegExp}
  */
-const TAR_PATH_RE = /^[^\0-\x1F"'`|&;<>$*?]+$/;
+const TAR_PATH_RE = /^(?:[^/\0-\x1F"'`|&;<>$*?][^\0-\x1F"'`|&;<>$*?]*|\/[^\0-\x1F"'`|&;<>$*?]*\/[^\0-\x1F"'`|&;<>$*?]*)$/;
+
+/**
+ * Spawn-spec descriptor for snapshot-tar's safeSpawn calls. Opts into
+ * allowSlashPositionals so POSIX absolute archive/base/dest paths (which begin with
+ * `/`) are validated as POSITIONALS by TAR_PATH_RE instead of rejected as flags.
+ * Exported + registered in spawn-spec-registry.mjs so the guardrail proves
+ * TAR_PATH_RE rejects every known Windows mutation flag while accepting a real POSIX
+ * path. On Windows this is a no-op (paths are drive-lettered `C:\...`, never `/`-led).
+ * @type {Readonly<{id:string, allowSlashPositionals:true, positionalPattern:RegExp}>}
+ */
+export const TAR_SPAWN_SPEC = Object.freeze({
+  id: 'snapshot-tar',
+  allowSlashPositionals: /** @type {true} */ (true),
+  positionalPattern: TAR_PATH_RE,
+});
 
 /**
  * Conservative per-CHUNK byte budget for an assembled tar command line. The Windows
@@ -112,15 +131,16 @@ const TAR_TIMEOUT_MS = 60000;
  * Build the safe-spawn schema for a tar call. `maxArgs` is sized to the EXACT argv
  * length of this call (no slack) so the cap is a tight, call-specific bound rather
  * than a loose constant. Single source of truth for the flag allowlist + path
- * pattern. Deliberately NO allowSlashPositionals (Windows absolute positionals are
- * drive-lettered, so a `/`-leading token stays a flag and is rejected).
+ * pattern + the allowSlashPositionals opt-in (spread from TAR_SPAWN_SPEC so the
+ * GATED pattern and the guardrail-CHECKED pattern are the same object reference).
  * @param {number} argvLen exact number of tokens in this call's args array
- * @returns {{ allowedFlags: string[], positionalPattern: RegExp, maxArgs: number }}
+ * @returns {{ allowedFlags: string[], positionalPattern: RegExp, allowSlashPositionals: boolean, maxArgs: number }}
  */
 function tarSchema(argvLen) {
   return {
     allowedFlags: [...TAR_ALLOWED_FLAGS],
-    positionalPattern: TAR_PATH_RE,
+    positionalPattern: TAR_SPAWN_SPEC.positionalPattern,
+    allowSlashPositionals: TAR_SPAWN_SPEC.allowSlashPositionals,
     maxArgs: argvLen,
   };
 }
