@@ -82,11 +82,19 @@ test('indeterminate: unresolvable env var, not missing', () => {
 test('external found: bare command name on PATH', () => {
   const tmp = mkdtempSync(join(tmpdir(), 'mgr-probehooks-'));
   try {
-    writeFileSync(join(tmp, 'mytool'), '#!/bin/sh\necho hi', 'utf-8');
+    // On Windows the temp dir contains a drive colon (C:\...) which is mangled
+    // when PATH is split on ':' (the POSIX separator). Use the real host platform
+    // so PATH is split correctly, and write a PATHEXT-compatible file on win32.
+    const isWin = process.platform === 'win32';
+    const filename = isWin ? 'mytool.cmd' : 'mytool';
+    writeFileSync(join(tmp, filename), isWin ? '@echo hi' : '#!/bin/sh\necho hi', 'utf-8');
+    const env = isWin
+      ? { PATH: tmp, PATHEXT: '.COM;.EXE;.BAT;.CMD' }
+      : { PATH: tmp };
     const { hookFacts } = gatherHookProbes({
       hooks: mkHooks('PostToolUse', 'mytool --silent'),
-      env: { PATH: tmp },
-      platform: 'linux',
+      env,
+      platform: process.platform,
     });
     assert.equal(hookFacts.length, 1);
     const [f] = hookFacts;
