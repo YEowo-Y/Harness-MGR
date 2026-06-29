@@ -26,10 +26,14 @@
  * --- Pure module, by design ---
  * Takes the config root as an explicit argument and depends only on node:fs /
  * node:path + the parser and the Source/Diagnostic typedefs. It does NOT resolve
- * the real ~/.claude (no reexport import), so it loads synchronously and is
- * trivial to test against fixture directories. Resolving the live config dir —
- * and the M2 "missing hooks/lib surfaces a Diagnostic" follow-up — belong to the
- * CLI boundary (P1.U15), not here.
+ * the real ~/.claude (never imports paths.mjs / reexport.mjs), keeping its static
+ * graph paths.mjs-free and trivial to test against fixture directories. Resolving
+ * the live config dir — and surfacing a Diagnostic when that resolution fails —
+ * belongs to the CLI boundary (P1.U15), not here. (Historically reexport.mjs
+ * borrowed the config dir from ~/.claude/hooks/lib via a dynamic import + top-level
+ * await, which is why staying reexport-free mattered for sync loading; the resolver
+ * is first-party and synchronous now, so that specific concern is gone — but the
+ * inject-the-root design still stands on its own.)
  *
  * --- Scope ---
  * Walks are FLAT to match the current fixture corpus: skills are one-level
