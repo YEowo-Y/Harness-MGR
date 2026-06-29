@@ -10,11 +10,12 @@
  * + the env factor the remove actually runs: auto-snapshot first, then the governed
  * atomic delete. The snapshot makes every remove reversible via `rollback`.
  *
- * M2-SAFETY: this module never STATICALLY imports src/paths.mjs. The write gate
- * (`assertWritable`) is resolved via a DYNAMIC `import()` ONLY on the real --apply
- * path (mirrors rollback-command.mjs); on import failure the command degrades
- * gracefully to a `remove-write-unavailable` warn. The dry-run path never touches
- * paths.mjs.
+ * M2-SAFETY: this module never STATICALLY imports src/paths.mjs — the
+ * `assertWritable` gate + dirs are injected params, keeping this module's static
+ * graph paths.mjs-free (the M2-safe property the boundary self-check enforces). The
+ * gate is instead resolved via a DYNAMIC `import()` ONLY on the real --apply path
+ * (mirrors rollback-command.mjs); on import failure the command degrades gracefully
+ * to a `remove-write-unavailable` warn. The dry-run path never touches paths.mjs.
  *
  * `deps` is the injectable test seam (mirrors rollback-command.mjs): fake
  * `loadPaths` + `removeFn` + `env` make every path hermetically unit-testable
@@ -152,7 +153,11 @@ export async function removeCommand(ctx, deps = {}) {
 
   // Resolve the governed-write gate ONLY on the real --apply path. The dry-run
   // path performs no write, so assertWritable stays undefined (the engine's
-  // dry-run path needs no gate). paths.mjs is imported DYNAMICALLY (M2-safe).
+  // dry-run path needs no gate). paths.mjs is imported DYNAMICALLY under try/catch
+  // so that if its load ever fails the command degrades instead of crashing
+  // (defence-in-depth). (Historically paths.mjs -> reexport.mjs top-level-awaited
+  // and rejected when ~/.claude/hooks/lib was absent; the resolver is first-party
+  // now, so that specific reject is gone.)
   let assertWritable;
   if (intent.enableWrites) {
     try {
@@ -164,7 +169,7 @@ export async function removeCommand(ctx, deps = {}) {
         result: { status: 'write-unavailable' },
         diagnostics: [{
           severity: 'warn', code: 'remove-write-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; remove --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; remove --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       };
