@@ -6,17 +6,18 @@
  * index.mjs is a pure consumer (no I/O); all the filesystem reads, the merged
  * settings, the conflict/orphan analysis, and the probe gathers happen HERE.
  *
- * --- M2 fault-tolerance (do not break) ---
- * Importing src/paths.mjs triggers a top-level await (via lib/reexport.mjs) that
- * REJECTS when ~/.claude/hooks/lib is absent. The CLI must still run read
- * commands in that state, so commands.mjs's static import graph must stay
- * paths.mjs-free. The PASSIVE probes (probe-mcp/hooks/fs/statusline/access) do
- * NOT touch paths.mjs, so they are statically imported. The ACTIVE loader probe
- * (#19, probe-loader.mjs) DOES import paths.mjs, so it is DYNAMICALLY imported
- * inside loaderProbe() under a try/catch — only when activeProbes is set —
- * exactly mirroring selftestCommand's dynamic paths.mjs import for its boundary
- * gate. That keeps the static graph clean and preserves the missing-hooks-lib
- * fallback.
+ * --- paths.mjs-free static graph (do not break) ---
+ * commands.mjs's static import graph must stay paths.mjs-free (the M2-safe
+ * property the boundary self-check enforces). The PASSIVE probes
+ * (probe-mcp/hooks/fs/statusline/access) do NOT touch paths.mjs, so they are
+ * statically imported. The ACTIVE loader probe (#19, probe-loader.mjs) DOES
+ * import paths.mjs, so it is DYNAMICALLY imported inside loaderProbe() under a
+ * try/catch — only when activeProbes is set — exactly mirroring selftestCommand's
+ * dynamic paths.mjs import for its boundary gate. That keeps the static graph
+ * clean, and the try/catch degrades to a single warn if that load ever fails
+ * (defence-in-depth). (Historically paths.mjs -> reexport.mjs top-level-awaited and
+ * rejected when ~/.claude/hooks/lib was absent; the resolver is first-party now, so
+ * that specific reject is gone.)
  *
  * The returned `diagnostics` are ONLY the probe-gather operational diagnostics
  * (e.g. an unreadable auth cache). scan.diagnostics is NOT surfaced here: those
@@ -250,9 +251,10 @@ async function addActiveProbes(input, diagnostics, configDir) {
 
 /**
  * Dynamically import + run the loader probe (#19). probe-loader.mjs imports
- * paths.mjs (top-level await), so it MUST NOT be in the static graph — a
- * dynamic import isolates that rejection (the M2 missing-hooks-lib case) to a
- * single warn rather than breaking the whole CLI. Mirrors selftestCommand.
+ * paths.mjs, so it MUST NOT be in the static graph (keeping this module's static
+ * graph paths.mjs-free — the M2-safe property the boundary self-check enforces);
+ * the dynamic import under try/catch also isolates any load failure to a single
+ * warn rather than breaking the whole CLI (defence-in-depth). Mirrors selftestCommand.
  * @param {string} configDir
  * @returns {Promise<{ loader: object|undefined, diagnostics: Diagnostic[] }>}
  */
