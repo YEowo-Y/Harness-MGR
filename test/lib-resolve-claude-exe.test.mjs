@@ -11,6 +11,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 
 import { isSpawnable, resolveClaudeExe } from '../src/lib/resolve-claude-exe.mjs';
 import { isSpawnable as probeIsSpawnable } from '../src/discovery/probe-cli.mjs';
@@ -134,7 +135,9 @@ describe('resolveClaudeExe', () => {
   });
 
   it('win32 shim → package bin: existsFn returns true for derived path → kind package-bin', () => {
-    const shimPath = 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude';
+    // OS-absolute base so the source's isAbsolute(pkgBin) guard passes on
+    // Linux too (a literal 'C:\\...' is only absolute under win32 node:path).
+    const shimPath = join(tmpdir(), 'cmgr-npm-shim', 'claude');
     const expectedPkgBin = join(
       dirname(shimPath),
       'node_modules',
@@ -156,7 +159,9 @@ describe('resolveClaudeExe', () => {
   });
 
   it('win32 shim + package bin MISSING → exe null + claude-exe-unresolved diagnostic', () => {
-    const shimPath = 'C:\\Users\\me\\AppData\\Roaming\\npm\\claude';
+    // OS-absolute base (see note above) so the win32 fallback's existsFn branch
+    // is actually exercised on Linux instead of being short-circuited by isAbsolute.
+    const shimPath = join(tmpdir(), 'cmgr-npm-shim', 'claude');
 
     const result = resolveClaudeExe({
       platform: 'win32',
