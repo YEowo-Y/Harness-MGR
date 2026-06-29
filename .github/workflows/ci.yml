@@ -22,7 +22,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Test suite
-        run: node --test
+        run: npm test
       - name: Lint (SLOC ceiling)
         run: node src/cli.mjs selftest --lint
       - name: Import boundary (zero-network)
