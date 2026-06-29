@@ -150,7 +150,8 @@ describe("PluginWriteControl", () => {
     await user.click(screen.getByRole("button", { name: "Enable plugin" }));
     await user.click(await screen.findByRole("button", { name: "Confirm & apply" }));
 
-    expect(await screen.findByText("Could not complete the change.")).toBeInTheDocument();
+    // stable substring (drop the trailing period) so a copy tweak won't break it
+    expect(await screen.findByText(/Could not complete the change/)).toBeInTheDocument();
     expect(onRefresh).not.toHaveBeenCalled();
   });
 
