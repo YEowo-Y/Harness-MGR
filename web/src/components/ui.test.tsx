@@ -48,8 +48,9 @@ describe("ErrorBox", () => {
 
   it('shows the errorTitle "Could not reach the engine"', () => {
     renderWithLang(<ErrorBox message="boom" />);
-    // EN common.errorTitle = "Could not reach the engine"
-    expect(screen.getByText("Could not reach the engine")).toBeInTheDocument();
+    // EN common.errorTitle = "Could not reach the engine" — match a stable substring
+    // so a harmless copy edit to the title doesn't break the test.
+    expect(screen.getByText(/Could not reach the engine/)).toBeInTheDocument();
   });
 
   it('shows a hint containing "Is the API server running"', () => {
