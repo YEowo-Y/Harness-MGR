@@ -14,11 +14,12 @@
  * only ADDS a file; its undo is deletion (the snapshot-before-overwrite belongs to U9
  * accept).
  *
- * M2-SAFETY: this module never STATICALLY imports src/paths.mjs. The write gate
- * (`assertWritable`) is resolved via a DYNAMIC `import()` ONLY on the real --apply
- * path (mirrors remove-command.mjs); on import failure the command degrades
- * gracefully to a `skill-propose-write-unavailable` warn. The dry-run path never
- * touches paths.mjs.
+ * M2-SAFETY: this module never STATICALLY imports src/paths.mjs — the write gate
+ * (`assertWritable`) is an injected param resolved via a DYNAMIC `import()` ONLY on
+ * the real --apply path (mirrors remove-command.mjs), keeping this module's static
+ * graph paths.mjs-free (the M2-safe property the boundary self-check enforces). On
+ * import failure the command degrades gracefully to a `skill-propose-write-
+ * unavailable` warn. The dry-run path never touches paths.mjs.
  *
  * SECRET-SAFE (P5 surface convention; design §9): the WHOLE result AND the merged
  * diagnostics pass `redactSecretsDeep` before returning — the unified diff carries
@@ -109,8 +110,12 @@ function summarizeProposal(r) {
  * Resolve the governed-write gate (`assertWritable`) ONLY when writes are enabled.
  * The dry-run path performs no write, so it returns `{ assertWritable: undefined }`
  * without touching paths.mjs (M2-safe). On the --apply path, paths.mjs is imported
- * DYNAMICALLY; a load failure returns `{ error }` — a graceful warn CommandOutput
- * the caller short-circuits with. Never throws.
+ * DYNAMICALLY under try/catch so that if its load ever fails the command degrades
+ * instead of crashing (defence-in-depth): a load failure returns `{ error }` — a
+ * graceful warn CommandOutput the caller short-circuits with. (Historically
+ * paths.mjs -> reexport.mjs top-level-awaited and rejected when ~/.claude/hooks/lib
+ * was absent; the resolver is first-party now, so that specific reject is gone.)
+ * Never throws.
  *
  * @param {boolean} enableWrites
  * @param {(() => Promise<{assertWritable: Function}>)|undefined} loadPaths  test seam
@@ -127,7 +132,7 @@ async function resolveProposeGate(enableWrites, loadPaths) {
         result: { status: 'write-unavailable' },
         diagnostics: [{
           severity: 'warn', code: 'skill-propose-write-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; skill propose --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; skill propose --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       },
