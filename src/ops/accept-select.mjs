@@ -16,9 +16,10 @@
  * they NEVER throw (every fs error is caught) and NEVER mutate anything. The actual
  * write sequence lives in accept.mjs.
  *
- * M2-SAFETY: imports ONLY node:path / node:crypto. NEVER src/paths.mjs or
- * src/lib/reexport.mjs (both carry a top-level await that would poison the M2-safe
- * graph). The fs reads go through seams forwarded by accept.mjs.
+ * M2-SAFETY: imports ONLY node:path / node:crypto. NEVER imports src/paths.mjs —
+ * the dirs + seams are INJECTED params, keeping this module's static graph
+ * paths.mjs-free (the M2-safe property the boundary self-check enforces). The fs
+ * reads go through seams forwarded by accept.mjs.
  *
  * Spec: docs/phase-5-u9-accept-design.md §2 / §4.
  */
