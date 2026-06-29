@@ -20,9 +20,12 @@
  *     loads the gate (recover requires it) and runs the engine with
  *     enableWrites:false (read-only preview, touches nothing governed).
  *
- * M2-SAFETY: this module never STATICALLY imports src/paths.mjs (its top-level await
- * rejects when `~/.claude/hooks/lib` is absent). The gate is resolved via a DYNAMIC
- * `import()`, guarded so a failure degrades to a `recover-unavailable` warn.
+ * M2-SAFETY: this module never STATICALLY imports src/paths.mjs — the gate is resolved
+ * via a DYNAMIC `import()`, guarded so a load failure degrades to a `recover-unavailable`
+ * warn instead of crashing (defence-in-depth). (Historically paths.mjs -> reexport.mjs
+ * top-level-awaited and rejected when `~/.claude/hooks/lib` was absent; the resolver is
+ * first-party now, so that specific reject is gone — keeping the dynamic guard is still
+ * worthwhile defence-in-depth.)
  *
  * `deps` is the injectable test seam (mirrors rollbackCommand): a fake `loadPaths`,
  * a recording `recoverFn`, and an injected `env` make every path hermetic.
@@ -112,7 +115,7 @@ async function resolveGate(loadPaths, mode) {
         result: { status: 'write-unavailable', mode },
         diagnostics: [{
           severity: 'warn', code: 'recover-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; recover needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; recover --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       },
