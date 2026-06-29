@@ -14,11 +14,13 @@
  * --- How the config dir is resolved ---
  *   - CODEX with no explicit `--config-dir`: `join(homedir(), '.codex')` directly.
  *     This path NEVER touches paths.mjs (paths.mjs is the CC loader, hard-wired to
- *     ~/.claude; importing it would both be wrong for codex AND break the M2
- *     constraint). mgrStateDir is the codex-rooted `.mgr-state`.
+ *     ~/.claude; importing it would be wrong for codex). Keeping this module
+ *     paths.mjs-free is also the M2-safe property the boundary self-check enforces.
+ *     mgrStateDir is the codex-rooted `.mgr-state`.
  *   - everything else: DELEGATE to resolveConfigDir({configDir, loadPaths}), which
  *     owns the explicit-override branch AND the live paths.mjs import (the ONLY
- *     dynamic-import path; M2-safe — no static paths.mjs in this module's graph).
+ *     dynamic-import path; this module's static graph stays paths.mjs-free — the
+ *     M2-safe property the boundary self-check enforces).
  *
  * Never throws (outer guard). Zero npm deps; node stdlib only.
  */
@@ -123,7 +125,8 @@ export async function resolveTargetAndConfig({ target, configDir, loadPaths, hom
     const descriptor = pickDescriptor(target, configDir, stat);
 
     // CODEX with no explicit config dir: resolve from homedir()/.codex directly —
-    // NEVER import paths.mjs (it is the CC loader, wrong for codex + M2-unsafe).
+    // NEVER import paths.mjs (it is the CC loader, wrong for codex); staying
+    // paths.mjs-free is also the M2-safe property the boundary self-check enforces.
     if (descriptor.id === 'codex' && !(typeof configDir === 'string' && configDir.length > 0)) {
       const home = typeof homeFn === 'function' ? homeFn() : homedir();
       const cd = join(home, descriptor.defaultHomeSubdir);
