@@ -8,17 +8,29 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { mcpToggleCommand } from '../src/cli/mcp-toggle-command.mjs';
 import { disableCommand, enableCommand } from '../src/cli/config-edit-command.mjs';
 import { claudeDescriptor } from '../src/targets/claude.mjs';
 
-const claudeCtx = (args) => ({ configDir: 'C:\\claude', mgrStateDir: 'C:\\claude\\.mgr-state', args, descriptor: claudeDescriptor });
+// Hermetic, never-touches-disk fixtures: just need OS-absolute paths so the handler's
+// path.join() output is predictable on both Windows and Linux. Keep configDir / mgrStateDir
+// siblings (mgr-state nested under the claude dir, as in production).
+const HOME = join(tmpdir(), 'cmgr-mcp-home');
+const CONFIG_DIR = join(tmpdir(), 'cmgr-mcp-claude');
+const MGR_STATE_DIR = join(CONFIG_DIR, '.mgr-state');
+// Expected ~/.claude.json — derive it exactly as the handler does so the assertion holds
+// regardless of the platform's path separator.
+const EXPECTED_APP_FILE = join(HOME, '.claude.json');
+
+const claudeCtx = (args) => ({ configDir: CONFIG_DIR, mgrStateDir: MGR_STATE_DIR, args, descriptor: claudeDescriptor });
 
 function makeDeps(over = {}) {
   const calls = [];
   const setMcpEnabledFn = async (o) => { calls.push(o); return { ok: true, refused: false, dryRun: !o.enableWrites, kind: 'mcp', name: o.name, desired: o.desired, action: o.desired ? 'enable' : 'disable', diagnostics: [] }; };
   setMcpEnabledFn.calls = calls;
-  return { env: {}, setMcpEnabledFn, homedirFn: () => 'C:\\Users\\me', loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => ((p) => p) }), ...over };
+  return { env: {}, setMcpEnabledFn, homedirFn: () => HOME, loadPaths: async () => ({ assertWritable: (p) => p, makeAssertWritable: () => ((p) => p) }), ...over };
 }
 
 test('disable --type mcp <name> dry-run: forwards desired:false + enableWrites:false + appFile, NO gate', async () => {
@@ -31,8 +43,8 @@ test('disable --type mcp <name> dry-run: forwards desired:false + enableWrites:f
   assert.equal(c.desired, false);
   assert.equal(c.enableWrites, false);
   assert.equal(c.assertWritable, undefined, 'dry-run resolves NO gate');
-  assert.equal(c.appFile, 'C:\\Users\\me\\.claude.json');
-  assert.equal(c.targetClaudeDir, 'C:\\claude');
+  assert.equal(c.appFile, EXPECTED_APP_FILE);
+  assert.equal(c.targetClaudeDir, CONFIG_DIR);
 });
 
 test('enable --type mcp sets desired:true', async () => {
@@ -51,7 +63,7 @@ test('no name → no-name refusal (code 3), engine never called', async () => {
 
 test('--path is not allowed for --type mcp (code 3)', async () => {
   const deps = makeDeps();
-  const out = await mcpToggleCommand(claudeCtx({ type: 'mcp', positionals: ['x'], path: 'C:/x' }), deps, false, 'disable');
+  const out = await mcpToggleCommand(claudeCtx({ type: 'mcp', positionals: ['x'], path: join(tmpdir(), 'x') }), deps, false, 'disable');
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'disable-path-not-allowed'));
   assert.equal(deps.setMcpEnabledFn.calls.length, 0);
