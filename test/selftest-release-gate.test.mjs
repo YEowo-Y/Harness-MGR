@@ -392,7 +392,7 @@ describe('runReleaseGate', () => {
       changedSrcFiles: () => ['src/cli/selftest-command.mjs'],
       runCoverage: () => ({
         coverageMap: {
-          'C:/Dev/Projects/claude-mgr/src/cli/selftest-command.mjs': { lines: 90, branches: 90 },
+          'C:/Dev/Projects/harness-mgr/src/cli/selftest-command.mjs': { lines: 90, branches: 90 },
           '/home/user/proj/src/cli/selftest-command.mjs': { lines: 90, branches: 90 },
         },
         detail: 'ok',

@@ -20,7 +20,7 @@
  *                    `.mgr-new` (now) is kept.
  *
  * The same three-env-var wiring contract as the sibling U22 oracles:
- *   • CLAUDE_CONFIG_DIR = tmp · --config-dir tmp · CLAUDE_MGR_ENABLE_WRITES = '1'
+ *   • CLAUDE_CONFIG_DIR = tmp · --config-dir tmp · HARNESS_MGR_ENABLE_WRITES = '1'
  * all saved + restored in the finally.
  *
  * DEAD-PID DETERMINISM: rather than gamble on a literal pid like 999999 being absent,
@@ -135,7 +135,7 @@ function populateState(stateDir, deadPid) {
 
 test('snapshot gc exercises all four cleanup categories, end-to-end via run()', async () => {
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-gcall-'));
   process.env.CLAUDE_CONFIG_DIR = tmp; // the real gate resolves the governed dir from this
   const stateDir = join(tmp, '.mgr-state');
@@ -147,7 +147,7 @@ test('snapshot gc exercises all four cleanup categories, end-to-end via run()', 
     // ── DRY-RUN LEG: a bare `snapshot gc --keep 1` (no --apply) must delete NOTHING
     //    and preview the candidates in every category. ─────────────────────────────
     const p = populateState(stateDir, deadPid);
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES; // prove dry-run never needs the env factor
+    delete process.env.HARNESS_MGR_ENABLE_WRITES; // prove dry-run never needs the env factor
     const dry = await run(['snapshot', 'gc', '--keep', '1', '--config-dir', tmp, '--format', 'json']);
     assert.equal(dry.code, 0, `dry-run code 0 expected; stdout:\n${dry.stdout}`);
     const dryResult = JSON.parse(dry.stdout).result;
@@ -164,13 +164,13 @@ test('snapshot gc exercises all four cleanup categories, end-to-end via run()', 
     assert.equal(dryResult.lock.wouldReap, 1, 'the dead+old lock would be reaped');
     assert.equal(dryResult.leftovers.wouldDelete, 1, 'one stale sidecar would be deleted');
 
-    // ── GATE-CLOSED --APPLY LEG: `--apply` with CLAUDE_MGR_ENABLE_WRITES=0 (explicit
+    // ── GATE-CLOSED --APPLY LEG: `--apply` with HARNESS_MGR_ENABLE_WRITES=0 (explicit
     //    opt-out lock) must REFUSE before gcExtras runs. This pins the load-bearing
     //    "refuse before any delete" guarantee — removing the refusal early-return would
     //    turn this leg RED. Under the relaxed gate, unset env enables writes; only '0'
     //    locks, so we set it explicitly here. ──────────────────────────────────────────
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '0';
-    assert.equal(process.env.CLAUDE_MGR_ENABLE_WRITES, '0', 'env must be set to 0 for the gate-closed leg');
+    process.env.HARNESS_MGR_ENABLE_WRITES = '0';
+    assert.equal(process.env.HARNESS_MGR_ENABLE_WRITES, '0', 'env must be set to 0 for the gate-closed leg');
     const refused = await run(['snapshot', 'gc', '--keep', '1', '--apply', '--config-dir', tmp, '--format', 'json']);
     assert.equal(refused.code, 3, `gate-closed --apply must exit 3; stdout:\n${refused.stdout}`);
     const refusedDiags = JSON.parse(refused.stdout).diagnostics || [];
@@ -188,7 +188,7 @@ test('snapshot gc exercises all four cleanup categories, end-to-end via run()', 
 
     // ── APPLY LEG: arm the env factor, run `snapshot gc --keep 1 --apply`. Every
     //    category must act. ─────────────────────────────────────────────────────────
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
     const applied = await run(['snapshot', 'gc', '--keep', '1', '--apply', '--config-dir', tmp, '--format', 'json']);
     assert.equal(applied.code, 0, `apply code 0 expected; stdout:\n${applied.stdout}`);
     const res = JSON.parse(applied.stdout).result;
@@ -218,8 +218,8 @@ test('snapshot gc exercises all four cleanup categories, end-to-end via run()', 
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });

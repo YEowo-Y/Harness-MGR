@@ -5,7 +5,7 @@
  * loadPaths supplies assertWritable so the --apply gate-resolution is exercised without paths.mjs.
  * Proves: a non-Claude target refuses (code 3); missing name/state refuse; dry-run forwards
  * name+state+enableWrites:false and resolves NO gate; --apply resolves the Claude gate + forwards
- * the snapshot scope; the CLAUDE_MGR_ENABLE_WRITES=0 lock refuses before the engine; an engine
+ * the snapshot scope; the HARNESS_MGR_ENABLE_WRITES=0 lock refuses before the engine; an engine
  * refusal maps to exit 2.
  */
 
@@ -74,8 +74,8 @@ test('--apply: resolves the Claude gate, forwards enableWrites:true', async () =
   assert.equal(c.state, 'name-only');
 });
 
-test('CLAUDE_MGR_ENABLE_WRITES=0 lock → refused before the engine', async () => {
-  const deps = makeDeps({ env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+test('HARNESS_MGR_ENABLE_WRITES=0 lock → refused before the engine', async () => {
+  const deps = makeDeps({ env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   const out = await skillVisibilityCommand(claudeCtx({ positionals: ['deep-research', 'off'], apply: true }), deps);
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env'));

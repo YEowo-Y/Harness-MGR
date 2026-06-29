@@ -4,7 +4,7 @@
  * A NEW skill subcommand (alongside `skill propose` / `skill accept`) that sets one member of
  * settings.json's `skillOverrides` map to a 4-state visibility enum via the setSkillVisibility
  * engine (src/ops/skill-visibility.mjs), behind the SAME two-factor write gate every write command
- * uses: resolveWriteIntent requires --apply (dry-run by default; CLAUDE_MGR_ENABLE_WRITES=0
+ * uses: resolveWriteIntent requires --apply (dry-run by default; HARNESS_MGR_ENABLE_WRITES=0
  * force-locks writes).
  *
  * CLAUDE-ONLY: skillOverrides is a Claude settings.json concept. A non-Claude target (Codex governs

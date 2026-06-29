@@ -3,7 +3,7 @@
  *
  * Writes a transient `__mgr-probe-<uuid>.md` agent file into the REAL
  * <configDir>/agents/ via `assertWritable(target, 'probe')` (symlink-escape
- * protection), then confirms claude-mgr's own discoverComponents detects it
+ * protection), then confirms harness-mgr's own discoverComponents detects it
  * (end-to-end discovery self-check), and ALWAYS cleans up in a finally block.
  *
  * The `ccVersion` string is carried through unchanged for the downstream
@@ -28,14 +28,14 @@ import { DiagnosticBag } from '../lib/diagnostic.mjs';
  * @typedef {Object} LoaderProbeFact
  * @property {string} probeName    the __mgr-probe-<uuid> name used (or '' if none)
  * @property {boolean} wrote        a probe agent file was written
- * @property {boolean} observed     claude-mgr's own discovery detected the probe agent
+ * @property {boolean} observed     harness-mgr's own discovery detected the probe agent
  * @property {boolean} cleanedUp    the probe file was removed (true if never written)
  * @property {string|null} ccVersion  claude version passed in (for downstream confidence), or null
  */
 
 /** Minimal valid agent markdown for the transient probe file. */
 function probeAgentContent(probeName) {
-  return `---\nname: ${probeName}\ndescription: claude-mgr loader probe (transient, safe to delete)\n---\nTransient loader probe written by \`claude-mgr doctor --active-probes\`. Auto-deleted.\n`;
+  return `---\nname: ${probeName}\ndescription: harness-mgr loader probe (transient, safe to delete)\n---\nTransient loader probe written by \`harness-mgr doctor --active-probes\`. Auto-deleted.\n`;
 }
 
 // Default I/O implementations (overridable for tests).
@@ -129,7 +129,7 @@ export async function gatherLoaderProbe(opts) {
       return { loader: { probeName, wrote: false, observed: false, cleanedUp: true, ccVersion: ccv }, diagnostics: bag.all() };
     }
 
-    // Observe via claude-mgr's OWN discovery (end-to-end check against the live dir).
+    // Observe via harness-mgr's OWN discovery (end-to-end check against the live dir).
     try {
       const result = discoverFn(configDir);
       const components = result && Array.isArray(result.components) ? result.components : [];

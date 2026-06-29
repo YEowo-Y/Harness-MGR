@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { homedir, tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
 import {
   resolveRoots,
   targetClaudeDir,
@@ -22,7 +22,9 @@ test('resolveRoots returns all three roots', () => {
 
 test('mgrInstallDir resolves to the package root (parent of src/)', () => {
   const root = mgrInstallDir();
-  assert.ok(root.endsWith('claude-mgr'), `unexpected install dir: ${root}`);
+  // Structural check, decoupled from the checkout folder's name: the install dir
+  // is the parent of src/, so src/paths.mjs must live directly under it.
+  assert.ok(existsSync(join(root, 'src', 'paths.mjs')), `install dir should contain src/paths.mjs: ${root}`);
 });
 
 test('mgrStateDir is <targetClaudeDir>/.mgr-state (canonical const)', () => {

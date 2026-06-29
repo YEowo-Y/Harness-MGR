@@ -76,7 +76,7 @@ test('env=0 (opt-out lock) + --apply → code 3 writes-disabled-env, engine + lo
   const lp = loadPathsRecorder();
   const out = await pruneConfigCommand(
     makeCtx(['skill:x'], { apply: true }),
-    { pruneFn: pr.fn, loadPaths: lp.fn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+    { pruneFn: pr.fn, loadPaths: lp.fn, env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   assert.equal(out.code, 3);
   assert.equal(out.diagnostics[0].code, 'writes-disabled-env');
   assert.equal(pr.calls.length, 0);

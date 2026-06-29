@@ -1,7 +1,7 @@
 /**
  * Target descriptor registry + resolver (P6.U1).
  *
- * claude-mgr's target-specific knowledge already lives in frozen DATA tables, not
+ * harness-mgr's target-specific knowledge already lives in frozen DATA tables, not
  * logic (KIND_RULES, KNOWN_TOP_DIRS/FILES, WALK_DIRS, APPLY_WRITABLE_FILES). This
  * module packages each target's read-only tables into one descriptor and resolves
  * the requested one.

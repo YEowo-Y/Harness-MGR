@@ -1,9 +1,9 @@
 /**
- * P4b.U12 — POSIX entry-point parity (`claude-mgr.sh`).
+ * P4b.U12 — POSIX entry-point parity (`harness-mgr.sh`).
  *
- * Proves `claude-mgr.sh` is a BEHAVIOR-EXACT POSIX parity of `node src/cli.mjs`
+ * Proves `harness-mgr.sh` is a BEHAVIOR-EXACT POSIX parity of `node src/cli.mjs`
  * — the DoD bar for U12: "runs on WSL / macOS / Linux fixture; matches the
- * `claude-mgr.ps1` behavior." The shell wrapper is a THIN delegator:
+ * `harness-mgr.ps1` behavior." The shell wrapper is a THIN delegator:
  *
  *     SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
  *     exec node "$SCRIPT_DIR/src/cli.mjs" "$@"
@@ -19,16 +19,16 @@
  * the suite stays green — the `.sh` wrapper is simply not exercisable there.
  *
  * WINDOWS GOTCHA (empirically verified): POSIX `dirname` on a BACKSLASH Windows
- * path (`C:\Dev\...\claude-mgr.sh`) returns "." (there is no `/` separator),
+ * path (`C:\Dev\...\harness-mgr.sh`) returns "." (there is no `/` separator),
  * which would break `SCRIPT_DIR`. So when this test hands the shell an ABSOLUTE
- * script path on win32 it converts `C:\Dev\Projects\claude-mgr\claude-mgr.sh`
- * → `/c/Dev/Projects/claude-mgr/claude-mgr.sh` (lowercase drive letter,
+ * script path on win32 it converts `C:\Dev\Projects\harness-mgr\harness-mgr.sh`
+ * → `/c/Dev/Projects/harness-mgr/harness-mgr.sh` (lowercase drive letter,
  * backslashes → forward slashes — the MSYS/Git-Bash mount form). On POSIX
  * platforms the native absolute path is used as-is.
  *
- * TEST-ONLY: no `src/` changes, no `claude-mgr.sh` changes, never writes to any
+ * TEST-ONLY: no `src/` changes, no `harness-mgr.sh` changes, never writes to any
  * governed config (every command is read / usage / completion; no `--apply`,
- * no `CLAUDE_MGR_ENABLE_WRITES`).
+ * no `HARNESS_MGR_ENABLE_WRITES`).
  */
 
 import test from 'node:test';
@@ -41,14 +41,14 @@ import os from 'node:os';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..', '..'); // test/integration/ -> repo root
-const SCRIPT = join(ROOT, 'claude-mgr.sh');
+const SCRIPT = join(ROOT, 'harness-mgr.sh');
 const CLI = join(ROOT, 'src', 'cli.mjs');
 const FIXTURE = join(ROOT, 'test', 'fixtures', 'real-snapshot');
 
 /**
  * Convert a Windows absolute path to the MSYS / Git-Bash mount form that a
  * POSIX shell on win32 understands, e.g.
- *   C:\Dev\Projects\claude-mgr\claude-mgr.sh -> /c/Dev/Projects/claude-mgr/claude-mgr.sh
+ *   C:\Dev\Projects\harness-mgr\harness-mgr.sh -> /c/Dev/Projects/harness-mgr/harness-mgr.sh
  * On non-win32 platforms the path is already POSIX — returned unchanged.
  */
 function toPosixAbs(p) {
@@ -89,7 +89,7 @@ const PARITY_COMMANDS = [
   { label: 'config show-effective json', argv: ['config', 'show-effective', '--config-dir', FIXTURE, '--format', 'json'], expectStatus: 0 },
 ];
 
-test('claude-mgr.sh — structural: thin delegating POSIX wrapper', (t) => {
+test('harness-mgr.sh — structural: thin delegating POSIX wrapper', (t) => {
   if (!SHELL) { t.skip('no POSIX shell (sh/bash) — skipping .sh parity'); return; }
   const src = readFileSync(SCRIPT, 'utf8');
   assert.ok(src.startsWith('#!'), 'script must begin with a #! shebang');
@@ -106,11 +106,11 @@ test('claude-mgr.sh — structural: thin delegating POSIX wrapper', (t) => {
   );
 });
 
-test('claude-mgr.sh — core parity: byte-identical stdout + exit code vs `node src/cli.mjs`', (t) => {
+test('harness-mgr.sh — core parity: byte-identical stdout + exit code vs `node src/cli.mjs`', (t) => {
   if (!SHELL) { t.skip('no POSIX shell (sh/bash) — skipping .sh parity'); return; }
-  // From cwd:ROOT, invoke the wrapper by RELATIVE path: $0='./claude-mgr.sh',
+  // From cwd:ROOT, invoke the wrapper by RELATIVE path: $0='./harness-mgr.sh',
   // dirname='.', `cd .` => ROOT, so SCRIPT_DIR resolves portably.
-  const scriptRel = './claude-mgr.sh';
+  const scriptRel = './harness-mgr.sh';
   for (const { label, argv, expectStatus } of PARITY_COMMANDS) {
     const nodeRun = runNode(argv);
     const shRun = runShell(scriptRel, argv);
@@ -130,7 +130,7 @@ test('claude-mgr.sh — core parity: byte-identical stdout + exit code vs `node 
   }
 });
 
-test('claude-mgr.sh — cwd-independence: SCRIPT_DIR resolves from a neutral cwd via absolute path', (t) => {
+test('harness-mgr.sh — cwd-independence: SCRIPT_DIR resolves from a neutral cwd via absolute path', (t) => {
   if (!SHELL) { t.skip('no POSIX shell (sh/bash) — skipping .sh parity'); return; }
   const neutralCwd = os.tmpdir();
   const scriptAbs = toPosixAbs(SCRIPT);

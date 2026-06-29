@@ -6,11 +6,11 @@
  * `args.positionals`, recognizes the new boolean flags (--force / --mark-failed /
  * --resume / --rollback / --from-manifest), and the COMMANDS registry dispatches to
  * the already-built+reviewed handlers. The two-factor write gate (--apply AND the
- * env var CLAUDE_MGR_ENABLE_WRITES=1) is exercised end-to-end.
+ * env var HARNESS_MGR_ENABLE_WRITES=1) is exercised end-to-end.
  *
  * HERMETIC: every case passes `--config-dir <tmpDir>` (a fresh mkdtemp dir) so the
  * real ~/.claude is never touched, and the gate assertions SAVE/DELETE/RESTORE
- * process.env.CLAUDE_MGR_ENABLE_WRITES (deleted → the gate is closed, so --apply
+ * process.env.HARNESS_MGR_ENABLE_WRITES (deleted → the gate is closed, so --apply
  * refuses up front and the engine is never reached). Assertions are on the
  * `{code, stdout}` pair via substring + exact-code checks (default table format, so
  * the diagnostic CODE appears in the footer — `--format quiet` would collapse it).
@@ -29,11 +29,11 @@ import { run } from '../src/cli.mjs';
 
 // One shared temp config dir for the whole file — every command reads it read-only
 // (the write paths all refuse before any fs write under these closed-gate cases).
-const tmp = mkdtempSync(join(tmpdir(), 'claude-mgr-dispatch-write-'));
+const tmp = mkdtempSync(join(tmpdir(), 'harness-mgr-dispatch-write-'));
 
 // Snapshot the gate env var so the closed-gate assertions are deterministic
 // regardless of the developer's shell; delete it for the duration of the file.
-const ENV_KEY = 'CLAUDE_MGR_ENABLE_WRITES';
+const ENV_KEY = 'HARNESS_MGR_ENABLE_WRITES';
 const savedEnv = process.env[ENV_KEY];
 delete process.env[ENV_KEY];
 

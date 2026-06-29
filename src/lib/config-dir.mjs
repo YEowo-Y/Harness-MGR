@@ -1,7 +1,7 @@
 /**
  * Resolve the ~/.claude directory under governance, honoring CLAUDE_CONFIG_DIR.
  *
- * FIRST-PARTY: claude-mgr ships its own resolver so the CLI stays self-contained.
+ * FIRST-PARTY: harness-mgr ships its own resolver so the CLI stays self-contained.
  * (Earlier this logic was borrowed at runtime from ~/.claude/hooks/lib via
  * reexport.mjs, which made the tool non-portable — it only ran on a machine where
  * oh-my-claudecode had installed those hooks. See lib/reexport.mjs for the history.)

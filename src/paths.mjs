@@ -1,16 +1,16 @@
 /**
- * Three-root path vocabulary for claude-mgr.
+ * Three-root path vocabulary for harness-mgr.
  *
  * Per plan: paths.mjs establishes a THREE-ROOT vocabulary and DELEGATES to the
  * reexported getClaudeConfigDir() — it must NEVER reimplement config-dir logic.
  *
- *   1. mgrInstallDir   — where claude-mgr's own code lives (the package root).
+ *   1. mgrInstallDir   — where harness-mgr's own code lives (the package root).
  *                        Resolved from import.meta.url (clarification #4): this
  *                        file is <root>/src/paths.mjs, so the root is its grandparent.
  *   2. targetClaudeDir — the ~/.claude being governed (the SUBJECT of the CLI).
  *                        This is the ONLY root that varies with CLAUDE_CONFIG_DIR,
  *                        and it comes straight from the first-party resolver.
- *   3. mgrStateDir     — where claude-mgr keeps ITS OWN state (snapshots, logs,
+ *   3. mgrStateDir     — where harness-mgr keeps ITS OWN state (snapshots, logs,
  *                        STABILITY-LOG). This is <targetClaudeDir>/.mgr-state.
  *                        Canonical name is the exported MGR_STATE_DIRNAME constant
  *                        (single source of truth for the 13 downstream refs to this
@@ -51,10 +51,10 @@ import { makeAssertWritable, WriteForbiddenError, APPLY_WRITABLE_FILES, CLAUDE_W
 export { makeAssertWritable, WriteForbiddenError, APPLY_WRITABLE_FILES, CLAUDE_WRITE_SURFACE };
 
 /**
- * Canonical dir name for claude-mgr's own state. SINGLE SOURCE OF TRUTH:
+ * Canonical dir name for harness-mgr's own state. SINGLE SOURCE OF TRUTH:
  * snapshot capture, the snapshot self-exclusion invariant, doctor #24 ACL check,
  * and the lockfile path all import this so the literal can never drift.
- * (Corrected from an earlier `.claude-mgr` per P1.U2–U5 code-review H1.)
+ * (Corrected from an earlier `.harness-mgr` per P1.U2–U5 code-review H1.)
  */
 export const MGR_STATE_DIRNAME = '.mgr-state';
 
@@ -84,7 +84,7 @@ export function targetClaudeDir() {
 }
 
 /**
- * claude-mgr's own state dir, under the governed config dir.
+ * harness-mgr's own state dir, under the governed config dir.
  * @param {string} [target] override target (defaults to targetClaudeDir())
  * @returns {string}
  */

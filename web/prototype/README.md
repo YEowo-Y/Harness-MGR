@@ -1,7 +1,7 @@
-# claude-mgr web UI — prototype
+# Harness-MGR web UI — prototype
 
 A standalone, responsive, bilingual (中/EN) visual prototype of the planned **write-enabled,
-real-time web UI** for claude-mgr, in an **agent-workstation** style (sidebar shell + main panel +
+real-time web UI** for harness-mgr, in an **agent-workstation** style (sidebar shell + main panel +
 right inspector — the Codex / Claude / Cherry Studio feel). It demonstrates the visual + interaction
 direction — it is **not** the real module and uses **mock data** (no engine wired in yet).
 

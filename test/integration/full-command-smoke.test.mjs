@@ -3,7 +3,7 @@
  *
  * Builds a minimal-but-realistic sandbox `~/.claude` ONCE, then runs EVERY
  * registered `COMMANDS` key against it in DRY-RUN / READ mode (no --apply, no
- * CLAUDE_MGR_ENABLE_WRITES) and asserts none of them produce an UNEXPECTED
+ * HARNESS_MGR_ENABLE_WRITES) and asserts none of them produce an UNEXPECTED
  * internal crash.
  *
  * `run(argv)` from src/cli.mjs never throws — an unexpected internal throw is
@@ -24,7 +24,7 @@
  *      before and after the whole run (dry-run/read wrote nothing to governed files).
  *
  * NO src changes; this is a pure integration test. Dry-run safety: never passes
- * --apply and never sets CLAUDE_MGR_ENABLE_WRITES, so the write commands stay
+ * --apply and never sets HARNESS_MGR_ENABLE_WRITES, so the write commands stay
  * dry-run and the sandbox governed files are never mutated.
  */
 
@@ -146,9 +146,9 @@ test('P4b.U11 smoke — every command runs against a sandbox with no internal cr
   // Some commands read CLAUDE_CONFIG_DIR; point it at the sandbox. ENSURE the write
   // env factor is unset so nothing can ever write. Save/restore BOTH in finally.
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   process.env.CLAUDE_CONFIG_DIR = sandbox;
-  delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+  delete process.env.HARNESS_MGR_ENABLE_WRITES;
 
   /** @type {string[]} */
   const failures = [];
@@ -181,8 +181,8 @@ test('P4b.U11 smoke — every command runs against a sandbox with no internal cr
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     rmSync(sandbox, { recursive: true, force: true });
   }
 });
@@ -192,9 +192,9 @@ test('P4b.U11 smoke — the full dry-run/read pass writes nothing to the sandbox
   const table = buildArgvTable(sandbox);
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   process.env.CLAUDE_CONFIG_DIR = sandbox;
-  delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+  delete process.env.HARNESS_MGR_ENABLE_WRITES;
 
   try {
     const before = listTree(sandbox);
@@ -210,8 +210,8 @@ test('P4b.U11 smoke — the full dry-run/read pass writes nothing to the sandbox
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     rmSync(sandbox, { recursive: true, force: true });
   }
 });

@@ -13,7 +13,7 @@
  * live-held lock (with the live-holder warning), and the write then PROCEEDS.
  *
  * The same three-env-var wiring contract as the sibling U22 oracles:
- *   • CLAUDE_CONFIG_DIR = tmp · --config-dir tmp · CLAUDE_MGR_ENABLE_WRITES = '1'
+ *   • CLAUDE_CONFIG_DIR = tmp · --config-dir tmp · HARNESS_MGR_ENABLE_WRITES = '1'
  * all saved + restored in the finally. The lock file lives at
  * `<mgrStateDir>/locks/apply.lock` and is JSON `{pid, startTime, hostname}`.
  *
@@ -76,10 +76,10 @@ test('apply-lock contention: live-held BLOCKS the write, break + recover proceed
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-winlock-'));
   process.env.CLAUDE_CONFIG_DIR = tmp;
-  process.env.CLAUDE_MGR_ENABLE_WRITES = '1'; // arm the write factor for every --apply leg
+  process.env.HARNESS_MGR_ENABLE_WRITES = '1'; // arm the write factor for every --apply leg
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
   const lockFile = join(stateDir, 'locks', 'apply.lock');
@@ -156,8 +156,8 @@ test('apply-lock contention: live-held BLOCKS the write, break + recover proceed
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });

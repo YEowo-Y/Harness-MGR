@@ -74,7 +74,7 @@ test('snapshotPinCommand: --apply with env=0 closed → code3 writes-disabled-en
   const loadPaths = makeAsyncSpy({ assertWritable: (p) => p });
   const pinFn = makeSpy({ pinned: true, path: 'x', diagnostics: [] });
   const out = await snapshotPinCommand(
-    CTX({ positionals: [ID], apply: true }), { loadPaths, pinFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+    CTX({ positionals: [ID], apply: true }), { loadPaths, pinFn, env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   assert.equal(out.code, 3);
   assert.equal(out.result.mode, 'applied');
   assert.equal(out.result.pinned, false);
@@ -88,7 +88,7 @@ test('snapshotPinCommand: --apply with env=0 closed → code3 writes-disabled-en
 test('snapshotUnpinCommand: --apply with env=0 closed → code3 writes-disabled-env, unpinFn NOT called', async () => {
   const unpinFn = makeSpy({ unpinned: true, diagnostics: [] });
   const out = await snapshotUnpinCommand(
-    CTX({ positionals: [ID], apply: true }), { unpinFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+    CTX({ positionals: [ID], apply: true }), { unpinFn, env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   assert.equal(out.code, 3);
   assert.equal(out.result.mode, 'applied');
   assert.equal(out.result.unpinned, false);
@@ -104,7 +104,7 @@ test('snapshotPinCommand: --apply with armed env → mode applied, pinned:true, 
   const pinFn = makeSpy({ pinned: true, path: '/cfg/.mgr-state/snapshots/' + ID + '/.pin', diagnostics: [] });
   const out = await snapshotPinCommand(
     CTX({ positionals: [ID], apply: true }),
-    { loadPaths, pinFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } });
+    { loadPaths, pinFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } });
   assert.equal(out.result.mode, 'applied');
   assert.equal(out.result.pinned, true);
   assert.equal(out.result.id, ID);
@@ -122,7 +122,7 @@ test('snapshotUnpinCommand: --apply with armed env → mode applied, unpinned:tr
   const unpinFn = makeSpy({ unpinned: true, diagnostics: [] });
   const out = await snapshotUnpinCommand(
     CTX({ positionals: [ID], apply: true }),
-    { unpinFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } });
+    { unpinFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } });
   assert.equal(out.result.mode, 'applied');
   assert.equal(out.result.unpinned, true);
   assert.equal(unpinFn.calls.length, 1, 'unpinFn called once');
@@ -162,7 +162,7 @@ test('snapshotPinCommand: a throwing loadPaths → snapshot-pin-unavailable warn
   // directly (and reaching the assertions) IS the never-throws proof.
   const out = await snapshotPinCommand(
     CTX({ positionals: [ID], apply: true }),
-    { loadPaths, pinFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } });
+    { loadPaths, pinFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } });
   assert.equal(out.result.mode, 'applied');
   assert.equal(out.result.pinned, false);
   assert.ok(out.diagnostics.some((d) => d.code === 'snapshot-pin-unavailable' && d.severity === 'warn'),

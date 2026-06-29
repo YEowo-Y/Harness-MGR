@@ -1,4 +1,4 @@
-# scripts/uninstall-dev.ps1 — dogfood uninstaller for the claude-mgr working tree.
+# scripts/uninstall-dev.ps1 — dogfood uninstaller for the harness-mgr working tree.
 #
 # Removes ONLY the directory symlink   <configDir>/.mgr
 # created by install-dev.ps1. Never removes real directory content.

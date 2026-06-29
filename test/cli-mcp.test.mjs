@@ -93,13 +93,13 @@ test('mcpCommand: dry-run someServer → code 0, status dry-run, loadPaths never
 
 // ── 3. gate-closed: --apply without env var → code 3, engine + loadPaths never ──
 
-test('mcpCommand: --apply with CLAUDE_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env, engine never', async () => {
+test('mcpCommand: --apply with HARNESS_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env, engine never', async () => {
   let mcpCalled = false;
   let loadPathsCalled = false;
   const deps = {
     mcpFn: () => { mcpCalled = true; return Promise.resolve(fakeResult()); },
     loadPaths: () => { loadPathsCalled = true; return Promise.resolve({ assertWritable: (p) => p }); },
-    env: { CLAUDE_MGR_ENABLE_WRITES: '0' }, // explicit opt-out lock
+    env: { HARNESS_MGR_ENABLE_WRITES: '0' }, // explicit opt-out lock
   };
   const out = await mcpCommand(makeCtx(['x'], { apply: true }), deps);
   assert.equal(out.code, 3, `expected code 3, got ${out.code}`);
@@ -125,7 +125,7 @@ test('mcpCommand: --apply + env set → code 0, loadPaths called, mcpFn gets ena
         command: ['mcp', 'remove', 'x', '--scope', 'project'], snapshotId: 'snap-1',
       }));
     },
-    env: { CLAUDE_MGR_ENABLE_WRITES: '1' },
+    env: { HARNESS_MGR_ENABLE_WRITES: '1' },
   };
   const out = await mcpCommand(makeCtx(['x'], { apply: true, scope: 'project' }), deps);
   assert.equal(out.code, 0, `expected code 0, got ${out.code}; diags: ${JSON.stringify(out.diagnostics)}`);

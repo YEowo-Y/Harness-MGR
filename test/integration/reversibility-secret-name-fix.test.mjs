@@ -93,7 +93,7 @@ test('reversibility fix: secret-named command component (rotate-secret.md) is ca
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-rev-fix-'));
   const stateDir = join(tmp, '.mgr-state');
 
@@ -115,7 +115,7 @@ test('reversibility fix: secret-named command component (rotate-secret.md) is ca
     const claudeShaOrig = sha256Hex(readFileSync(join(tmp, 'CLAUDE.md')));
 
     process.env.CLAUDE_CONFIG_DIR = tmp;
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
 
     // ── LEG 1: DRY-RUN — confirms no write ────────────────────────────────────
     const dryResult = await run(['remove', 'command:rotate-secret', '--config-dir', tmp]);
@@ -127,7 +127,7 @@ test('reversibility fix: secret-named command component (rotate-secret.md) is ca
       'dry-run must NOT create any snapshot');
 
     // ── LEG 2: APPLY — deletes the component ──────────────────────────────────
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
     const applyResult = await run(['remove', 'command:rotate-secret', '--apply', '--config-dir', tmp]);
     assert.equal(applyResult.code, 0,
       `apply expected code 0, got ${applyResult.code}; stdout: ${applyResult.stdout.slice(0, 400)}`);
@@ -182,8 +182,8 @@ test('reversibility fix: secret-named command component (rotate-secret.md) is ca
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });
@@ -200,7 +200,7 @@ test('reversibility fix: command whose .md content contains a ghp_ token is capt
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-rev-sniff-'));
   const stateDir = join(tmp, '.mgr-state');
 
@@ -221,7 +221,7 @@ test('reversibility fix: command whose .md content contains a ghp_ token is capt
     mkdirSync(stateDir, { recursive: true });
 
     process.env.CLAUDE_CONFIG_DIR = tmp;
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
 
     const applyResult = await run(['remove', 'command:deploy-helper', '--apply', '--config-dir', tmp]);
     assert.equal(applyResult.code, 0,
@@ -253,8 +253,8 @@ test('reversibility fix: command whose .md content contains a ghp_ token is capt
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });

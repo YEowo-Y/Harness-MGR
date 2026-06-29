@@ -60,7 +60,7 @@ test('exports: KNOWN_TOP_FILES, KNOWN_TOP_FILE_PATTERNS, KNOWN_ECOSYSTEM_TOP_DIR
 
 test('DEFAULT_OWN_TOP_DIRS[0] matches MGR_STATE_DIRNAME (drift guard)', () => {
   // The state dir literal must never drift from the single source of truth in
-  // paths.mjs — the project has already hit a `.claude-mgr` vs `.mgr-state` drift
+  // paths.mjs — the project has already hit a `.harness-mgr` vs `.mgr-state` drift
   // bug. The module stays pure/sync by NOT importing paths.mjs itself; this test
   // is where the two literals are reconciled.
   assert.equal(DEFAULT_OWN_TOP_DIRS[0], MGR_STATE_DIRNAME);

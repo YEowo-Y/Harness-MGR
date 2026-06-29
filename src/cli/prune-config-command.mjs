@@ -4,7 +4,7 @@
  *
  * Wires the `pruneConfigRemove` engine (src/ops/prune-config.mjs) into the CLI behind the
  * SAME two-factor write gate every write command uses: `resolveWriteIntent` requires
- * `--apply` (dry-run by default; CLAUDE_MGR_ENABLE_WRITES=0 force-locks writes).
+ * `--apply` (dry-run by default; HARNESS_MGR_ENABLE_WRITES=0 force-locks writes).
  *
  * Routed from remove-command.mjs when `--prune-config` is present. It is a per-target
  * feature: only a target whose write surface enables in-place config-edit (Codex —

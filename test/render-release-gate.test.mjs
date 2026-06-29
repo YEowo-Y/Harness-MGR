@@ -30,7 +30,7 @@ const steps = [
 test('renderTable: release-gate PASS renders title, step rows, and PASS line', () => {
   const out = renderTable('selftest', gateResult(true, steps));
   // Title line from renderTable.
-  assert.ok(out.startsWith('claude-mgr selftest'), 'title line present');
+  assert.ok(out.startsWith('harness-mgr selftest'), 'title line present');
   // Column headers.
   assert.ok(/\bstep\b/.test(out) && /\bname\b/.test(out) && /\bok\b/.test(out) && /\bdetail\b/.test(out), 'headers present');
   // Step names rendered.
@@ -64,7 +64,7 @@ test('renderTable: a non-release selftest result falls to the checks table', () 
   // The smoke/rigorous path (no gate:'release') must hit the checks branch, not
   // the release-gate branch.
   const out = renderTable('selftest', { ok: true, checks: [{ name: 'scan', ok: true }, { name: 'lint', ok: false }] });
-  assert.ok(out.startsWith('claude-mgr selftest'));
+  assert.ok(out.startsWith('harness-mgr selftest'));
   assert.ok(out.includes('scan'));
   assert.ok(out.includes('lint'));
   assert.ok(!out.includes('release-gate:'), 'must not render the release-gate summary line');
@@ -78,7 +78,7 @@ test('renderQuiet: selftest one-line summary names command + tallies', () => {
 
 test('renderTable: schema-canary clean (no changes) → schema-canary: clean line', () => {
   const out = renderTable('selftest', { canary: 'schema', status: 'clean', changes: [] });
-  assert.ok(out.startsWith('claude-mgr selftest'), 'title line present');
+  assert.ok(out.startsWith('harness-mgr selftest'), 'title line present');
   assert.ok(out.includes('schema-canary: clean'), 'summary line present');
   // No change rows when changes is empty — just the summary line.
   assert.ok(!out.includes('change'), 'no change column header for empty changes');

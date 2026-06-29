@@ -79,7 +79,7 @@
  * Diagnostic + `{ ok:false }`. Injectable seams make every path hermetically
  * unit-testable without a real lock / snapshot / fs / write. Zero npm deps.
  *
- * Spec: plan claude-mgr-v5.md, the apply lifecycle `planned`→`snapshotted`→
+ * Spec: plan harness-mgr-v5.md, the apply lifecycle `planned`→`snapshotted`→
  * `applying`→`committed` steps (lines 493-519).
  */
 

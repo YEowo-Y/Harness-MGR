@@ -64,7 +64,7 @@ export const KNOWN_TOP_FILES = Object.freeze([
  * --- Third-party ecosystem (oh-my-claudecode / OMC) file patterns ---
  * NOTE: these are NOT Claude-Code-native. They are common OMC runtime artifacts
  * recognised here so a heavily-OMC harness is not drowned in orphan noise. This
- * block is deliberately isolated so it can be dropped if claude-mgr is ever
+ * block is deliberately isolated so it can be dropped if harness-mgr is ever
  * distributed standalone without OMC.
  *   - .omc-*.json  — OMC config/version/state files (.omc-config.json, .omc-version.json, …)
  */
@@ -79,7 +79,7 @@ export const KNOWN_TOP_FILE_PATTERNS = Object.freeze([
  * Top-level DIRECTORY names that are NOT Claude-Code-native but belong to the
  * oh-my-claudecode (OMC) framework. Recognised here so a heavily-OMC harness is
  * not drowned in hard-orphan noise. This block is deliberately isolated so it can
- * be dropped if claude-mgr is ever distributed standalone without OMC.
+ * be dropped if harness-mgr is ever distributed standalone without OMC.
  *   .omc          — OMC root state directory (contains state/ subdir)
  *   homunculus    — OMC agent-state store
  *   metrics       — OMC usage metrics
@@ -91,7 +91,7 @@ export const KNOWN_ECOSYSTEM_TOP_DIRS = Object.freeze([
 ]);
 
 /**
- * Top-level entry names that belong to claude-mgr ITSELF and must never be flagged
+ * Top-level entry names that belong to harness-mgr ITSELF and must never be flagged
  * as hard orphans. '.mgr-state' mirrors MGR_STATE_DIRNAME in src/paths.mjs; '.mgr' is
  * the dogfood install dir (a symlink in production). The CLI boundary (P1.U15) will
  * pass authoritative values resolved from paths.mjs; this default covers the common case.

@@ -1,5 +1,5 @@
 /*
- * Typed client for the claude-mgr engine, surfaced over the localhost API.
+ * Typed client for the harness-mgr engine, surfaced over the localhost API.
  *
  * Every read command returns the engine's stable JSON envelope verbatim:
  *   { command, result, diagnostics }
@@ -334,7 +334,7 @@ export async function writeCommand(
     headers: {
       "content-type": "application/json",
       accept: "application/json",
-      "x-claude-mgr-write": "1",
+      "x-harness-mgr-write": "1",
     },
     body: JSON.stringify(body),
   });

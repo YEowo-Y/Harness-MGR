@@ -1,4 +1,4 @@
-# Threat model — `claude-mgr`
+# Threat model — `harness-mgr`
 
 **Status: revised 2026-06-02 — now covers the Phase-3 write surface as shipped.**
 The original read-mostly cut documented that phase; this revision reflects the
@@ -12,7 +12,7 @@ security re-scan of Phases 1–3 (six surfaces) found the invariants here HOLD a
 fixed three issues (discovery symlink-follow, output secret-shape leakage, drift
 symlink-follow) now reflected in §5.2 / §5.3 / §5.9.
 
-**Security posture in one breath:** `claude-mgr` is a
+**Security posture in one breath:** `harness-mgr` is a
 Node ESM CLI — the CLI path imports only Node stdlib; its single exact-pinned
 runtime npm dependency is the MCP SDK used by the optional stdio MCP server
 (§5.10) — that **inspects** a Claude Code `~/.claude` install (inventory /
@@ -26,7 +26,7 @@ allowlisting choke point.
 Every mitigation below is **cited to source** (`file` + line/function) so a
 reviewer can verify the claim against the actual code, and the two most important
 invariants (the write-allowlist and the forbidden-import graph) are
-**continuously enforced** by `claude-mgr selftest --boundary` — see
+**continuously enforced** by `harness-mgr selftest --boundary` — see
 [Continuous verification](#8-continuous-verification). This document is a
 contract: if the code and this document disagree, that is a bug in one of them.
 
@@ -50,7 +50,7 @@ or simply deferred. It is deliberately **not exhaustive**; it is accurate.
 |---|---|
 | The user's **`~/.claude` config** (CLAUDE.md, settings, skills/agents/commands/hooks, plugins, MCP config) | A large, precious, hand-curated harness. The whole reason the tool is read-mostly and dry-run-by-default is to inspect it **without risking it**. |
 | **Secrets referenced by that config** | MCP server `env` blocks may hold API keys/tokens; `mcp-needs-auth-cache.json` and similar files exist. These must never leak into inventory output, snapshots, or logs — with ONE audited exception: `mcp-needs-auth-cache.json` is **default-excluded** from snapshots and captured only via the explicit `snapshot --include-auth` opt-in, which emits a per-capture `snapshot-auth-included` INFO notice (plan L420; enforced in `src/ops/snapshot-secrets-filter.mjs`). The secrets allowlist proper (keys/certs/`.env`/`id_rsa`/content-sniffed PEM+tokens) is **never** captured, even with `--include-auth`. |
-| **`claude-mgr`'s own state** — `~/.claude/.mgr-state/` | Holds the drift lockfile (Phase 2) and, in Phase 3, snapshots / apply-journal / audit log. Its integrity and confidentiality matter; it is deliberately *excluded* from the governed config surface and from snapshot capture (recursive-bloat guard). |
+| **`harness-mgr`'s own state** — `~/.claude/.mgr-state/` | Holds the drift lockfile (Phase 2) and, in Phase 3, snapshots / apply-journal / audit log. Its integrity and confidentiality matter; it is deliberately *excluded* from the governed config surface and from snapshot capture (recursive-bloat guard). |
 | **Integrity & availability of the user's machine and config** | The tool must not corrupt the config, must not execute attacker-controlled content found in the config, and must remain usable even when its environment is partly broken. |
 
 ---
@@ -89,7 +89,7 @@ or simply deferred. It is deliberately **not exhaustive**; it is accurate.
    [`src/lib/safe-spawn.mjs`](../src/lib/safe-spawn.mjs) (`validateSpawnSpec`
    `safe-spawn.mjs:71`, `safeSpawn` `:138`). `execFile` is used with `shell:false`
    (`safe-spawn.mjs:146-149`) — never `exec` or a shell.
-4. **Outside the CC loader.** `claude-mgr` is a separate package that the Claude
+4. **Outside the CC loader.** `harness-mgr` is a separate package that the Claude
    Code loader does not load; inspecting the harness cannot perturb it.
 
 ---
@@ -125,10 +125,10 @@ plan line ~417) is enforced entirely in `assertWritable`
   apply-journal, and audit log persist without a bespoke write flag.
 
 Governed-config writes are now live (Phase 3) but **dry-run-by-default and behind
-the write gate (`--apply`, plus a `CLAUDE_MGR_ENABLE_WRITES=0` opt-out lock —
+the write gate (`--apply`, plus a `HARNESS_MGR_ENABLE_WRITES=0` opt-out lock —
 relaxed from the original two-factor model by the 2026-06-09 off-ramp)**: the
 `apply`/`rollback`/`recover`/`lock` CLI commands write only
-when `--apply` is passed (and `CLAUDE_MGR_ENABLE_WRITES=0` is NOT set)
+when `--apply` is passed (and `HARNESS_MGR_ENABLE_WRITES=0` is NOT set)
 ([`src/cli/write-gate.mjs`](../src/cli/write-gate.mjs) `resolveWriteIntent`); a
 closed gate exits before `paths.mjs` is even loaded. Every writer (apply,
 rollback-restore, snapshot manifest/journal, lock, audit) takes `assertWritable` as
@@ -268,7 +268,7 @@ are built to **never execute attacker-controlled config content**:
 - **Loader probe (#19) is the only governed-dir write, and it is bounded and
   self-cleaning.** It writes a transient `__mgr-probe-<uuid>.md` into the real
   `agents/` **through `assertWritable(p,'probe')`** (the 5.2 gate, not a bypass),
-  confirms `claude-mgr`'s own discovery sees it, and **always removes it in a
+  confirms `harness-mgr`'s own discovery sees it, and **always removes it in a
   `finally`** ([`src/discovery/probe-loader.mjs`](../src/discovery/probe-loader.mjs),
   `probe-loader.mjs:111`, `:140-144`). The function is `async` but `await`-free in
   the write/observe body, so no interposed rejection can skip the cleanup. It is
@@ -421,11 +421,11 @@ zero-dependency red line. The exception is bounded by four terms:
 - **What the SDK *could* do vs what we import.** The SDK package also ships
   HTTP-based transports and OAuth client helpers that CAN open sockets — that
   capability exists in `node_modules`, not in our import graph. The
-  zero-network gate (§8) keeps machine-enforcing that **claude-mgr's own
+  zero-network gate (§8) keeps machine-enforcing that **harness-mgr's own
   `src/` opens no sockets**: it scans every `src/**/*.mjs` import (the SDK
   specifiers do not and must not match a network prefix) and every ambient
   `fetch`/`WebSocket` call form. The honest statement of the property is now:
-  *claude-mgr's own code opens no sockets (machine-enforced); the MCP server
+  *harness-mgr's own code opens no sockets (machine-enforced); the MCP server
   speaks stdio pipes only.* A compromised SDK package itself is the same
   trusted-toolchain assumption as a compromised Node or npm (§3, §7) —
   mitigated by the exact pin + lockfile, not eliminated.
@@ -468,13 +468,13 @@ detective-only controls today, not a victory lap.
   never a guessed binary); (c) a defense-in-depth re-validation of the resolved
   `record.key` (not just the raw spec) BEFORE any snapshot/spawn; (d) an auto-snapshot
   of `installed_plugins.json` taken FIRST as the undo point; (e) the `--apply` write
-  gate (with the `CLAUDE_MGR_ENABLE_WRITES=0` opt-out lock) + dry-run-by-default. **Residual (deliberate, user-chosen — Option A):** the
+  gate (with the `HARNESS_MGR_ENABLE_WRITES=0` opt-out lock) + dry-run-by-default. **Residual (deliberate, user-chosen — Option A):** the
   actual code fetch + `plugins/cache/**` mutation + the required restart are performed
   by `claude`, *outside* `assertWritable` and *outside* the snapshot scope (cache is
   deliberately excluded), so a `rollback` restores the manifest but NOT the downloaded
   code — partial reversibility, surfaced as `update-cache-not-snapshotted`. The
   network I/O is `claude`'s, not the tool's; the zero-network property holds for
-  claude-mgr's own code. **`mcp remove <name>` shares this exact boundary:**
+  harness-mgr's own code. **`mcp remove <name>` shares this exact boundary:**
   it delegates `claude mcp remove <name> [--scope ...]` via safeSpawn with its own
   deny-by-default `MCP_REMOVE_SCHEMA` (`allowedFlags:['--scope']`, `positionalPattern`
   `/^[A-Za-z0-9._-]+$/`, `maxArgs:5`); the server NAME is validated TWICE (the engine's
@@ -547,14 +547,14 @@ detective-only controls today, not a victory lap.
 - **A compromised Node / npm / OS.** The toolchain is trusted (§3); the tool has
   exactly ONE exact-pinned runtime npm dependency (the MCP SDK, §5.10 — the CLI
   path itself imports only Node stdlib), but it cannot defend a hostile runtime.
-- **Network threats.** **claude-mgr's own code opens no sockets (machine-enforced
+- **Network threats.** **harness-mgr's own code opens no sockets (machine-enforced
   by the zero-network boundary invariant, §8); the MCP server speaks stdio
   pipes only** — no listener, no outbound connection (§5.10). (The MCP
   `--with-net` resolvability probe envisioned in the plan is *not* implemented;
   `gatherMcpProbes` resolves commands on `PATH` only.)
 - **The contents of plugins / marketplaces the user installed.** Those subtrees
   are forbidden to write (`paths.mjs:249-251`) and their executable content is the
-  user's own supply-chain decision, not `claude-mgr`'s.
+  user's own supply-chain decision, not `harness-mgr`'s.
 
 ---
 
@@ -563,7 +563,7 @@ detective-only controls today, not a victory lap.
 The invariants above are kept true by automated, repeatable checks — not by
 trust:
 
-- **`claude-mgr selftest --boundary`** runs these checks from
+- **`harness-mgr selftest --boundary`** runs these checks from
   [`src/selftest/boundary.mjs`](../src/selftest/boundary.mjs):
   1. A **runtime write-allowlist probe** (`checkWriteAllowlist`,
      `boundary.mjs:197`) that drives the **real** `assertWritable` against a

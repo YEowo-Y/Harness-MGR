@@ -9,7 +9,7 @@
  *   (1) DRY-RUN:   run(["remove","agent:foo","--config-dir",tmp])
  *                  → code 0; agents/foo.md STILL exists; NO .mgr-state/snapshots.
  *   (2) APPLY:     run(["remove","agent:foo","--apply","--config-dir",tmp])
- *                  (with CLAUDE_MGR_ENABLE_WRITES=1 set in env)
+ *                  (with HARNESS_MGR_ENABLE_WRITES=1 set in env)
  *                  → code 0; agents/foo.md GONE; commands/bar.md + CLAUDE.md
  *                  byte-identical to originals; no .mgr-new/.mgr-old residue.
  *   (3) REVERSIBILITY: read the snapshot id from tmp/.mgr-state/snapshots (newest
@@ -19,7 +19,7 @@
  * All assertions are falsifiable fs reads + Buffer.compare (not just "code 0").
  *
  * GRACEFUL-SKIP when the system tar is unavailable (mirrors remove-roundtrip).
- * Sets process.env.CLAUDE_CONFIG_DIR + CLAUDE_MGR_ENABLE_WRITES; saves + restores
+ * Sets process.env.CLAUDE_CONFIG_DIR + HARNESS_MGR_ENABLE_WRITES; saves + restores
  * both in a finally block.
  */
 
@@ -83,7 +83,7 @@ test('remove CLI roundtrip: dry-run → apply → rollback restores byte-identic
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-rm-cli-'));
   const stateDir = join(tmp, '.mgr-state');
 
@@ -105,8 +105,8 @@ test('remove CLI roundtrip: dry-run → apply → rollback restores byte-identic
     process.env.CLAUDE_CONFIG_DIR = tmp;
 
     // ── LEG 1: DRY-RUN — writes nothing ───────────────────────────────────────
-    // Make sure CLAUDE_MGR_ENABLE_WRITES is NOT set (dry-run needs no env factor).
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    // Make sure HARNESS_MGR_ENABLE_WRITES is NOT set (dry-run needs no env factor).
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
 
     const dryResult = await run(['remove', 'agent:foo', '--config-dir', tmp]);
     assert.equal(dryResult.code, 0,
@@ -122,7 +122,7 @@ test('remove CLI roundtrip: dry-run → apply → rollback restores byte-identic
 
     // ── LEG 2: APPLY — actually deletes ───────────────────────────────────────
     // Arm the second factor.
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
 
     const applyResult = await run(['remove', 'agent:foo', '--apply', '--config-dir', tmp]);
     assert.equal(applyResult.code, 0,
@@ -171,8 +171,8 @@ test('remove CLI roundtrip: dry-run → apply → rollback restores byte-identic
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
 
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
 
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }

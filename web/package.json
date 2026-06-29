@@ -1,9 +1,9 @@
 {
-  "name": "claude-mgr-web",
+  "name": "harness-mgr-web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Localhost-only web UI for claude-mgr. Surfaces the zero-dep engine (src/cli/commands.mjs) over a 127.0.0.1 Hono API — reads plus a frozen set of gated, reversible writes. Isolated from the CLI core so the core stays zero-runtime-dependency (mirrors the tui/ Go module).",
+  "description": "Localhost-only web UI for harness-mgr. Surfaces the zero-dep engine (src/cli/commands.mjs) over a 127.0.0.1 Hono API — reads plus a frozen set of gated, reversible writes. Isolated from the CLI core so the core stays zero-runtime-dependency (mirrors the tui/ Go module).",
   "scripts": {
     "dev": "concurrently -k -n api,web -c green,cyan \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node server/server.mjs",

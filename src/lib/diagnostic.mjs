@@ -1,5 +1,5 @@
 /**
- * Diagnostic model + accumulator for claude-mgr.
+ * Diagnostic model + accumulator for harness-mgr.
  *
  * Core rule (per plan, "DiagnosticBag that accumulates and NEVER throws"):
  * collecting a diagnostic must never throw, even on malformed input. The bag

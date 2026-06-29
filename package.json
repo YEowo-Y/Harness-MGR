@@ -1,5 +1,5 @@
 {
-  "name": "claude-mgr",
+  "name": "harness-mgr",
   "version": "0.1.0",
   "description": "A read-mostly governance CLI for your Claude Code (and Codex) harness — inventory, conflicts, effective-config, doctor, snapshot/rollback, and cross-target compare. Dry-run by default.",
   "type": "module",
@@ -7,7 +7,7 @@
   "author": "YEowo-Y",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YEowo-Y/claude-mgr.git"
+    "url": "https://github.com/YEowo-Y/harness-mgr.git"
   },
   "keywords": [
     "claude",
@@ -21,13 +21,13 @@
     "bin/",
     "src/",
     "docs/",
-    "claude-mgr.sh",
-    "claude-mgr.ps1",
+    "harness-mgr.sh",
+    "harness-mgr.ps1",
     "README.zh-CN.md",
     "CHANGELOG.md"
   ],
   "bin": {
-    "claude-mgr": "bin/claude-mgr.mjs"
+    "harness-mgr": "bin/harness-mgr.mjs"
   },
   "engines": {
     "node": ">=24"

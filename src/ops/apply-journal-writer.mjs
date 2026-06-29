@@ -341,7 +341,7 @@ export function readJournal(opts) {
   const jv = journal.journalVersion;
   if (Number.isInteger(jv) && jv > JOURNAL_VERSION) {
     return bail('journal-version-unsupported',
-      `journal version ${jv} is newer than supported ${JOURNAL_VERSION}; upgrade claude-mgr`, file);
+      `journal version ${jv} is newer than supported ${JOURNAL_VERSION}; upgrade harness-mgr`, file);
   }
   return { journal, diagnostics: bag.all() };
 }

@@ -93,7 +93,7 @@ func TestResolveCLIPathFromExeWalkFallback(t *testing.T) {
 	root, _ := makeRepoTree(t)
 	// cwd has no tree (a bare temp dir) → fall through to the exe-dir walk.
 	bareCwd := t.TempDir()
-	exe := filepath.Join(root, "tui", "claude-mgr-tui.exe")
+	exe := filepath.Join(root, "tui", "harness-mgr-tui.exe")
 	got := resolveCLIPathFrom("", "", bareCwd, exe)
 	if got != filepath.Join(root, "src", "cli.mjs") {
 		t.Fatalf("exe-dir walk should find the root cli, got %q", got)

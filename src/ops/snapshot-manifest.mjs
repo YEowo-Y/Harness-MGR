@@ -236,7 +236,7 @@ export function verifyManifest(manifest, opts = {}) {
     err('manifest-version-invalid', 'manifestVersion must be a positive integer');
   } else if (mv > MANIFEST_VERSION) {
     err('manifest-version-unsupported',
-      `manifest version ${mv} is newer than supported ${MANIFEST_VERSION}; upgrade claude-mgr`);
+      `manifest version ${mv} is newer than supported ${MANIFEST_VERSION}; upgrade harness-mgr`);
   }
   if (!Number.isInteger(manifest.planVersion) || manifest.planVersion < 1) {
     err('manifest-plan-version-invalid', 'planVersion must be a positive integer');

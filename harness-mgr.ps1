@@ -1,4 +1,4 @@
-# claude-mgr.ps1 — thin Windows entry point for the claude-mgr CLI.
+# harness-mgr.ps1 — thin Windows entry point for the harness-mgr CLI.
 #
 # This script is the SHELL WRAPPER ONLY. All logic lives in src/cli.mjs (the
 # fat core). Invoking this file from any directory will resolve the correct
@@ -9,7 +9,7 @@
 #   0  — clean result (no error diagnostics)
 #   1  — one or more error-level diagnostics in the output
 #   2  — usage error / unhandled throw (JSON error envelope written to stdout)
-#   3  — a write was refused (write gate locked via CLAUDE_MGR_ENABLE_WRITES=0,
+#   3  — a write was refused (write gate locked via HARNESS_MGR_ENABLE_WRITES=0,
 #        missing spec, or --force required)
 
 $cliPath = Join-Path $PSScriptRoot "src\cli.mjs"

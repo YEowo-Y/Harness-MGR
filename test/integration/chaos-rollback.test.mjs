@@ -7,7 +7,7 @@
  * (src/paths.mjs::assertWritable via CLAUDE_CONFIG_DIR), and the REAL system tar.
  *
  * The same three-env-var wiring contract as dry-run-vs-apply:
- *   • CLAUDE_CONFIG_DIR = tmp · --config-dir tmp · CLAUDE_MGR_ENABLE_WRITES = '1'
+ *   • CLAUDE_CONFIG_DIR = tmp · --config-dir tmp · HARNESS_MGR_ENABLE_WRITES = '1'
  * all saved + restored in the finally. SETUP (snapshot) is driven deterministically
  * via createSnapshot; the ACTION under test is `run(['recover', ...])`.
  *
@@ -85,10 +85,10 @@ test('chaos: recover --from-manifest restores a mutated tree despite a CORRUPT j
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-chaos-cj-'));
   process.env.CLAUDE_CONFIG_DIR = tmp;
-  process.env.CLAUDE_MGR_ENABLE_WRITES = '1'; // arm the write factor for the --apply legs
+  process.env.HARNESS_MGR_ENABLE_WRITES = '1'; // arm the write factor for the --apply legs
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
 
@@ -139,8 +139,8 @@ test('chaos: recover --from-manifest restores a mutated tree despite a CORRUPT j
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });
@@ -150,10 +150,10 @@ test('chaos: recover --from-manifest RE-CREATES a DELETED target (the crash wind
   if (!tarPath) { t.skip('system tar not found — skipping'); return; }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-chaos-cw-'));
   process.env.CLAUDE_CONFIG_DIR = tmp;
-  process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+  process.env.HARNESS_MGR_ENABLE_WRITES = '1';
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
 
@@ -186,8 +186,8 @@ test('chaos: recover --from-manifest RE-CREATES a DELETED target (the crash wind
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });
@@ -197,10 +197,10 @@ test('chaos: recover --rollback advances an "applying" journal + restores the tr
   if (!tarPath) { t.skip('system tar not found — skipping'); return; }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-chaos-rb-'));
   process.env.CLAUDE_CONFIG_DIR = tmp;
-  process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+  process.env.HARNESS_MGR_ENABLE_WRITES = '1';
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
 
@@ -248,8 +248,8 @@ test('chaos: recover --rollback advances an "applying" journal + restores the tr
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });

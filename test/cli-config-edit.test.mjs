@@ -6,7 +6,7 @@
  * without paths.mjs. Proves: a target without config-edit support refuses (Claude);
  * missing --type / name refuse; dry-run forwards desired+enableWrites:false and resolves
  * NO gate; enable sets desired:true; --apply resolves the codex-bound gate + forwards the
- * snapshot scope; the CLAUDE_MGR_ENABLE_WRITES=0 lock refuses before the engine.
+ * snapshot scope; the HARNESS_MGR_ENABLE_WRITES=0 lock refuses before the engine.
  */
 
 import test from 'node:test';
@@ -145,8 +145,8 @@ test('--apply resolves the codex-bound gate and forwards enableWrites:true + the
   assert.deepEqual(c.scope, codexDescriptor.snapshotScope);
 });
 
-test('--apply with CLAUDE_MGR_ENABLE_WRITES=0 → refused (env lock), engine never called', async () => {
-  const deps = makeDeps({ env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+test('--apply with HARNESS_MGR_ENABLE_WRITES=0 → refused (env lock), engine never called', async () => {
+  const deps = makeDeps({ env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   const out = await disableCommand(codexCtx({ type: 'plugin', positionals: ['x@y'], apply: true }), deps);
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env'));
@@ -257,8 +257,8 @@ test('claude --apply resolves the bare gate (byte-identical) + enableWrites:true
   assert.equal(c.scope, undefined, 'claude descriptor has no snapshotScope → default claude scope');
 });
 
-test('claude --apply with CLAUDE_MGR_ENABLE_WRITES=0 → env lock refusal, engine never called', async () => {
-  const deps = makeDeps({ env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+test('claude --apply with HARNESS_MGR_ENABLE_WRITES=0 → env lock refusal, engine never called', async () => {
+  const deps = makeDeps({ env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   const out = await disableCommand(claudeCtx({ type: 'plugin', positionals: ['x@y'], apply: true }), deps);
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env'));

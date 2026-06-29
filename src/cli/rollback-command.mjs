@@ -3,7 +3,7 @@
  *
  * The first piece of CLI wiring that drives the already-built `rollbackSnapshot`
  * engine (src/ops/rollback.mjs) from the command line, behind the two-factor write
- * gate (`resolveWriteIntent`: `--apply`; `CLAUDE_MGR_ENABLE_WRITES=0` force-locks writes).
+ * gate (`resolveWriteIntent`: `--apply`; `HARNESS_MGR_ENABLE_WRITES=0` force-locks writes).
  *
  * DRY-RUN BY DEFAULT, like the engine: a bare `rollback <id>` runs the read-only
  * preflight (drift-check + archive verify) and reports what WOULD happen, touching
@@ -28,7 +28,7 @@
  * Never throws — rollbackSnapshot is ops-pure/never-throws, the dynamic import is
  * guarded, and the summary helper is fully defensive.
  *
- * Spec: plan claude-mgr-v5.md, P3.U22 (wire the write commands into the CLI).
+ * Spec: plan harness-mgr-v5.md, P3.U22 (wire the write commands into the CLI).
  *
  * Zero npm dependencies. Node stdlib only.
  */
@@ -101,7 +101,7 @@ export async function rollbackCommand(ctx, deps = {}) {
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
 
-  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // Write gate: --apply enables the write; HARNESS_MGR_ENABLE_WRITES=0 is an explicit
   // opt-out lock. A closed gate REFUSES here — the engine is never called.
   const intent = resolveWriteIntent({ apply, env });
   if (intent.refusal) {

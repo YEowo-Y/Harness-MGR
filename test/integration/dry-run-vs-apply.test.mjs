@@ -11,7 +11,7 @@
  *   • process.env.CLAUDE_CONFIG_DIR = tmp   (the real gate reads this at call time)
  *   • --config-dir tmp in argv              (resolveConfigDir uses it verbatim,
  *                                            never touching paths.mjs for the dir)
- *   • process.env.CLAUDE_MGR_ENABLE_WRITES = '1'  (arms the second write factor;
+ *   • process.env.HARNESS_MGR_ENABLE_WRITES = '1'  (arms the second write factor;
  *                                            DELETED for the gate-CLOSED case)
  * All THREE env vars are saved + restored in the finally.
  *
@@ -22,7 +22,7 @@
  *      CLAUDE.md STILL reads v2 (the dry-run wrote NOTHING); drift was reported.
  *   3. GATE CLOSED `rollback <id> --force --apply --config-dir tmp` with the env var
  *      DELETED → code 3, stdout includes `writes-disabled-env`, CLAUDE.md STILL v2.
- *   4. APPLY  same argv with CLAUDE_MGR_ENABLE_WRITES='1' → code 0; CLAUDE.md AND
+ *   4. APPLY  same argv with HARNESS_MGR_ENABLE_WRITES='1' → code 0; CLAUDE.md AND
  *      agents/a.md restored byte-identical to v1.
  *   5. PARITY: the dry-run reported the SAME drift the apply then restored — and a
  *      re-mutate + re-dry-run AFTER the apply shows the previously-restored files
@@ -76,7 +76,7 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
 
   // Save ALL THREE env vars touched by the wiring contract; restore in the finally.
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-dryapply-'));
   process.env.CLAUDE_CONFIG_DIR = tmp; // the REAL gate resolves the governed dir from this
   const stateDir = join(tmp, '.mgr-state');
@@ -109,7 +109,7 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
 
     // 2. DRY-RUN — NO --apply. The env factor is irrelevant on this path, but DELETE
     //    it anyway to prove the dry-run never depends on the write gate.
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
     const dry = await run(['rollback', id, '--force', '--config-dir', tmp]);
     assert.equal(dry.code, 0, `dry-run code 0 expected; stdout:\n${dry.stdout}`);
     // The dry-run wrote NOTHING — CLAUDE.md still reads v2.
@@ -123,9 +123,9 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
     const dryStdout = dry.stdout;
     assert.ok(/dry-run/.test(dryStdout), `dry-run stdout should mention dry-run status:\n${dryStdout}`);
 
-    // 3. GATE CLOSED — --apply with CLAUDE_MGR_ENABLE_WRITES=0 (explicit opt-out) → refuse.
+    // 3. GATE CLOSED — --apply with HARNESS_MGR_ENABLE_WRITES=0 (explicit opt-out) → refuse.
     //    Under the relaxed gate, UNSET env enables writes; only '0' locks.
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '0';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '0';
     const closed = await run(['rollback', id, '--force', '--apply', '--config-dir', tmp]);
     assert.equal(closed.code, 3, `closed-gate code 3 expected; stdout:\n${closed.stdout}`);
     assert.ok(/writes-disabled-env/.test(closed.stdout),
@@ -136,8 +136,8 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
 
     // 3b. RELAXATION POSITIVE LEG — --apply with env UNSET now enables writes
     //     (Rule C: prove the relaxed gate works in the integration path).
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    assert.equal(process.env.CLAUDE_MGR_ENABLE_WRITES, undefined, 'env must be unset for the relaxation leg');
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    assert.equal(process.env.HARNESS_MGR_ENABLE_WRITES, undefined, 'env must be unset for the relaxation leg');
     const relaxed = await run(['rollback', id, '--force', '--apply', '--config-dir', tmp]);
     assert.equal(relaxed.code, 0, `relaxation leg: unset env + --apply must succeed; stdout:\n${relaxed.stdout}`);
     // CLAUDE.md should be restored byte-identical to v1 (the snapshot we took before mutation).
@@ -151,7 +151,7 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
 
     // 4. APPLY — env explicitly set to '1' (back-compat). The full lock → preflight → restore
     //    lifecycle runs through the CLI; CLAUDE.md + agents/a.md restored byte-identical to v1.
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
     const applied = await run(['rollback', id, '--force', '--apply', '--config-dir', tmp]);
     assert.equal(applied.code, 0, `apply code 0 expected; stdout:\n${applied.stdout}`);
     assert.ok(Buffer.compare(readFileSync(join(tmp, 'CLAUDE.md')), claudeV1) === 0,
@@ -177,8 +177,8 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });

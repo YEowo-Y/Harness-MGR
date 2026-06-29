@@ -64,7 +64,7 @@ test('removeCommand: dry-run agent:foo → code 0, status dry-run, loadPaths nev
       capturedOpts = opts;
       return Promise.resolve({ ok: true, refused: false, dryRun: true, kind: 'agent', name: 'foo', target: '/fake/claude/agents/foo.md', plan: {}, apply: null, diagnostics: [] });
     },
-    env: {},  // no CLAUDE_MGR_ENABLE_WRITES → but --apply not set either, so dry-run
+    env: {},  // no HARNESS_MGR_ENABLE_WRITES → but --apply not set either, so dry-run
   };
   const ctx = makeCtx(['agent:foo']);
   const out = await removeCommand(ctx, deps);
@@ -94,13 +94,13 @@ test('removeCommand: skill:x → code 2, refused (unsupported kind)', async () =
 
 // ── 4. --apply with env=0 (explicit opt-out) → code 3, writes-disabled-env, engine never ───
 
-test('removeCommand: --apply with CLAUDE_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env', async () => {
+test('removeCommand: --apply with HARNESS_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env', async () => {
   let removeCalled = false;
   let loadPathsCalled = false;
   const deps = {
     removeFn: () => { removeCalled = true; return Promise.resolve({}); },
     loadPaths: () => { loadPathsCalled = true; return Promise.resolve({ assertWritable: (p) => p }); },
-    env: { CLAUDE_MGR_ENABLE_WRITES: '0' }, // explicit opt-out lock
+    env: { HARNESS_MGR_ENABLE_WRITES: '0' }, // explicit opt-out lock
   };
   const ctx = makeCtx(['agent:foo'], { apply: true });
   const out = await removeCommand(ctx, deps);
@@ -151,7 +151,7 @@ test('removeCommand: --apply + env set → code 0, removeFn called with enableWr
         diagnostics: [],
       });
     },
-    env: { CLAUDE_MGR_ENABLE_WRITES: '1' },
+    env: { HARNESS_MGR_ENABLE_WRITES: '1' },
   };
   const ctx = makeCtx(['agent:foo'], { apply: true });
   const out = await removeCommand(ctx, deps);
@@ -234,14 +234,14 @@ test('run(argv): dry-run remove agent:foo → code 0, foo.md still exists', asyn
     mkdirSync(join(tmp, 'agents'), { recursive: true });
     writeFileSync(join(tmp, 'agents', 'foo.md'), '---\nname: foo\n---\n');
 
-    const savedEnv = process.env.CLAUDE_MGR_ENABLE_WRITES;
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    const savedEnv = process.env.HARNESS_MGR_ENABLE_WRITES;
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
     try {
       const r = await run(['remove', 'agent:foo', '--config-dir', tmp]);
       assert.equal(r.code, 0, `expected code 0, got ${r.code}; stdout: ${r.stdout.slice(0, 400)}`);
       assert.ok(existsSync(join(tmp, 'agents', 'foo.md')), 'dry-run must NOT delete agents/foo.md');
     } finally {
-      if (savedEnv !== undefined) process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnv;
+      if (savedEnv !== undefined) process.env.HARNESS_MGR_ENABLE_WRITES = savedEnv;
     }
   } finally {
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }

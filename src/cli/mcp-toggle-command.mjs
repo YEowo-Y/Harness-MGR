@@ -4,8 +4,8 @@
  *
  * Thin wrapper over setMcpEnabledClaude (src/ops/mcp-toggle.mjs) behind the SAME two-factor
  * write gate every write command uses: resolveWriteIntent requires --apply (dry-run by default;
- * CLAUDE_MGR_ENABLE_WRITES=0 force-locks). Reached from config-edit-command.mjs's claude branch
- * when --type is mcp. claude-mgr never writes ~/.claude.json — the engine delegates the mutation
+ * HARNESS_MGR_ENABLE_WRITES=0 force-locks). Reached from config-edit-command.mjs's claude branch
+ * when --type is mcp. harness-mgr never writes ~/.claude.json — the engine delegates the mutation
  * to the official `claude mcp remove`/`add-json` CLI and only manages a .mgr-state stash.
  *
  * M2-SAFETY: never STATICALLY imports paths.mjs; the gate is resolved via a DYNAMIC import ONLY

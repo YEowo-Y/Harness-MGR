@@ -27,7 +27,7 @@
  * Injectable resolveFn / spawnFn / readFileFn / mkdirFn / now seams make every
  * path hermetically unit-testable without a real tar or real fs. Zero npm deps.
  *
- * Spec: plan claude-mgr-v5.md, the `snapshotted` step (line 496) + Snapshot Scope
+ * Spec: plan harness-mgr-v5.md, the `snapshotted` step (line 496) + Snapshot Scope
  * (lines 378-401).
  */
 

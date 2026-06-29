@@ -88,13 +88,13 @@ test('skillProposeCommand: no --from → code 3, propose-no-source, proposeFn ne
 
 // ── 3. gate-locked (--apply + env=0): code 3, loadPaths + proposeFn NEVER called ─
 
-test('skillProposeCommand: --apply + CLAUDE_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env, engine never', async () => {
+test('skillProposeCommand: --apply + HARNESS_MGR_ENABLE_WRITES=0 → code 3, writes-disabled-env, engine never', async () => {
   let proposeCalled = false;
   let loadPathsCalled = false;
   const deps = {
     proposeFn: () => { proposeCalled = true; return Promise.resolve({}); },
     loadPaths: () => { loadPathsCalled = true; return Promise.resolve({ assertWritable: (p) => p }); },
-    env: { CLAUDE_MGR_ENABLE_WRITES: '0' },
+    env: { HARNESS_MGR_ENABLE_WRITES: '0' },
   };
   const out = await skillProposeCommand(makeCtx(['foo'], { from: '/tmp/x', apply: true }), deps);
   assert.equal(out.code, 3, `expected code 3, got ${out.code}`);

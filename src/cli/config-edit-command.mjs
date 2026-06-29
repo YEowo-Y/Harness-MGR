@@ -3,7 +3,7 @@
  *
  * Thin wrappers over the setComponentEnabled engine (src/ops/config-edit.mjs), behind
  * the SAME two-factor write gate every write command uses: resolveWriteIntent requires
- * --apply (dry-run by default; CLAUDE_MGR_ENABLE_WRITES=0 force-locks writes). disable
+ * --apply (dry-run by default; HARNESS_MGR_ENABLE_WRITES=0 force-locks writes). disable
  * sets enabled=false, enable sets enabled=true — one shared configEditCommand.
  *
  * Target support is per-target: Codex has an in-place config.toml surface

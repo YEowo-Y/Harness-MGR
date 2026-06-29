@@ -186,7 +186,7 @@ describe("writeCommand", () => {
     expect(url).toBe("/api/write/disable");
     expect(init.method).toBe("POST");
     const headers = init.headers as Record<string, string>;
-    expect(headers["x-claude-mgr-write"]).toBe("1");
+    expect(headers["x-harness-mgr-write"]).toBe("1");
     expect(headers["content-type"]).toBe("application/json");
     expect(init.body).toBe(JSON.stringify(writeBody));
   });

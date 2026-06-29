@@ -4,7 +4,7 @@
  *
  * Drives the already-built crash-recovery engine (src/ops/recover.mjs) from the
  * command line, behind the write gate (`resolveWriteIntent`: `--apply`;
- * `CLAUDE_MGR_ENABLE_WRITES=0` force-locks writes). The flag → mode mapping is here; the engine
+ * `HARNESS_MGR_ENABLE_WRITES=0` force-locks writes). The flag → mode mapping is here; the engine
  * dispatches on the resolved mode.
  *
  * MODE ASYMMETRY (vs rollbackCommand): recover's shared validation
@@ -33,7 +33,7 @@
  * Never throws — recover is ops-pure/never-throws, the dynamic import is guarded, and
  * the summary helper is fully defensive.
  *
- * Spec: plan claude-mgr-v5.md, P3.U22 (wire the write commands into the CLI).
+ * Spec: plan harness-mgr-v5.md, P3.U22 (wire the write commands into the CLI).
  *
  * Zero npm dependencies. Node stdlib only.
  */
@@ -187,7 +187,7 @@ export async function recoverCommand(ctx, deps = {}) {
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
 
-  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // Write gate: --apply enables the write; HARNESS_MGR_ENABLE_WRITES=0 is an explicit
   // opt-out lock. A closed gate REFUSES here — the engine is never called.
   const intent = resolveWriteIntent({ apply, env });
   if (intent.refusal) {

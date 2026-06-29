@@ -68,7 +68,7 @@
  * still released in the finally. Injectable seams make every path hermetically
  * unit-testable without a real lock / drift / verify / restore / fs. Zero npm deps.
  *
- * Spec: plan claude-mgr-v5.md, the rollback orchestration (drift-refuse +
+ * Spec: plan harness-mgr-v5.md, the rollback orchestration (drift-refuse +
  * verify-abort + restore), P3.U17.
  */
 

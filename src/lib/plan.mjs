@@ -1,5 +1,5 @@
 /**
- * Plan typedefs for claude-mgr.
+ * Plan typedefs for harness-mgr.
  *
  * The CLI is dry-run-by-default: mutating commands produce a Plan (a versioned
  * list of proposed PlanOps) rather than performing writes. Stage A is read-only,

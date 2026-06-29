@@ -1,6 +1,6 @@
-# Contributing to claude-mgr
+# Contributing to harness-mgr
 
-Thanks for your interest! claude-mgr is a **read-mostly governance CLI** for a Claude Code (and
+Thanks for your interest! harness-mgr is a **read-mostly governance CLI** for a Claude Code (and
 Codex) harness. It is deliberately conservative: it reads your config, and any write is dry-run by
 default. Contributions are expected to preserve that posture.
 

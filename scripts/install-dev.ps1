@@ -1,7 +1,7 @@
-# scripts/install-dev.ps1 — dogfood installer for the claude-mgr working tree.
+# scripts/install-dev.ps1 — dogfood installer for the harness-mgr working tree.
 #
 # Creates a DIRECTORY SYMLINK   <configDir>/.mgr  →  <repoRoot>
-# so the live Claude Code harness loads claude-mgr directly from this repo.
+# so the live Claude Code harness loads harness-mgr directly from this repo.
 #
 # Safe to re-run (idempotent): if a symlink already exists at the link path it
 # is removed and recreated. If a REAL directory exists there the script ABORTS

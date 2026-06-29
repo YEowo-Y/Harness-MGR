@@ -32,7 +32,7 @@ test('resolveWriteIntent: no apply → dry-run, enableWrites:false, no refusal',
 });
 
 test('resolveWriteIntent: no apply, env=1 → still dry-run (env irrelevant without --apply)', () => {
-  const r = resolveWriteIntent({ apply: false, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } });
+  const r = resolveWriteIntent({ apply: false, env: { HARNESS_MGR_ENABLE_WRITES: '1' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
@@ -40,7 +40,7 @@ test('resolveWriteIntent: no apply, env=1 → still dry-run (env irrelevant with
 
 // 2. apply + env='0' → REFUSED (the explicit opt-out lock)
 test('resolveWriteIntent: apply + env=0 → REFUSED, code:3, writes-disabled-env', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.code, 3);
   assert.ok(r.refusal, 'refusal must be present');
@@ -48,13 +48,13 @@ test('resolveWriteIntent: apply + env=0 → REFUSED, code:3, writes-disabled-env
   assert.equal(r.refusal.severity, 'error');
   assert.equal(r.refusal.phase, 'cli');
   // message references the =0 opt-out, not the old =1 requirement
-  assert.match(r.refusal.message, /CLAUDE_MGR_ENABLE_WRITES/);
+  assert.match(r.refusal.message, /HARNESS_MGR_ENABLE_WRITES/);
   assert.match(r.refusal.message, /"0"/);
 });
 
 // 3. apply + env='1' → ENABLED (back-compat: the old way still works)
 test('resolveWriteIntent: apply + env=1 → enabled (back-compat)', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '1' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
@@ -85,7 +85,7 @@ test('resolveWriteIntent: apply + undefined env → enabled', () => {
 
 // 6. apply + env='true' (non-'0') → ENABLED (any non-'0' value enables)
 test('resolveWriteIntent: apply + env=true → enabled (non-"0" value enables)', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: 'true' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: 'true' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
@@ -103,7 +103,7 @@ test('resolveWriteIntent: called with no args → dry-run', () => {
 // pre-fix: all four values silently ENABLED writes; post-fix: they REFUSE.
 
 test('resolveWriteIntent: apply + env=" 0" (leading space) → REFUSED', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: ' 0' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: ' 0' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.code, 3);
   assert.ok(r.refusal, 'refusal must be present');
@@ -111,7 +111,7 @@ test('resolveWriteIntent: apply + env=" 0" (leading space) → REFUSED', () => {
 });
 
 test('resolveWriteIntent: apply + env="0 " (trailing space) → REFUSED', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '0 ' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '0 ' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.code, 3);
   assert.ok(r.refusal, 'refusal must be present');
@@ -121,17 +121,17 @@ test('resolveWriteIntent: apply + env="0 " (trailing space) → REFUSED', () => 
 test('resolveWriteIntent: apply + env="0\\n" (trailing newline) → REFUSED', () => {
   // This is the headline CI footgun: a shell-expanded env var often carries a
   // trailing newline.  Pre-fix this silently enabled writes; post-fix it locks.
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '0\n' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '0\n' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.code, 3);
   assert.ok(r.refusal, 'refusal must be present');
   assert.equal(r.refusal.code, 'writes-disabled-env');
   // message still references the opt-out lock
-  assert.match(r.refusal.message, /CLAUDE_MGR_ENABLE_WRITES/);
+  assert.match(r.refusal.message, /HARNESS_MGR_ENABLE_WRITES/);
 });
 
 test('resolveWriteIntent: apply + env="\\t0" (leading tab) → REFUSED', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '\t0' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '\t0' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.code, 3);
   assert.ok(r.refusal, 'refusal must be present');
@@ -142,7 +142,7 @@ test('resolveWriteIntent: apply + env="\\t0" (leading tab) → REFUSED', () => {
 
 test('resolveWriteIntent: apply + env=" 1" (leading space around 1) → enabled', () => {
   // ' 1'.trim() === '1', which is not the lock value '0'.
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: ' 1' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: ' 1' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
@@ -150,21 +150,21 @@ test('resolveWriteIntent: apply + env=" 1" (leading space around 1) → enabled'
 
 test('resolveWriteIntent: apply + env="false" → enabled (documented: false does not lock)', () => {
   // 'false' is explicitly not the lock value; trimming does not change this.
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: 'false' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: 'false' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
 });
 
 test('resolveWriteIntent: apply + env="00" → enabled ("00" trims to "00", not "0")', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '00' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '00' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
 });
 
 test('resolveWriteIntent: apply + env="0x" → enabled ("0x" is not the lock value)', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '0x' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '0x' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);

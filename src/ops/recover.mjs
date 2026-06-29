@@ -36,7 +36,7 @@
  * THROWS / never rejects — every failure (incl. a thrown seam) becomes a Diagnostic +
  * a full-shape RecoverResult. Injectable seams make every path hermetically testable.
  *
- * Spec: plan claude-mgr-v5.md, the apply-lifecycle recover step (P3.U14 mark-failed;
+ * Spec: plan harness-mgr-v5.md, the apply-lifecycle recover step (P3.U14 mark-failed;
  * P3.U18 resume / rollback / from-manifest).
  */
 

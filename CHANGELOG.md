@@ -1,12 +1,12 @@
 # Changelog
 
-All notable changes to **claude-mgr** — a read-mostly governance CLI for a Claude Code
+All notable changes to **Harness-MGR** — a read-mostly governance CLI for a Claude Code
 (`~/.claude`) harness, and (Phase 6) the OpenAI Codex (`~/.codex`) harness via `--target codex`.
 The format follows [Keep a Changelog](https://keepachangelog.com/).
 This tool is pre-1.0 and ships in phases; releases are tracked by the project's stability
 **tags** (`phase-1-stable`, `phase-2-stable`, …) rather than SemVer numbers.
 
-claude-mgr is a Node ESM tool whose CLI core has **zero runtime dependencies** (the optional
+Harness-MGR is a Node ESM tool whose CLI core has **zero runtime dependencies** (the optional
 MCP server adds one exact-pinned dependency, `@modelcontextprotocol/sdk`). It lives OUTSIDE
 Claude Code's loader, is **dry-run by default**, Windows-hardened, and makes **no network
 calls of its own**. Every governed-config write is gated, auto-snapshotted, and reversible.
@@ -24,14 +24,14 @@ calls of its own**. Every governed-config write is gated, auto-snapshotted, and 
 Every command that mutates governed config is **dry-run by default**. To actually write, pass
 `--apply`. Each write also takes an automatic snapshot first, so it is reversible with `rollback`.
 
-> **Off-ramp (2026-06-09):** the `CLAUDE_MGR_ENABLE_WRITES=1` second factor is **no longer
+> **Off-ramp (2026-06-09):** the `HARNESS_MGR_ENABLE_WRITES=1` second factor is **no longer
 > required** — `--apply` alone now writes. The env var is now an explicit **opt-out lock**: set
-> `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (e.g. in CI); setting it to `1`
+> `HARNESS_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (e.g. in CI); setting it to `1`
 > still works (back-compat). See the off-ramp note below for the evidence and migration.
 
 ### Added — Phase 6 (Codex governance line — `--target codex`)
 
-claude-mgr now governs a second harness — OpenAI **Codex** (`~/.codex`) — through a `--target codex`
+harness-mgr now governs a second harness — OpenAI **Codex** (`~/.codex`) — through a `--target codex`
 adapter (auto-detected from a `config.toml` signature). It is **one tool, one test suite, one safety
 net** over both harnesses, not a fork: every Codex feature rides the same gate / snapshot / dry-run
 machinery as Claude, and Claude behavior stays **byte-identical** (the Codex support is descriptor-driven
@@ -129,18 +129,18 @@ data tables over shared logic, drift-guarded so the default target is provably u
   once; the tool itself stays zero-network). Rules carry Chinese (`*Zh`) fields so bilingual
   consumers (the TUI / an agent) can render advice in 中文.
 - **MCP server** (`node src/mcp/server.mjs`) — exposes the read-only view to Claude Code as a
-  Model Context Protocol server over **stdio**: exactly 4 tools, `claude_mgr_inventory` /
-  `claude_mgr_health` / `claude_mgr_conflicts` / `claude_mgr_doctor` (passive checks only —
+  Model Context Protocol server over **stdio**: exactly 4 tools, `harness_mgr_inventory` /
+  `harness_mgr_health` / `harness_mgr_conflicts` / `harness_mgr_doctor` (passive checks only —
   active probes stay a human opt-in). Each tool returns the same `version:1` JSON envelope the
   CLI prints (secret redaction included). A separate process role, NOT a CLI subcommand;
-  register with `claude mcp add claude-mgr -- node <abs path>/src/mcp/server.mjs`. Write
+  register with `claude mcp add harness-mgr -- node <abs path>/src/mcp/server.mjs`. Write
   commands are deliberately NOT exposed as tools.
 - **FIRST runtime npm dependency** (owner-sanctioned 2026-06-10, an explicit exception to the
   zero-dependency line): the official `@modelcontextprotocol/sdk`, **exact-pinned at `1.29.0`**
   (no `^`/`~`) with `package-lock.json` committed. Only the stdio-transport server entry points
   are imported — never an HTTP/SSE transport. **Migration note:** running the MCP server (and
   now the full test suite) requires `npm install` once; the CLI itself still runs without it.
-  claude-mgr's own code remains machine-enforced zero-network (`selftest --boundary`); see
+  harness-mgr's own code remains machine-enforced zero-network (`selftest --boundary`); see
   `docs/threat-model.md` §5.10 for the supply-chain carve-out.
 
 ### Added — Phase 4 (remove / update / mcp / diff / completion / ndjson)
@@ -153,12 +153,12 @@ data tables over shared logic, drift-guarded so the default target is provably u
   skill pipeline that names another skill, …). Always prints a preview first; `--force` is
   required when the dependent set is non-empty.
 - **`update <plugin> [--lock-version <ver>]`** — delegate a plugin update to the `claude` CLI
-  (claude-mgr itself makes no network calls). Snapshots `installed_plugins.json` first and
+  (harness-mgr itself makes no network calls). Snapshots `installed_plugins.json` first and
   reports honest partial-reversibility caveats: the marketplace fetch, the `plugins/cache/**`
-  mutation, and the required Claude Code restart are claude's, OUTSIDE claude-mgr's snapshot
+  mutation, and the required Claude Code restart are claude's, OUTSIDE harness-mgr's snapshot
   scope. `--lock-version` is reported-unsupported (the underlying CLI cannot target a version).
 - **`mcp remove <name> [--scope local|user|project]`** — delegate an MCP-server removal to the
-  `claude` CLI. Snapshots `.mcp.json` first. `--scope project` is reversible by claude-mgr;
+  `claude` CLI. Snapshots `.mcp.json` first. `--scope project` is reversible by harness-mgr;
   `user` / `local` scope lives in `~/.claude.json` (outside the snapshot) — reported as a caveat.
 - **`config diff <a> <b> [--context N]`** — a unified line-diff of two files: a minimal Myers
   shortest-edit-script engine, git-style `@@` hunks, also available as structured JSON.
@@ -191,11 +191,11 @@ data tables over shared logic, drift-guarded so the default target is provably u
 - A post-apply invariant (#44) pins that `doctor` still runs (exit ≤ 1, never a crash) after
   every write path; a full-command smoke pins that every command runs without an internal crash.
 
-### Changed — `CLAUDE_MGR_ENABLE_WRITES` relaxed to an opt-out lock (off-ramp EXERCISED 2026-06-09)
+### Changed — `HARNESS_MGR_ENABLE_WRITES` relaxed to an opt-out lock (off-ramp EXERCISED 2026-06-09)
 
 The Phase-3 two-factor write gate has been **relaxed**. `--apply` alone now enables a governed
-write; `CLAUDE_MGR_ENABLE_WRITES` is **no longer required**. It is now an explicit **opt-out
-lock**: set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (the refusal exits 3
+write; `HARNESS_MGR_ENABLE_WRITES` is **no longer required**. It is now an explicit **opt-out
+lock**: set `HARNESS_MGR_ENABLE_WRITES=0` to hard-disable all governed writes (the refusal exits 3
 with `writes-disabled-env`); any other value — unset, `1` (back-compat), … — allows writes when
 `--apply` is present. Dry-run stays the default and **`--apply` is never removed.**
 
@@ -213,9 +213,9 @@ with ALL conditions met:
 
 **Migration / back-compat:**
 
-- Scripts that already set `CLAUDE_MGR_ENABLE_WRITES=1` continue to work **unchanged**.
+- Scripts that already set `HARNESS_MGR_ENABLE_WRITES=1` continue to work **unchanged**.
 - ⚠ Scripts or CI that relied on an **unset** variable to BLOCK writes must now set
-  `CLAUDE_MGR_ENABLE_WRITES=0` to keep that lock — under the relaxed gate, an unset variable plus
+  `HARNESS_MGR_ENABLE_WRITES=0` to keep that lock — under the relaxed gate, an unset variable plus
   `--apply` now writes.
 
 This is the relaxation of the env-var second factor only — **not** a removal of the `--apply`

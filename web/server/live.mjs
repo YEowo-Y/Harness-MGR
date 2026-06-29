@@ -1,5 +1,5 @@
 /**
- * claude-mgr web — live-reload hub (P1).
+ * harness-mgr web — live-reload hub (P1).
  *
  * Watches each target's resolved config directory and broadcasts a coalesced
  * "change" signal to every connected SSE client. The browser turns that signal
@@ -8,7 +8,7 @@
  *
  * SCOPE (per the agreed design): watch each configDir RECURSIVELY and FILTER OUT
  * high-churn paths the UI never surfaces (plugin node_modules, logs, caches,
- * snapshots, session transcripts, claude-mgr's own state). Filtering happens on
+ * snapshots, session transcripts, harness-mgr's own state). Filtering happens on
  * the emitted events — the OS-level recursive watch itself is cheap on Windows
  * (ReadDirectoryChangesW), so we do not enumerate the tree.
  *

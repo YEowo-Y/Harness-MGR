@@ -1,4 +1,4 @@
-# claude-mgr — project context for Claude Code sessions
+# harness-mgr — project context for Claude Code sessions
 
 A **read-mostly governance CLI** for a Claude Code (and Codex) harness at `~/.claude` / `~/.codex`:
 inventory, conflicts, `config show-effective`, doctor, snapshot/rollback, remove/update, and

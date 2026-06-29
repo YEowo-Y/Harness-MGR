@@ -1,5 +1,5 @@
 /**
- * Source / provenance typedef for claude-mgr.
+ * Source / provenance typedef for harness-mgr.
  *
  * Every discovered component (skill, agent, command, hook, plugin, setting)
  * carries a Source describing WHERE it came from, so analysis can compute

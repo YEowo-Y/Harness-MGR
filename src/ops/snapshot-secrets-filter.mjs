@@ -77,7 +77,7 @@
  * dependencies.
  *
  * Spec: plan "Snapshot Scope (v4 hardened)" + secrets allowlist/auth gate
- * (claude-mgr-v5.md L22, L404-420).
+ * (harness-mgr-v5.md L22, L404-420).
  */
 
 import { join } from 'node:path';

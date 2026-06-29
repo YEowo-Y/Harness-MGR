@@ -83,7 +83,7 @@ test('lockCommand: --break-lock without --apply → lock-break-needs-apply code3
 
 test('lockCommand: --break-lock --apply env=0 closed → writes-disabled-env code3, breakFn NOT called', async () => {
   const brk = makeBreakSpy({ broken: true, holder: null, holderAlive: null, diagnostics: [] });
-  const out = await lockCommand(CTX({ 'break-lock': true, apply: true }), { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+  const out = await lockCommand(CTX({ 'break-lock': true, apply: true }), { breakFn: brk, env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   assert.equal(out.code, 3);
   assert.equal(out.result.status, 'refused');
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env' && d.severity === 'error'));
@@ -98,7 +98,7 @@ test('lockCommand: --break-lock --apply env=1 → breakFn called, code from brok
     diagnostics: [{ severity: 'warn', code: 'apply-lock-broken', phase: 'lock', message: 'force-removed' }] });
   const out = await lockCommand(
     CTX({ 'break-lock': true, apply: true }),
-    { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '1' },
+    { breakFn: brk, env: { HARNESS_MGR_ENABLE_WRITES: '1' },
       loadPaths: async () => ({ assertWritable: (p) => p }),
       auditFn: () => ({ written: true, large: false, ref: null, path: null, diagnostics: [] }) },
   );
@@ -120,7 +120,7 @@ test('lockCommand: --break-lock --apply env=1 but nothing broken → code1', asy
     diagnostics: [{ severity: 'info', code: 'apply-lock-absent', phase: 'lock', message: 'not present' }] });
   const out = await lockCommand(
     CTX({ 'break-lock': true, apply: true }),
-    { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '1' },
+    { breakFn: brk, env: { HARNESS_MGR_ENABLE_WRITES: '1' },
       loadPaths: async () => ({ assertWritable: (p) => p }), auditFn: () => {} },
   );
   assert.equal(brk.calls.length, 1);
@@ -136,7 +136,7 @@ test('lockCommand: breaking a live-held lock raises lock-broke-live-holder warn'
     diagnostics: [{ severity: 'warn', code: 'apply-lock-broken', phase: 'lock', message: 'force-removed' }] });
   const out = await lockCommand(
     CTX({ 'break-lock': true, apply: true }),
-    { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '1' },
+    { breakFn: brk, env: { HARNESS_MGR_ENABLE_WRITES: '1' },
       loadPaths: async () => ({ assertWritable: (p) => p }),
       auditFn: () => ({ written: true, large: false, ref: null, path: null, diagnostics: [] }) },
   );
@@ -247,7 +247,7 @@ test('P4a.U2: --apply break success → code0, broken:true, auditFn called with 
   const nowMs = Date.parse('2026-06-06T00:00:00.000Z');
   const out = await lockCommand(
     CTX({ 'break-lock': true, apply: true }),
-    { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '1' },
+    { breakFn: brk, env: { HARNESS_MGR_ENABLE_WRITES: '1' },
       loadPaths, auditFn, now: () => nowMs },
   );
   assert.equal(out.code, 0, 'broken:true → code 0');
@@ -273,7 +273,7 @@ test('P4a.U2: --apply break + auditFn returns written:false → code0/broken:tru
   const loadPaths = async () => ({ assertWritable: (p) => p });
   const out = await lockCommand(
     CTX({ 'break-lock': true, apply: true }),
-    { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '1' }, loadPaths, auditFn },
+    { breakFn: brk, env: { HARNESS_MGR_ENABLE_WRITES: '1' }, loadPaths, auditFn },
   );
   assert.equal(out.code, 0, 'break still succeeds when audit fails via return value');
   assert.equal(out.result.broken, true);
@@ -289,7 +289,7 @@ test('P4a.U2: --apply break + loadPaths throws → still code0/broken:true + aud
   const loadPaths = async () => { throw new Error('hooks/lib missing'); };
   const out = await lockCommand(
     CTX({ 'break-lock': true, apply: true }),
-    { breakFn: brk, env: { CLAUDE_MGR_ENABLE_WRITES: '1' }, loadPaths },
+    { breakFn: brk, env: { HARNESS_MGR_ENABLE_WRITES: '1' }, loadPaths },
   );
   assert.equal(out.code, 0, 'break still succeeds even when audit fails');
   assert.equal(out.result.broken, true);

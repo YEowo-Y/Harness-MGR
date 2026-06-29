@@ -14,7 +14,7 @@
  * SECURITY POSTURE — DRY-RUN BY DEFAULT + the two-factor write gate (P3.U22):
  *   • A bare `snapshot pin <id>` / `snapshot unpin <id>` PREVIEWS the action and
  *     writes NOTHING (mode 'dry-run'); paths.mjs is never loaded.
- *   • `--apply` enables the write (`resolveWriteIntent`); set `CLAUDE_MGR_ENABLE_WRITES=0`
+ *   • `--apply` enables the write (`resolveWriteIntent`); set `HARNESS_MGR_ENABLE_WRITES=0`
  *     as an explicit opt-out lock. A closed gate REFUSES (code 3 +
  *     `writes-disabled-env`) before any write — and, for pin, before paths.mjs is
  *     loaded, so no marker is written.

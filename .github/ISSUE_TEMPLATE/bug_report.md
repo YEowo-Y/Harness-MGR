@@ -10,7 +10,7 @@ assignees: ''
 A clear description of the bug.
 
 **Command + flags**
-The exact `claude-mgr` (or `node src/cli.mjs`) invocation, e.g. `inventory --type skill --format json`.
+The exact `harness-mgr` (or `node src/cli.mjs`) invocation, e.g. `inventory --type skill --format json`.
 
 **Expected vs actual**
 What you expected, and what you got instead. Paste the relevant output (use `--format json` if it
@@ -19,7 +19,7 @@ helps). **Redact any secrets/tokens** before pasting.
 **Environment**
 - OS (Windows / macOS / Linux):
 - Node version (`node --version`, must be >= 24):
-- claude-mgr version / commit:
+- harness-mgr version / commit:
 - Target (`claude` / `codex`):
 
 **Was this a read or a write?**

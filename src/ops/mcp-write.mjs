@@ -2,7 +2,7 @@
  * MCP write delegator (P4b.U6) — the user-facing engine for
  * `mcp remove <name> [--scope local|user|project]` (remove ONE MCP server).
  *
- * U6 is the SECOND claude-mgr command that DELEGATES a governed mutation to the
+ * U6 is the SECOND harness-mgr command that DELEGATES a governed mutation to the
  * external `claude` CLI (via safeSpawn), after U5 `update`. It reuses U5's proven
  * machinery wholesale — resolveClaudeExe, snapshot-before-delegate, dry-run-by-
  * default, best-effort audit — and adds nothing new to the trust surface beyond
@@ -205,7 +205,7 @@ function findVisibleServer(a) {
     s && s.name === name && (scope ? s.scope === scope : true)) ?? null;
   if (!server) {
     bag.add({ severity: 'info', code: 'mcp-server-not-visible', phase: PHASE,
-      message: `server '${name}' not found in the project/user scopes claude-mgr can see; ` +
+      message: `server '${name}' not found in the project/user scopes harness-mgr can see; ` +
         'it may be local-scope — claude is the authority; proceeding' });
   }
   return server;
@@ -228,7 +228,7 @@ function emitDryRunDiagnostics(bag, human, server, scope) {
   // governed tree → NOT captured by the auto-snapshot (only project is reversible).
   if (scope === 'user' || scope === 'local' || scope === undefined) {
     bag.add({ severity: 'info', code: 'mcp-user-scope-not-snapshotted', phase: PHASE,
-      message: '--scope user/local writes ~/.claude.json, OUTSIDE claude-mgr\'s governed tree and ' +
+      message: '--scope user/local writes ~/.claude.json, OUTSIDE harness-mgr\'s governed tree and ' +
         'NOT captured by the auto-snapshot; only --scope project is reversible via rollback' });
   }
 }

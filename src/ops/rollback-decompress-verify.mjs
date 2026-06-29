@@ -52,7 +52,7 @@
  * becomes a Diagnostic + `{ ok:false }`; the temp cleanup still runs. Injectable
  * seams make every path hermetically unit-testable without a real tar / fs.
  *
- * Spec: plan claude-mgr-v5.md, the rollback decompress+verify step — the READ-ONLY
+ * Spec: plan harness-mgr-v5.md, the rollback decompress+verify step — the READ-ONLY
  * archive-integrity slice (P3.U17 owns the abort-on-mismatch orchestration).
  */
 

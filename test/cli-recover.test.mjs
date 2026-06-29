@@ -156,7 +156,7 @@ test('recoverCommand: --apply + env=0 closed → code:3 writes-disabled-env, rec
   const loadPaths = makeLoadPaths();
   const out = await recoverCommand(
     CTX({ positionals: ['snap-1'], rollback: true, apply: true }),
-    { recoverFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } },
+    { recoverFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '0' } },
   );
   assert.equal(out.code, 3);
   assert.equal(out.result.status, 'refused');
@@ -175,7 +175,7 @@ test('recoverCommand: --apply + env=1 + --rollback → enableWrites:true, mode r
   const loadPaths = makeLoadPaths();
   const out = await recoverCommand(
     CTX({ positionals: ['snap-1'], rollback: true, apply: true }),
-    { recoverFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { recoverFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(loadPaths.calls.length, 1, 'paths.mjs loaded exactly once on the real apply path');
   assert.equal(spy.calls.length, 1);
@@ -192,7 +192,7 @@ test('recoverCommand: --apply + env=1 + --mark-failed → engine called with ena
   const loadPaths = makeLoadPaths();
   const out = await recoverCommand(
     CTX({ positionals: ['snap-1'], 'mark-failed': true, apply: true }),
-    { recoverFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { recoverFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(loadPaths.calls.length, 1);
   assert.equal(spy.calls.length, 1);
@@ -209,7 +209,7 @@ test('recoverCommand: --rollback --apply env=1 but loadPaths throws → recover-
   const loadPaths = () => Promise.reject(new Error('no hooks lib'));
   const out = await recoverCommand(
     CTX({ positionals: ['snap-1'], rollback: true, apply: true }),
-    { recoverFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { recoverFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.result.status, 'write-unavailable');
   assert.equal(out.result.mode, 'rollback');
@@ -266,7 +266,7 @@ test('recoverCommand: tolerates a partial engine result (missing fields → null
   const loadPaths = makeLoadPaths();
   const out = await recoverCommand(
     CTX({ positionals: ['snap-1'], 'mark-failed': true, apply: true }),
-    { recoverFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { recoverFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.result.mode, 'mark-failed');
   assert.equal(out.result.state, null, 'no state → null');
@@ -283,7 +283,7 @@ test('recoverCommand: a throwing engine seam degrades to recover-unexpected-erro
   const loadPaths = makeLoadPaths();
   const out = await recoverCommand(
     CTX({ positionals: ['snap-1'], 'mark-failed': true, apply: true }),
-    { recoverFn: throwing, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { recoverFn: throwing, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.code, 1);
   assert.equal(out.result.status, 'error');

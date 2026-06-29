@@ -42,7 +42,7 @@ import { codexDescriptor } from '../targets/codex.mjs';
  * @typedef {Object} ResolvedTarget
  * @property {TargetDescriptor} descriptor   the active target descriptor (always set)
  * @property {string} configDir              the governed config directory
- * @property {string} mgrStateDir            claude-mgr's own state dir (configDir/.mgr-state)
+ * @property {string} mgrStateDir            harness-mgr's own state dir (configDir/.mgr-state)
  * @property {Diagnostic[]} diagnostics
  */
 

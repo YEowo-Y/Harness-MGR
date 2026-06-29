@@ -23,7 +23,7 @@ test('renderTable snapshot: dry-run shows mode + counts, no archive/manifest row
     fileCount: 5, keptCount: 5, droppedCount: 2, dropped: ['a', 'b'],
     archivePath: null, manifestPath: null,
   });
-  assert.match(out, /claude-mgr snapshot/);
+  assert.match(out, /harness-mgr snapshot/);
   assert.match(out, /dry-run/);
   assert.match(out, /2026-05-30T00-00-00Z/);
   assert.match(out, /keptCount/);
@@ -49,7 +49,7 @@ test('renderTable snapshot: applied surfaces archivePath + manifestPath rows', (
 
 test('renderTable snapshot: defensive on a missing/empty result', () => {
   const out = renderTable('snapshot', {});
-  assert.match(out, /claude-mgr snapshot/);
+  assert.match(out, /harness-mgr snapshot/);
   // mode cell is empty but the table still renders its field rows.
   assert.match(out, /snapshotId/);
 });
@@ -64,7 +64,7 @@ test('renderTable snapshot:list: one row per snapshot with completeness', () => 
       { id: '2026-05-20T10-00-00Z', complete: false }, // incomplete → empty cells + complete:no
     ],
   });
-  assert.match(out, /claude-mgr snapshot:list/);
+  assert.match(out, /harness-mgr snapshot:list/);
   assert.match(out, /2026-05-25T10-00-00Z/);
   assert.match(out, /nightly/);
   assert.match(out, /42/);
@@ -74,7 +74,7 @@ test('renderTable snapshot:list: one row per snapshot with completeness', () => 
 
 test('renderTable snapshot:list: defensive on a missing snapshots array', () => {
   const out = renderTable('snapshot:list', {});
-  assert.match(out, /claude-mgr snapshot:list/); // header renders even with no rows
+  assert.match(out, /harness-mgr snapshot:list/); // header renders even with no rows
 });
 
 test('renderTable snapshot:gc dry-run: header counts + a "would delete" row per id', () => {
@@ -189,21 +189,21 @@ test('renderTable drift: one row per change', () => {
 
 test('renderTable unknown command: generic key/value dump (incl. nested object → JSON)', () => {
   const out = renderTable('whatever', { a: 1, nested: { b: 2 } });
-  assert.match(out, /claude-mgr whatever/);
+  assert.match(out, /harness-mgr whatever/);
   assert.match(out, /nested/);
   assert.match(out, /"b":2/); // scalarize JSON-stringifies an object value on one line
 });
 
 test('renderTable: a null result is coerced to {} → empty-rows table (header only, no throw)', () => {
   const out = renderTable('inventory', null);
-  assert.match(out, /claude-mgr inventory/);
+  assert.match(out, /harness-mgr inventory/);
   assert.match(out, /metric/); // the inventory table header still renders
 });
 
 test('renderTable: a non-object (array) result falls through to the empty kv table', () => {
   const out = renderTable('orphans', [1, 2, 3]);
   // orphans reads r.orphans (absent on an array) → empty rows → title only.
-  assert.match(out, /claude-mgr orphans/);
+  assert.match(out, /harness-mgr orphans/);
 });
 
 // ── quiet ────────────────────────────────────────────────────────────────────────

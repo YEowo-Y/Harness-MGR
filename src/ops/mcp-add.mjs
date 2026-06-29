@@ -3,10 +3,10 @@
  *
  * Delegates `claude mcp add-json <name> <json> --scope <scope>` to the official `claude`
  * CLI via safeSpawn — the RE-ADD half of the non-destructive mcp toggle (disable = stash +
- * `claude mcp remove`; enable = THIS, from the stash). claude-mgr NEVER writes the
+ * `claude mcp remove`; enable = THIS, from the stash). harness-mgr NEVER writes the
  * OAuth-secret-bearing ~/.claude.json itself — the official CLI performs the mutation; this
  * module only resolves a spawnable native claude and runs the validated argv (execFile, NO
- * shell). The <json> is claude-mgr's OWN stash data (round-tripped from the user's config),
+ * shell). The <json> is harness-mgr's OWN stash data (round-tripped from the user's config),
  * passed as a LITERAL argv element. Dry-run-by-default. NEVER throws.
  *
  * SECURITY — the add-json argv schema (the one looser-than-`mcp remove` surface, by design):
@@ -16,7 +16,7 @@
  *   NUL / newline). That looseness is bounded + justified by: (a) execFile/no-shell; (b) the
  *   engine validates <name> with the STRICT shared NAME_RE BEFORE argv build (validate twice);
  *   (c) the engine validates <json> PARSES to a plain object + is printable-ASCII (no control
- *   bytes) BEFORE argv build; (d) it is claude-mgr's own round-tripped stash, not a value typed
+ *   bytes) BEFORE argv build; (d) it is harness-mgr's own round-tripped stash, not a value typed
  *   at the call site; (e) maxArgs bounds the token count. Documented for DoD review.
  *
  * M2-SAFETY: imports ONLY node:os(tmpdir) + ../lib/diagnostic + ../lib/safe-spawn +

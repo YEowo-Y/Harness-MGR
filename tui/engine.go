@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// Counts mirrors result.counts in the claude-mgr `inventory --format json` envelope.
+// Counts mirrors result.counts in the harness-mgr `inventory --format json` envelope.
 // All fields are non-negative integers emitted by the Node CLI.
 type Counts struct {
 	Agents       int `json:"agents"`
@@ -136,18 +136,18 @@ type detailInventory struct {
 // Precedence (explicit beats ambient):
 //
 //	(a) --cli flag value (passed in as flagCLI), if non-empty;
-//	(b) CLAUDE_MGR_CLI environment variable, if set;
+//	(b) HARNESS_MGR_CLI environment variable, if set;
 //	(c) src/cli.mjs found by walking UP from the current working directory;
 //	(d) src/cli.mjs found by walking UP from the executable's directory;
 //	(e) bare "src/cli.mjs" (the historical default, relative to CWD).
 //
 // (c) lets `cd tui && go run .` work (CWD=tui/ → parent repo root has src/cli.mjs);
-// (d) lets the built binary run from anywhere (tui/claude-mgr-tui.exe → its dir's
+// (d) lets the built binary run from anywhere (tui/harness-mgr-tui.exe → its dir's
 // parent is the repo root). (e) preserves the original behavior as a last resort.
 func resolveCLIPath(flagCLI string) string {
 	cwd, _ := os.Getwd()
 	exe, _ := os.Executable()
-	return resolveCLIPathFrom(flagCLI, os.Getenv("CLAUDE_MGR_CLI"), cwd, exe)
+	return resolveCLIPathFrom(flagCLI, os.Getenv("HARNESS_MGR_CLI"), cwd, exe)
 }
 
 // resolveCLIPathFrom is the pure, testable core of resolveCLIPath: all ambient
@@ -1000,7 +1000,7 @@ func fetchHooks(cliPath string, target string) (HooksResult, error) {
 
 // fetchSelftest shells out to `node <cliPath> selftest --format json`, captures
 // stdout, and unmarshals it into a SelftestResult. It never panics. Selftest is
-// target-AGNOSTIC — it checks claude-mgr's OWN repo, not a harness, so it never
+// target-AGNOSTIC — it checks harness-mgr's OWN repo, not a harness, so it never
 // passes --target (always the engine default).
 func fetchSelftest(cliPath string) (SelftestResult, error) {
 	data, err := runJSON(cliPath, "", "selftest", "--format", "json")

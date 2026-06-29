@@ -1,6 +1,6 @@
 # Effective settings — per-key merge rules
 
-How `claude-mgr` computes the **effective** view of Claude Code settings when the
+How `harness-mgr` computes the **effective** view of Claude Code settings when the
 same key is set in more than one layer. These rules mirror Claude Code's own
 `settingsMergeCustomizer` as reverse-engineered from the deobfuscated **CC 2.1.x**
 source (`ghboke/claude-code-reverse`, corroborated). They are **version-pinned to

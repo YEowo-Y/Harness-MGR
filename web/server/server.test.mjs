@@ -6,7 +6,7 @@
  *      pluginWriteSupported), the safe-arg filter (buildArgs / asBool), target resolution,
  *      and the frozen/proto-safe allowlists. Deterministic, no I/O.
  *   2. ROUTE GUARDS via app.request() — the HTTP security boundary the curl checks pin:
- *      the read/write command allowlists, the x-claude-mgr-write CSRF header, target/kind/
+ *      the read/write command allowlists, the x-harness-mgr-write CSRF header, target/kind/
  *      name/state validation, the DNS-rebinding Host guard, and proto-safety. Every one of
  *      these returns BEFORE the engine is touched, so they assert without reading real config
  *      or writing anything. A couple of read-only happy paths (/api/status, a capability gate)

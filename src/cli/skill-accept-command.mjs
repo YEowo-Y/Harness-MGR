@@ -4,7 +4,7 @@
  *
  * Wires the already-built `acceptProposal` engine (src/ops/accept.mjs) into the CLI
  * behind the SAME write gate every write command uses: `resolveWriteIntent` requires
- * `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
+ * `--apply` (dry-run by default; set `HARNESS_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * Split out of skill-command.mjs (which already holds skillProposeCommand) so each
  * module stays under the 200-SLOC lint ceiling — the sanctioned helper split
@@ -181,7 +181,7 @@ export async function skillAcceptCommand(ctx, deps = {}) {
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
 
-  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // Write gate: --apply enables the write; HARNESS_MGR_ENABLE_WRITES=0 is an explicit
   // opt-out lock. A closed gate REFUSES here — before loading paths.mjs / the engine.
   const intent = resolveWriteIntent({ apply, env });
   if (intent.refusal) {

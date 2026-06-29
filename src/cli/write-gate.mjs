@@ -1,10 +1,10 @@
 /**
  * Write-gate for the governed-config write commands (P3.U22 / off-ramp 2026-06-09).
  *
- * ORIGINAL (Phase-3 soak): required BOTH `--apply` AND `CLAUDE_MGR_ENABLE_WRITES=1`.
+ * ORIGINAL (Phase-3 soak): required BOTH `--apply` AND `HARNESS_MGR_ENABLE_WRITES=1`.
  * RELAXED  (evidence-driven off-ramp, conditions (a)+(b)+(c) all met 2026-06-09):
  *   `--apply` alone now enables writes.  The env var becomes an EXPLICIT OPT-OUT
- *   lock: set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable writes (e.g. in CI or
+ *   lock: set `HARNESS_MGR_ENABLE_WRITES=0` to hard-disable writes (e.g. in CI or
  *   scripts that should never mutate governed config).  Setting it to `1` continues
  *   to work for backward-compatibility; any other value (unset, empty, "true", …)
  *   is treated as "not locked" and writes proceed when `--apply` is given.
@@ -33,7 +33,7 @@
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
 /** The env var name; set to '0' to explicitly lock writes (opt-out). */
-const ENABLE_WRITES_ENV = 'CLAUDE_MGR_ENABLE_WRITES';
+const ENABLE_WRITES_ENV = 'HARNESS_MGR_ENABLE_WRITES';
 /**
  * The value that locks writes (whitespace-trimmed before comparison so CI
  * pipelines that produce ' 0', '0\n', or '\t0' are treated identically to
@@ -81,8 +81,8 @@ export function resolveWriteIntent({ apply, env } = {}) {
       code: 'writes-disabled-env',
       phase: 'cli',
       message:
-        '--apply requested but governed-config writes are locked out; unset CLAUDE_MGR_ENABLE_WRITES (or set it to any value other than "0") to allow writes',
-      fix: 'unset CLAUDE_MGR_ENABLE_WRITES (or remove the =0 value) and re-run with --apply',
+        '--apply requested but governed-config writes are locked out; unset HARNESS_MGR_ENABLE_WRITES (or set it to any value other than "0") to allow writes',
+      fix: 'unset HARNESS_MGR_ENABLE_WRITES (or remove the =0 value) and re-run with --apply',
     },
   };
 }

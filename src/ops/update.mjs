@@ -2,11 +2,11 @@
  * Update command-level delegator (P4b.U5) — the user-facing entry for
  * `update <plugin> [--lock-version <ver>]` (update ONE installed plugin to latest).
  *
- * `update` is a NEW capability class: the FIRST claude-mgr command that
+ * `update` is a NEW capability class: the FIRST harness-mgr command that
  * DELEGATES a governed mutation to the external `claude` CLI (via safeSpawn),
  * rather than mutating governed FILES itself through assertWritable + the apply
  * lifecycle. "Updating a plugin" means refetching code from a marketplace
- * (network + git); claude-mgr is a verified zero-network, read-mostly governance
+ * (network + git); harness-mgr is a verified zero-network, read-mostly governance
  * tool, so it cannot do that itself — it delegates to `claude plugin update <key>`.
  *
  *   updatePlugin(opts)

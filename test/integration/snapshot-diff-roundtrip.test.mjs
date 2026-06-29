@@ -64,7 +64,7 @@ test('config diff snapshot roundtrip: manifest + content over two real snapshots
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnable = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnable = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-snapdiff-'));
   const stateDir = join(tmp, '.mgr-state');
 
@@ -76,7 +76,7 @@ test('config diff snapshot roundtrip: manifest + content over two real snapshots
     // CLAUDE_CONFIG_DIR makes the REAL write gate resolve to our temp dir; the env
     // factor arms the two-factor write gate for `snapshot --apply`.
     process.env.CLAUDE_CONFIG_DIR = tmp;
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
 
     // ── snapshot #1 ──────────────────────────────────────────────────────────────
     const s1 = await run(['snapshot', '--apply', '--reason', 's1', '--config-dir', tmp]);
@@ -141,8 +141,8 @@ test('config diff snapshot roundtrip: manifest + content over two real snapshots
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnable === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnable;
+    if (savedEnable === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnable;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });

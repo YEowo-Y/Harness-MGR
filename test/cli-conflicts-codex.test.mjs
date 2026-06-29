@@ -12,7 +12,7 @@
  *      `loader-rules-unverified-version` (whose "verified for 2.1.x" wording is
  *      meaningless on codex). THIS diagnostic swap is the headline falsifiable oracle.
  *
- * Codex conflicts are STRUCTURALLY 0 here: claude-mgr's codex scan walks only the
+ * Codex conflicts are STRUCTURALLY 0 here: harness-mgr's codex scan walks only the
  * single home dir per kind and tiers all components `user`, and a codex home dir is
  * filesystem-unique per kind (no same-name dups). The cross-source dups that WOULD
  * collide live in plugins/cache/ + ~/.agents/skills, which the scan does not

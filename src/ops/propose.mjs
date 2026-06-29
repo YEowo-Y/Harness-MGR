@@ -4,7 +4,7 @@
  *
  * It writes an ITERATED version of an existing user-tier skill as a NEW file —
  * `skills/<name>/SKILL.proposed-<ts>.md` — and NEVER touches the original
- * `SKILL.md`. The proposed content is the EXACT bytes of `--from <file>` (claude-mgr
+ * `SKILL.md`. The proposed content is the EXACT bytes of `--from <file>` (harness-mgr
  * stays zero-network + content-agnostic; it is the safe-write mechanism, not the
  * content generator — viewpoint-review S3). The proposal file IS the diff shown, so
  * the future `skill accept` (U9) becomes a pure rename.

@@ -93,7 +93,7 @@ export function Sidebar(props: {
       <div className="mb-5 flex shrink-0 items-center gap-2 px-2">
         <span className="h-2.5 w-2.5 rounded-full bg-accent" aria-hidden="true" />
         <span className="font-sans text-[17px] font-semibold tracking-tight text-ink">
-          claude-mgr
+          harness-mgr
         </span>
       </div>
 

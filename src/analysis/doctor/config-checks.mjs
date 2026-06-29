@@ -78,7 +78,7 @@ function checkClaudeConfigSchemaVersion(input) {
       code: 'claude-config-schema-version',
       message: strOr(f.message, 'installed_plugins.json has an unrecognized schema version'),
       phase: 'doctor',
-      fix: 'upgrade claude-mgr if Claude Code changed the config schema; the read was best-effort and may be partial',
+      fix: 'upgrade harness-mgr if Claude Code changed the config schema; the read was best-effort and may be partial',
     };
     if (typeof f.path === 'string') d.path = f.path;
     out.push(d);

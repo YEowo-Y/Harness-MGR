@@ -64,7 +64,7 @@ import { compareCommand } from './compare-command.mjs';
  *
  * @typedef {Object} CommandContext
  * @property {string} configDir   the governed ~/.claude (resolved upstream)
- * @property {string} [mgrStateDir]  claude-mgr's own state dir (resolved upstream; used by doctor's fs/acl probes)
+ * @property {string} [mgrStateDir]  harness-mgr's own state dir (resolved upstream; used by doctor's fs/acl probes)
  * @property {Object} args        parsed flags (handler reads only what it needs)
  *
  * @typedef {Object} CommandOutput
@@ -386,7 +386,7 @@ export const COMMANDS = Object.freeze({
   'snapshot:pin': (ctx) => snapshotPinCommand(ctx),
   'snapshot:unpin': (ctx) => snapshotUnpinCommand(ctx),
   // Governed-config WRITE commands (P3.U22+), DRY-RUN by default + write gate
-  // (--apply; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit opt-out lock). Each takes an optional deps arg.
+  // (--apply; HARNESS_MGR_ENABLE_WRITES=0 is an explicit opt-out lock). Each takes an optional deps arg.
   'rollback': (ctx) => rollbackCommand(ctx),
   'recover': (ctx) => recoverCommand(ctx),
   'lock': (ctx) => lockCommand(ctx),

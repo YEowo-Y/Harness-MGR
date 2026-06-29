@@ -45,7 +45,7 @@
  * becomes a Diagnostic + `{ ok:false }`. Injectable seams make every path
  * hermetically unit-testable without a real manifest / fs. Zero npm deps.
  *
- * Spec: plan claude-mgr-v5.md, the rollback drift-detection step — the READ-ONLY
+ * Spec: plan harness-mgr-v5.md, the rollback drift-detection step — the READ-ONLY
  * detect slice (P3.U17 owns the refuse-without-force orchestration).
  */
 

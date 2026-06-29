@@ -28,7 +28,7 @@
  *
  * Never throws — every failure path returns a diagnostic.
  *
- * Spec: plan claude-mgr-v5.md, P3.U22 (wire) + P4a.U2 (age-prompt + audit-on-break).
+ * Spec: plan harness-mgr-v5.md, P3.U22 (wire) + P4a.U2 (age-prompt + audit-on-break).
  *
  * Zero npm dependencies. Node stdlib only.
  */

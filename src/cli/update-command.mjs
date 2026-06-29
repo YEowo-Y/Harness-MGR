@@ -4,7 +4,7 @@
  *
  * Wires the `updatePlugin` engine (src/ops/update.mjs) into the CLI behind the
  * SAME write gate every write command uses: `resolveWriteIntent` requires
- * `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
+ * `--apply` (dry-run by default; set `HARNESS_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * DRY-RUN BY DEFAULT: a bare `update somePlugin` discovers + resolves the plugin
  * and PREVIEWS the delegated `claude plugin update <key>` command, writing NOTHING

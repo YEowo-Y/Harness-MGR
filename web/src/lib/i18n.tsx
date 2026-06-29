@@ -23,7 +23,7 @@ import {
 
 export type Lang = "zh" | "en";
 
-const STORAGE_KEY = "claude-mgr-lang";
+const STORAGE_KEY = "harness-mgr-lang";
 
 /**
  * The English table is the source of truth: its keys define the valid string IDs,

@@ -1,5 +1,5 @@
 /**
- * Single funnel for claude-mgr's ~/.claude config-dir resolution. The discovery /
+ * Single funnel for harness-mgr's ~/.claude config-dir resolution. The discovery /
  * ops / paths layers import getClaudeConfigDir FROM HERE (paths.mjs re-exports it
  * onward), so there is exactly one source of truth for "which ~/.claude is governed".
  *

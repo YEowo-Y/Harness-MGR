@@ -14,7 +14,7 @@ codex but not on claude.")
 What command / flag / check would address it, and roughly what its output would look like.
 
 **Read or write?**
-claude-mgr is read-mostly and dry-run-by-default. If this writes, describe how it should stay
+harness-mgr is read-mostly and dry-run-by-default. If this writes, describe how it should stay
 reversible (snapshot/rollback) and gated.
 
 **Alternatives considered**

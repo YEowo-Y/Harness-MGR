@@ -10,7 +10,7 @@ import (
 
 // ── TUI preferences (the front-end's OWN config, NOT the governed harness) ──
 //
-// claude-mgr is a read-only governance tool for ~/.claude and must NEVER write
+// harness-mgr is a read-only governance tool for ~/.claude and must NEVER write
 // there. This file persists only the TUI's own UI preferences — currently the
 // chosen language, the opt-in write-mode flag, and the active target — under the
 // user's OS config dir, so choices are remembered across launches. Every write is
@@ -51,14 +51,14 @@ func langCode(l language) string {
 }
 
 // uiConfigPath returns the TUI preference-file path under the user's OS config
-// dir (e.g. %AppData%\claude-mgr\ui.json on Windows), or "" if it can't be
+// dir (e.g. %AppData%\harness-mgr\ui.json on Windows), or "" if it can't be
 // resolved (in which case prefs simply aren't persisted).
 func uiConfigPath() string {
 	dir, err := os.UserConfigDir()
 	if err != nil || dir == "" {
 		return ""
 	}
-	return filepath.Join(dir, "claude-mgr", "ui.json")
+	return filepath.Join(dir, "harness-mgr", "ui.json")
 }
 
 // loadConfig reads the persisted TUI preferences, defaulting to the zero config

@@ -1,5 +1,5 @@
 /**
- * safe-spawn: the ONLY sanctioned way claude-mgr launches an external process.
+ * safe-spawn: the ONLY sanctioned way harness-mgr launches an external process.
  *
  * Per plan P1-7 (spawned-write trust boundary): records per call an absolute
  * exe path + an argv schema (allowed flags/positionals) + an allowed cwd, and

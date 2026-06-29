@@ -216,7 +216,7 @@ test('valid --format json: no unknown-format diagnostic', async () => {
 // ── regression: valid flags still work under the strict policy ────────────────────
 
 test('valid --config-dir still works under strict-flag policy → code 0, no flag error', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'claude-mgr-cli-strict-'));
+  const dir = await mkdtemp(join(tmpdir(), 'harness-mgr-cli-strict-'));
   try {
     await writeFile(join(dir, 'settings.json'), '{"model":"opus"}', 'utf-8');
     const out = await run(['config', 'show-effective', '--config-dir', dir, '--format', 'json']);
@@ -268,7 +268,7 @@ test('malformed settings.json (broken fixture) → exit 1 + error diagnostic', a
 });
 
 test('error-severity diagnostic from a temp dir also yields exit 1', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'claude-mgr-cli-'));
+  const dir = await mkdtemp(join(tmpdir(), 'harness-mgr-cli-'));
   try {
     await writeFile(join(dir, 'settings.json'), '{bad json', 'utf-8');
     const out = await run(['config', 'show-effective', '--config-dir', dir, '--format', 'json']);

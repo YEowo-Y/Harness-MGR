@@ -30,7 +30,7 @@
  *      Windows bsdtar — nonzero exit → extractOk:false → result ok:false); (b) the
  *      destination is ALWAYS a fresh os.tmpdir() mkdtemp dir, so even a hypothetical
  *      escape lands in throwaway temp, never the governed config; (c) containedPath
- *      re-checks the read-back path. The archive is claude-mgr's OWN output and, under
+ *      re-checks the read-back path. The archive is harness-mgr's OWN output and, under
  *      the threat model's single-trusted-local-user assumption (docs/threat-model.md),
  *      an attacker who could rewrite files.tar already has the user's write access — so
  *      (a) is a defense-in-depth reliance on tar's behavior, not the security boundary

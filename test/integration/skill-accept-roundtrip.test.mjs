@@ -104,7 +104,7 @@ const tarAvailable = (() => {
 
 test('skill accept CLI roundtrip: dry-run → apply (overwrite + reversible) → stale → ambiguous', { skip: tarAvailable ? false : 'system tar not available' }, async () => {
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-accept-cli-'));
   const stateDir = join(tmp, '.mgr-state');
   const srcDir = mkdtempSync(join(tmpdir(), 'cmgr-accept-src-'));
@@ -120,7 +120,7 @@ test('skill accept CLI roundtrip: dry-run → apply (overwrite + reversible) →
     const originalSha = sha256Hex(originalBytes);
 
     process.env.CLAUDE_CONFIG_DIR = tmp;
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES; // relaxed gate: --apply alone enables.
+    delete process.env.HARNESS_MGR_ENABLE_WRITES; // relaxed gate: --apply alone enables.
 
     // Create the REAL proposal (exercises U8) the accept will land.
     const proposalId = await proposeApply(tmp, fromFile);
@@ -286,8 +286,8 @@ test('skill accept CLI roundtrip: dry-run → apply (overwrite + reversible) →
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
     try { rmSync(srcDir, { recursive: true, force: true }); } catch { /* best-effort */ }
   }

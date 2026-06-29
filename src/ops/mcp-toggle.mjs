@@ -5,7 +5,7 @@
  * bearing, ungoverned ~/.claude.json — so a "toggle" is delegate + stash, NOT a flag-flip:
  *   - DISABLE: stash the server's config to .mgr-state (the undo) → delegate `claude mcp remove`.
  *   - ENABLE:  read the stash → delegate `claude mcp add-json` → clear the stash.
- * claude-mgr NEVER reads OAuth state or writes ~/.claude.json — the official CLI performs every
+ * harness-mgr NEVER reads OAuth state or writes ~/.claude.json — the official CLI performs every
  * ~/.claude.json mutation; this engine only writes .mgr-state (the stash, gated) + orchestrates
  * the delegated spawns (mcpRemove / mcpAddJson). Reversibility = the stash. Dry-run-by-default.
  *
@@ -82,8 +82,8 @@ async function disableServer(ctx) {
     if (stashed) { bag.add({ severity: 'info', code: 'mcp-toggle-already-disabled', phase: PHASE, message: `mcp server '${name}' is already disabled (absent from ~/.claude.json, stash present)` }); return result({ ok: true, dryRun: !enableWrites, name, desired: false, action: 'noop', alreadyInState: true }, bag); }
     return refuse('mcp-toggle-not-found', `mcp server '${name}' is not in ~/.claude.json (user scope); nothing to disable`, { name, desired: false, action: 'not-found' });
   }
-  if (entryHasSecret(entry)) return refuse('mcp-toggle-has-secret', `mcp server '${name}' carries credential material (an env or headers block, or a token-shaped value) that claude-mgr will NOT stash to .mgr-state; disable it by hand with \`claude mcp remove ${name} --scope user\` (and re-add later with \`claude mcp add\`)`, { name, desired: false });
-  if (!PRINTABLE_ASCII_RE.test(JSON.stringify(entry))) return refuse('mcp-toggle-unsupported-config', `mcp server '${name}' config has non-ASCII/control characters claude-mgr can't safely round-trip via add-json; disable it by hand with \`claude mcp remove ${name} --scope user\``, { name, desired: false });
+  if (entryHasSecret(entry)) return refuse('mcp-toggle-has-secret', `mcp server '${name}' carries credential material (an env or headers block, or a token-shaped value) that harness-mgr will NOT stash to .mgr-state; disable it by hand with \`claude mcp remove ${name} --scope user\` (and re-add later with \`claude mcp add\`)`, { name, desired: false });
+  if (!PRINTABLE_ASCII_RE.test(JSON.stringify(entry))) return refuse('mcp-toggle-unsupported-config', `mcp server '${name}' config has non-ASCII/control characters harness-mgr can't safely round-trip via add-json; disable it by hand with \`claude mcp remove ${name} --scope user\``, { name, desired: false });
 
   const human = `claude mcp remove ${name} --scope user`;
   if (!enableWrites) {
@@ -99,7 +99,7 @@ async function disableServer(ctx) {
 
   const rm = await ctx.mcpRemoveFn({ name, scope: 'user', targetClaudeDir: ctx.targetClaudeDir, mgrStateDir, appFile: ctx.appFile, assertWritable: ctx.assertWritable, enableWrites: true, reason: `mcp disable ${name}`, env: o.env, platform: o.platform, cwd: o.cwd, now: o.now });
   for (const d of rm.diagnostics ?? []) bag.add(d);
-  if (rm.ok === true) bag.add({ severity: 'info', code: 'mcp-toggle-restart-needed', phase: PHASE, message: `disabled '${name}'. Restart Claude Code to drop the connection; run \`claude-mgr enable --type mcp ${name}\` to restore it.` });
+  if (rm.ok === true) bag.add({ severity: 'info', code: 'mcp-toggle-restart-needed', phase: PHASE, message: `disabled '${name}'. Restart Claude Code to drop the connection; run \`harness-mgr enable --type mcp ${name}\` to restore it.` });
   return result({ ok: rm.ok === true, name, desired: false, action: 'disable', stashWritten: true, command: rm.command ?? null }, bag);
 }
 
@@ -113,7 +113,7 @@ async function enableServer(ctx) {
     bag.add({ severity: 'info', code: 'mcp-toggle-already-enabled', phase: PHASE, message: `mcp server '${name}' is already present in ~/.claude.json (enabled)${clearedStale ? '; cleared a stale stash' : (stashed ? '; a stale stash is present (re-run with --apply to clear it)' : '')}` });
     return result({ ok: true, dryRun: !enableWrites, name, desired: true, action: 'noop', alreadyInState: true }, bag);
   }
-  if (!stashed) return refuse('mcp-toggle-not-found', `mcp server '${name}' is not present and has no claude-mgr stash to restore; nothing to enable`, { name, desired: true, action: 'not-found' });
+  if (!stashed) return refuse('mcp-toggle-not-found', `mcp server '${name}' is not present and has no harness-mgr stash to restore; nothing to enable`, { name, desired: true, action: 'not-found' });
   const rec = readStash(mgrStateDir, name);
   if (!rec || !rec.config) return refuse('mcp-toggle-stash-unreadable', `the stash for '${name}' is missing or unreadable; cannot restore`, { name, desired: true });
 

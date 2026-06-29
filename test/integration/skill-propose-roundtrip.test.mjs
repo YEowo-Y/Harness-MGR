@@ -14,7 +14,7 @@
  *   (a) DRY-RUN: run(['skill','propose','foo','--from',f,'--format','json'])
  *       → code 0; result.unified shows the expected -/+ lines; the WHOLE config tree
  *         (incl. .mgr-state) is byte-identical before/after (walk+hash → zero writes).
- *   (b) APPLY (env CLAUDE_MGR_ENABLE_WRITES deleted): run([...,'--apply'])
+ *   (b) APPLY (env HARNESS_MGR_ENABLE_WRITES deleted): run([...,'--apply'])
  *       → code 0; EXACTLY one new file skills/foo/SKILL.proposed-<ts>.md whose bytes
  *         === the proposed bytes; SKILL.md byte-identical to before (THE invariant);
  *         provenance .mgr-state/proposals/foo-<ts>.json exists with sourceSha256 ===
@@ -26,7 +26,7 @@
  *
  * All assertions are falsifiable fs reads + Buffer.compare (not just "code 0").
  * Sets process.env.CLAUDE_CONFIG_DIR; saves + restores CLAUDE_CONFIG_DIR and
- * CLAUDE_MGR_ENABLE_WRITES in a finally block.
+ * HARNESS_MGR_ENABLE_WRITES in a finally block.
  */
 
 import test from 'node:test';
@@ -83,7 +83,7 @@ function allFilePaths(dir) {
 
 test('skill propose CLI roundtrip: dry-run → apply (only .proposed written, SKILL.md untouched) → no-change → gate-locked', async () => {
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-propose-cli-'));
   const stateDir = join(tmp, '.mgr-state');
   // A --from source OUTSIDE the config dir (design §1: content comes from the user).
@@ -104,7 +104,7 @@ test('skill propose CLI roundtrip: dry-run → apply (only .proposed written, SK
     process.env.CLAUDE_CONFIG_DIR = tmp;
 
     // ── LEG (a): DRY-RUN — writes NOTHING ─────────────────────────────────────
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
     const treeBefore = hashTree(tmp);
 
     const dry = await run(['skill', 'propose', 'foo', '--from', fromFile, '--format', 'json', '--config-dir', tmp]);
@@ -122,7 +122,7 @@ test('skill propose CLI roundtrip: dry-run → apply (only .proposed written, SK
 
     // ── LEG (b): APPLY — writes ONLY the .proposed file ───────────────────────
     // The off-ramp relaxed the gate: --apply alone enables (env deleted = not locked).
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
 
     const apply = await run(['skill', 'propose', 'foo', '--from', fromFile, '--apply', '--format', 'json', '--config-dir', tmp]);
     assert.equal(apply.code, 0, `apply expected code 0, got ${apply.code}; stdout: ${apply.stdout.slice(0, 400)}`);
@@ -171,7 +171,7 @@ test('skill propose CLI roundtrip: dry-run → apply (only .proposed written, SK
     assert.deepEqual(allFilePaths(tmp).sort(), beforeNoChange, 'no-change apply must add nothing on disk');
 
     // ── LEG (d): GATE-LOCKED apply (env=0) → exit 3, nothing written ──────────
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '0';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '0';
     const beforeLocked = allFilePaths(tmp).sort();
     const locked = await run(['skill', 'propose', 'foo', '--from', fromFile, '--apply', '--format', 'json', '--config-dir', tmp]);
     assert.equal(locked.code, 3, `gate-locked apply expected code 3, got ${locked.code}; stdout: ${locked.stdout.slice(0, 400)}`);
@@ -181,8 +181,8 @@ test('skill propose CLI roundtrip: dry-run → apply (only .proposed written, SK
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
     try { rmSync(join(fromFile, '..'), { recursive: true, force: true }); } catch { /* best-effort */ }
   }

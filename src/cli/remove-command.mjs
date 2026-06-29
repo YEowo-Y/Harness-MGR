@@ -3,7 +3,7 @@
  *
  * Wires the already-built `removeComponent` engine (src/ops/remove.mjs) into the
  * CLI behind the SAME write gate every write command uses: `resolveWriteIntent`
- * requires `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
+ * requires `--apply` (dry-run by default; set `HARNESS_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * DRY-RUN BY DEFAULT: a bare `remove agent:foo` previews the operation (builds the
  * Plan, resolves the target, confirms it exists) and writes NOTHING. With `--apply`
@@ -24,7 +24,7 @@
  * Never throws — removeComponent is ops-pure/never-throws, the dynamic import is
  * guarded, and the summary helper is fully defensive.
  *
- * Spec: docs/phase-4a-design.md §5; plan claude-mgr-v5.md Phase 4a.U5.
+ * Spec: docs/phase-4a-design.md §5; plan harness-mgr-v5.md Phase 4a.U5.
  *
  * Zero npm dependencies. Node stdlib only.
  */
@@ -140,7 +140,7 @@ export async function removeCommand(ctx, deps = {}) {
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
 
-  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // Write gate: --apply enables the write; HARNESS_MGR_ENABLE_WRITES=0 is an explicit
   // opt-out lock. A closed gate REFUSES here — the engine is never called.
   const intent = resolveWriteIntent({ apply, env });
   if (intent.refusal) {

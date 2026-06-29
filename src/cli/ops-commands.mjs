@@ -135,10 +135,10 @@ export async function driftCommand(ctx) {
  *   `args.reason`        (string)  user-supplied reason recorded in the manifest.
  *   `args['include-auth']` (boolean) opt in to capturing the mcp auth-cache file.
  *
- * WRITE GATE (P3.U22): `--apply` enables the write; set `CLAUDE_MGR_ENABLE_WRITES=0`
+ * WRITE GATE (P3.U22): `--apply` enables the write; set `HARNESS_MGR_ENABLE_WRITES=0`
  * as an explicit opt-out lock. On the `--apply` path, BEFORE the write gate is
  * loaded or anything is created, `resolveWriteIntent` is consulted: a closed gate
- * (`CLAUDE_MGR_ENABLE_WRITES=0`) REFUSES with code 3 + `writes-disabled-env` and
+ * (`HARNESS_MGR_ENABLE_WRITES=0`) REFUSES with code 3 + `writes-disabled-env` and
  * NEVER loads paths.mjs / creates the snapshot. Dry-run (no `--apply`) is
  * unaffected — the opt-out lock is irrelevant there.
  *
@@ -176,7 +176,7 @@ export async function snapshotCommand(ctx, deps = {}) {
     return { result: summarizeSnapshot(r, false), diagnostics: r.diagnostics.slice() };
   }
 
-  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // Write gate: --apply enables the write; HARNESS_MGR_ENABLE_WRITES=0 is an explicit
   // opt-out lock. A closed gate REFUSES here (code 3) — paths.mjs is never loaded
   // and createFn is never called, so no snapshot dir is written.
   const intent = resolveWriteIntent({ apply: true, env: deps.env ?? process.env });

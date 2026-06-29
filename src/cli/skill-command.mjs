@@ -4,7 +4,7 @@
  *
  * Wires the already-built `proposeSkill` engine (src/ops/propose.mjs) into the CLI
  * behind the SAME write gate every write command uses: `resolveWriteIntent` requires
- * `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
+ * `--apply` (dry-run by default; set `HARNESS_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * DRY-RUN BY DEFAULT: a bare `skill propose <name> --from <file>` reads both files,
  * builds the unified diff, and writes NOTHING. With `--apply` + the env factor the
@@ -185,7 +185,7 @@ export async function skillProposeCommand(ctx, deps = {}) {
   const apply = !!(args && args.apply);
   const env = deps.env ?? process.env;
 
-  // Write gate: --apply enables the write; CLAUDE_MGR_ENABLE_WRITES=0 is an explicit
+  // Write gate: --apply enables the write; HARNESS_MGR_ENABLE_WRITES=0 is an explicit
   // opt-out lock. A closed gate REFUSES here — the engine is never called.
   const intent = resolveWriteIntent({ apply, env });
   if (intent.refusal) {

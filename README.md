@@ -1,6 +1,6 @@
-# claude-mgr
+# Harness-MGR
 
-[![CI](https://github.com/YEowo-Y/claude-mgr/actions/workflows/ci.yml/badge.svg)](https://github.com/YEowo-Y/claude-mgr/actions/workflows/ci.yml)
+[![CI](https://github.com/YEowo-Y/harness-mgr/actions/workflows/ci.yml/badge.svg)](https://github.com/YEowo-Y/harness-mgr/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D24-339933.svg)](.nvmrc)
 
@@ -15,7 +15,7 @@
 
 If you run a large Claude Code (or Codex) harness — dozens of skills, agents, commands,
 plugins, and MCP servers — it gets hard to see what is actually installed, what shadows
-what, and whether a change is safe. `claude-mgr` gives you that visibility, and lets you
+what, and whether a change is safe. `harness-mgr` gives you that visibility, and lets you
 make changes that are **auditable and reversible**.
 
 It lives **outside** Claude Code's loader: it never participates in how Claude Code loads
@@ -30,7 +30,7 @@ single exact-pinned dependency.
   file unless you pass `--apply`.
 - **Reversible** — every governed write takes an automatic snapshot first, so `rollback`
   restores the affected files byte-for-byte.
-- **Zero-network** — `claude-mgr`'s own code makes no network calls, enforced by a machine
+- **Zero-network** — `harness-mgr`'s own code makes no network calls, enforced by a machine
   check (`selftest --boundary`).
 - **Secret-safe** — sensitive settings values, token-shaped strings, and (opt-in) home-dir
   paths are redacted before they leave a command.
@@ -40,8 +40,8 @@ single exact-pinned dependency.
 Requires **Node ≥ 24**. The CLI core needs **no `npm install`** — clone and run:
 
 ```sh
-git clone https://github.com/YEowo-Y/claude-mgr.git
-cd claude-mgr
+git clone https://github.com/YEowo-Y/harness-mgr.git
+cd harness-mgr
 node src/cli.mjs doctor          # run a health check against ~/.claude
 ```
 
@@ -50,22 +50,22 @@ directory:
 
 | Entry point | How to get it | Example |
 |-------------|---------------|---------|
-| `claude-mgr` (on PATH) | `npm link` once in the repo | `claude-mgr inventory` |
-| `./claude-mgr.sh` | macOS / Linux / WSL | `./claude-mgr.sh doctor` |
-| `.\claude-mgr.ps1` | Windows PowerShell | `.\claude-mgr.ps1 conflicts` |
+| `harness-mgr` (on PATH) | `npm link` once in the repo | `harness-mgr inventory` |
+| `./harness-mgr.sh` | macOS / Linux / WSL | `./harness-mgr.sh doctor` |
+| `.\harness-mgr.ps1` | Windows PowerShell | `.\harness-mgr.ps1 conflicts` |
 | `node src/cli.mjs` | anywhere with Node | `node src/cli.mjs health` |
 
-The examples below use `claude-mgr` for brevity.
+The examples below use `harness-mgr` for brevity.
 
 ## Targets: Claude and Codex
 
-`claude-mgr` governs two harnesses through one tool, one test suite, one safety net — not a
+`harness-mgr` governs two harnesses through one tool, one test suite, one safety net — not a
 fork. The global `--target` flag selects which one:
 
 ```sh
-claude-mgr inventory --target claude    # ~/.claude (default)
-claude-mgr inventory --target codex     # ~/.codex
-claude-mgr compare claude,codex         # what each harness has, side by side
+harness-mgr inventory --target claude    # ~/.claude (default)
+harness-mgr inventory --target codex     # ~/.codex
+harness-mgr compare claude,codex         # what each harness has, side by side
 ```
 
 Claude behaviour is identical whether or not Codex support is present; the Codex adapter is
@@ -115,20 +115,20 @@ Global flags on every command: `--format table|json|ndjson|quiet`, `--target cla
 - **Dry-run + `--apply`.** A write needs `--apply` on the command line. Without it the
   command runs a read-only preflight and writes nothing, so a mistyped or copy-pasted command
   can't accidentally mutate your config.
-- **Opt-out lock.** Set `CLAUDE_MGR_ENABLE_WRITES=0` to hard-disable all governed writes
+- **Opt-out lock.** Set `HARNESS_MGR_ENABLE_WRITES=0` to hard-disable all governed writes
   (e.g. in CI); a locked write refuses with exit code `3` before the write machinery loads.
 - **Auto-snapshot + rollback.** Before any governed write, the affected surface is archived
   to `.mgr-state/snapshots/<id>/` with per-file SHA-256 hashes. `rollback <id> --apply`
   verifies those hashes and restores byte-for-byte.
 - **Zero-network.** The `update` and `mcp remove` commands delegate to the external `claude`
   CLI via a sandboxed spawn — any network activity belongs to that process, not to
-  `claude-mgr`.
+  `harness-mgr`.
 
 See [`docs/threat-model.md`](docs/threat-model.md) for the full model.
 
 ## MCP server
 
-`claude-mgr` can expose its **read-only** view to Claude Code as a Model Context Protocol
+`harness-mgr` can expose its **read-only** view to Claude Code as a Model Context Protocol
 server over **stdio**. It is a separate process (`node src/mcp/server.mjs`), not a CLI
 subcommand, and exposes four read-only tools — `inventory`, `health`, `conflicts`, and
 `doctor` (passive checks only) — each returning the same JSON envelope the CLI prints. Write
@@ -140,7 +140,7 @@ first, then register it:
 
 ```sh
 npm install
-claude mcp add claude-mgr -- node /absolute/path/to/claude-mgr/src/mcp/server.mjs
+claude mcp add harness-mgr -- node /absolute/path/to/harness-mgr/src/mcp/server.mjs
 ```
 
 ## Optional front-ends
@@ -188,5 +188,5 @@ Licensed under the [MIT License](LICENSE).
 ## Status
 
 Stable. All read commands are safe to run at any time — they are pure and modify nothing.
-Governed writes are gated by `--apply` (with a `CLAUDE_MGR_ENABLE_WRITES=0` opt-out lock) and
+Governed writes are gated by `--apply` (with a `HARNESS_MGR_ENABLE_WRITES=0` opt-out lock) and
 are reversible via the auto-snapshot and `rollback`.

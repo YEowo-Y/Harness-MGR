@@ -63,7 +63,7 @@
  * src/ops/*. NEVER THROWS — every failure (including a thrown seam, garbage input)
  * becomes a Diagnostic + a full-shape result; the temp cleanup still runs.
  *
- * Spec: plan claude-mgr-v5.md, the rollback `restore` write-back step (P3.U17).
+ * Spec: plan harness-mgr-v5.md, the rollback `restore` write-back step (P3.U17).
  */
 
 import { join, resolve, sep, dirname } from 'node:path';

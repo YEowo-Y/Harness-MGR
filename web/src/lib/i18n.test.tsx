@@ -130,7 +130,7 @@ describe("persistence side-effects", () => {
 
   it("writes 'en' to localStorage after rendering with lang=en", () => {
     renderWithLang(<Probe />, { lang: "en" });
-    expect(localStorage.getItem("claude-mgr-lang")).toBe("en");
+    expect(localStorage.getItem("harness-mgr-lang")).toBe("en");
   });
 
   it("sets document.documentElement.lang to 'en' for lang=en", () => {
@@ -140,7 +140,7 @@ describe("persistence side-effects", () => {
 
   it("writes 'zh' to localStorage and sets 'zh-CN' on <html> for lang=zh", () => {
     renderWithLang(<Probe />, { lang: "zh" });
-    expect(localStorage.getItem("claude-mgr-lang")).toBe("zh");
+    expect(localStorage.getItem("harness-mgr-lang")).toBe("zh");
     expect(document.documentElement.lang).toBe("zh-CN");
   });
 });

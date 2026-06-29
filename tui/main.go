@@ -477,7 +477,7 @@ func fetchHooksCmd(cliPath, target string) tea.Cmd {
 
 // fetchSelftestCmd returns a tea.Cmd that runs `selftest --format json` and
 // reports the outcome back as a selftestMsg. Target-AGNOSTIC — selftest checks
-// claude-mgr's OWN repo, not a harness, so it takes NO target param.
+// harness-mgr's OWN repo, not a harness, so it takes NO target param.
 func fetchSelftestCmd(cliPath string) tea.Cmd {
 	return func() tea.Msg {
 		data, err := fetchSelftest(cliPath)
@@ -566,7 +566,7 @@ func fetchSnapshotsCmd(cliPath, target string) tea.Cmd {
 // sectionFetchCmd returns the read-only fetch command that (re)loads section view
 // v's data, or nil for a non-section view. Same commands Init dispatches. target
 // scopes every read to the active harness — EXCEPT selftest, which is
-// target-agnostic (it checks claude-mgr's own repo, not a harness).
+// target-agnostic (it checks harness-mgr's own repo, not a harness).
 func sectionFetchCmd(v viewID, cliPath, target string) tea.Cmd {
 	switch v {
 	case viewConflicts:
@@ -1701,7 +1701,7 @@ func main() {
 	splash := flag.Bool("splash", false, "headless: render the startup splash screen to stdout, exit (no TUI)")
 	icons := flag.Bool("icons", false, "headless: print the candidate icon sets (emoji vs symbols) to stdout, exit")
 	colorFlag := flag.Bool("color", false, "headless: force a TrueColor profile so --snapshot emits ANSI color in a non-TTY pipe (color verification)")
-	cliFlag := flag.String("cli", "", "path to the claude-mgr Node CLI entry (src/cli.mjs)")
+	cliFlag := flag.String("cli", "", "path to the harness-mgr Node CLI entry (src/cli.mjs)")
 	flag.Parse()
 
 	cliPath := resolveCLIPath(*cliFlag)

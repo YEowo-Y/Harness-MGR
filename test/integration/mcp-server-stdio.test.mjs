@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const SERVER_PATH = resolve(import.meta.dirname, '..', '..', 'src', 'mcp', 'server.mjs');
-const EXPECTED_NAMES = ['claude_mgr_inventory', 'claude_mgr_health', 'claude_mgr_conflicts', 'claude_mgr_doctor'];
+const EXPECTED_NAMES = ['harness_mgr_inventory', 'harness_mgr_health', 'harness_mgr_conflicts', 'harness_mgr_doctor'];
 const TIMEOUT_MS = 30_000;
 
 test('mcp stdio smoke — spawn server.mjs, initialize, tools/list returns the 4 tools', async (t) => {
@@ -83,7 +83,7 @@ test('mcp stdio smoke — spawn server.mjs, initialize, tools/list returns the 4
       clientInfo: { name: 'stdio-smoke', version: '0.0.0' },
     });
     assert.equal(init.error, undefined, `initialize must succeed: ${JSON.stringify(init.error)}`);
-    assert.equal(init.result.serverInfo.name, 'claude-mgr');
+    assert.equal(init.result.serverInfo.name, 'harness-mgr');
 
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
 

@@ -137,7 +137,7 @@ test('cascadeCommand: env=0 (opt-out lock) + --apply → code 3 writes-disabled-
   const lp = loadPathsRecorder();
   const out = await cascadeCommand(
     makeCtx(['agent:foo'], { apply: true, force: true }),
-    { cascadeFn: cas.fn, loadPaths: lp.fn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } },
+    { cascadeFn: cas.fn, loadPaths: lp.fn, env: { HARNESS_MGR_ENABLE_WRITES: '0' } },
   );
   assert.equal(out.code, 3);
   assert.equal(out.result.status, 'refused');
@@ -166,7 +166,7 @@ test('cascadeCommand: env=1 + --apply → ENABLED (back-compat)', async () => {
   const lp = loadPathsRecorder();
   const out = await cascadeCommand(
     makeCtx(['agent:foo'], { apply: true, force: true }),
-    { cascadeFn: cas.fn, loadPaths: lp.fn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { cascadeFn: cas.fn, loadPaths: lp.fn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.code, 0);
   assert.equal(cas.calls[0].enableWrites, true);

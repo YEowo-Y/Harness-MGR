@@ -104,7 +104,7 @@ test('snapshotCommand: --apply (fake gate via loadPaths) writes files.tar + mani
     const out = await snapshotCommand(
       { configDir: t.claudeDir, mgrStateDir: t.stateDir, args: { apply: true, reason: 'apply-test' } },
       // env factor present so the two-factor gate opens and the real apply path runs.
-      { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+      { loadPaths, createFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
     );
     const r = out.result;
     assert.equal(r.mode, 'applied');
@@ -132,7 +132,7 @@ test('snapshotCommand: --apply with an unloadable hooks lib degrades (no throw)'
     const out = await snapshotCommand(
       { configDir: t.claudeDir, mgrStateDir: t.stateDir, args: { apply: true } },
       // env factor present → the gate opens, so loadPaths IS reached (and rejects → degrade).
-      { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+      { loadPaths, createFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
     );
     assert.equal(out.result.mode, 'applied');
     assert.equal(out.result.status, 'write-unavailable');
@@ -143,7 +143,7 @@ test('snapshotCommand: --apply with an unloadable hooks lib degrades (no throw)'
 // ── (c2) TWO-FACTOR GATE: --apply with the env factor CLOSED → refuse, no write ────
 
 test('snapshotCommand: --apply + env=0 CLOSED → code 3 writes-disabled-env, createFn + loadPaths NEVER called', async () => {
-  // The load-bearing new oracle: CLAUDE_MGR_ENABLE_WRITES=0 is the explicit opt-out
+  // The load-bearing new oracle: HARNESS_MGR_ENABLE_WRITES=0 is the explicit opt-out
   // lock. With it set to '0', --apply must REFUSE up front — the write gate is
   // never loaded and no snapshot is created.
   const loadPathsCalls = [];
@@ -151,7 +151,7 @@ test('snapshotCommand: --apply + env=0 CLOSED → code 3 writes-disabled-env, cr
   const createFn = () => { throw new Error('createFn must NOT run when the env gate is closed'); };
   const out = await snapshotCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
-    { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } }, // explicit opt-out lock
+    { loadPaths, createFn, env: { HARNESS_MGR_ENABLE_WRITES: '0' } }, // explicit opt-out lock
   );
   assert.equal(out.code, 3, 'a closed gate refuses with code 3');
   assert.equal(out.result.mode, 'applied');
@@ -239,7 +239,7 @@ test('snapshotCommand D3: a failed --apply result nulls archivePath + manifestPa
   const out = await snapshotCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
     // env factor present so the gate opens and createFn (returning ok:false) is reached.
-    { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { loadPaths, createFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   const r = out.result;
   assert.equal(r.mode, 'applied');
@@ -265,7 +265,7 @@ test('snapshotCommand D3: a SUCCESSFUL --apply still surfaces both paths', async
   const out = await snapshotCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { apply: true } },
     // env factor present so the gate opens and the successful createFn is reached.
-    { loadPaths, createFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { loadPaths, createFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.result.ok, true);
   assert.ok(out.result.archivePath.endsWith('files.tar'));
@@ -328,7 +328,7 @@ test('snapshotGcCommand: --apply → mode applied, deleted surfaced, apply=true 
   // env factor present so the two-factor gate opens and gcFn (the real delete) runs.
   const out = snapshotGcCommand(
     { mgrStateDir: '/cfg/.mgr-state', args: { keep: '1', apply: true } },
-    { gcFn, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { gcFn, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.result.mode, 'applied');
   assert.deepEqual(out.result.deleted, ['2026-05-20T10-00-00Z']);
@@ -343,7 +343,7 @@ test('snapshotGcCommand: --apply + env=0 CLOSED → code 3 writes-disabled-env, 
   const gcFn = (o) => { calls.push(o); return { deleted: ['x'], wouldDelete: [], retained: [], diagnostics: [] }; };
   const out = snapshotGcCommand(
     { mgrStateDir: '/cfg/.mgr-state', args: { keep: '1', apply: true } },
-    { gcFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } }, // explicit opt-out lock
+    { gcFn, env: { HARNESS_MGR_ENABLE_WRITES: '0' } }, // explicit opt-out lock
   );
   assert.equal(out.code, 3, 'a closed gate refuses with code 3');
   assert.equal(out.result.mode, 'applied');
@@ -361,7 +361,7 @@ test('snapshotGcCommand: --apply + env=0 CLOSED still surfaces a keep/older-than
   const gcFn = () => { throw new Error('gcFn must NOT run when the env gate is closed'); };
   const out = snapshotGcCommand(
     { mgrStateDir: '/s', args: { keep: 'abc', apply: true } }, // invalid --keep + closed gate
-    { gcFn, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } },
+    { gcFn, env: { HARNESS_MGR_ENABLE_WRITES: '0' } },
   );
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'gc-keep-invalid' && d.severity === 'warn'), 'the coercion warn survives the refusal');

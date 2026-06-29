@@ -1,4 +1,4 @@
-module claude-mgr-tui
+module harness-mgr-tui
 
 go 1.26.3
 

@@ -100,7 +100,7 @@ test('bash script contains every command, sub-verb, sample flags, and the comple
     assert.ok(script.includes(f), `bash missing flag ${f}`);
   }
   assert.ok(script.includes('compgen'), 'bash missing compgen');
-  assert.ok(script.includes('complete -F _claude_mgr_complete claude-mgr'), 'bash missing complete -F line');
+  assert.ok(script.includes('complete -F _harness_mgr_complete harness-mgr'), 'bash missing complete -F line');
   // The completion-shells arm must be generated from model.shells.
   assert.ok(script.includes('completion) if [[ $COMP_CWORD -eq 2 ]]'), 'bash missing completion arm');
 });
@@ -130,8 +130,8 @@ test('run(completion bash) → code 0, raw bash script (no title, no footer)', a
   const tmp = tempCfg();
   const { code, stdout } = await run(['completion', 'bash', '--config-dir', tmp]);
   assert.equal(code, 0);
-  assert.ok(stdout.startsWith('# claude-mgr bash completion'), 'must start with the bash header (no title line)');
-  assert.ok(!stdout.startsWith('claude-mgr completion'), 'must NOT emit the title line');
+  assert.ok(stdout.startsWith('# harness-mgr bash completion'), 'must start with the bash header (no title line)');
+  assert.ok(!stdout.startsWith('harness-mgr completion'), 'must NOT emit the title line');
   assert.ok(stdout.includes('complete -F'), 'includes complete -F');
 });
 
@@ -140,7 +140,7 @@ test('run(completion powershell) → code 0, Register-ArgumentCompleter', async 
   const { code, stdout } = await run(['completion', 'powershell', '--config-dir', tmp]);
   assert.equal(code, 0);
   assert.ok(stdout.includes('Register-ArgumentCompleter'), 'includes Register-ArgumentCompleter');
-  assert.ok(stdout.startsWith('# claude-mgr PowerShell completion'), 'starts with pwsh header');
+  assert.ok(stdout.startsWith('# harness-mgr PowerShell completion'), 'starts with pwsh header');
 });
 
 test('run(completion) with no shell → code 2 and mentions valid shells', async () => {
@@ -170,7 +170,7 @@ test('renderBashCompletion(null) / renderPwshCompletion(undefined) do not throw'
   assert.doesNotThrow(() => renderBashCompletion(null));
   assert.doesNotThrow(() => renderPwshCompletion(undefined));
   // Even on an empty model the load-bearing structural lines survive.
-  assert.ok(renderBashCompletion(null).includes('complete -F _claude_mgr_complete claude-mgr'));
+  assert.ok(renderBashCompletion(null).includes('complete -F _harness_mgr_complete harness-mgr'));
   assert.ok(renderPwshCompletion(undefined).includes('Register-ArgumentCompleter -Native'));
 });
 

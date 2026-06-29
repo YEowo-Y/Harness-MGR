@@ -37,7 +37,7 @@ import { join } from 'node:path';
 /**
  * @typedef {Object} ResolvedConfig
  * @property {string} configDir     the governed ~/.claude directory
- * @property {string} mgrStateDir   claude-mgr's own state dir (configDir/.mgr-state)
+ * @property {string} mgrStateDir   harness-mgr's own state dir (configDir/.mgr-state)
  * @property {Diagnostic[]} diagnostics
  */
 

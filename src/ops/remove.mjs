@@ -52,7 +52,7 @@
  * a Diagnostic + `{ ok:false }`. A RemoveResult ALWAYS carries the full shape so
  * callers / render never see undefined.
  *
- * Spec: docs/phase-4a-design.md §1/§3/§5/§7; plan claude-mgr-v5.md Phase 4a.
+ * Spec: docs/phase-4a-design.md §1/§3/§5/§7; plan harness-mgr-v5.md Phase 4a.
  */
 
 import { lstatSync } from 'node:fs';

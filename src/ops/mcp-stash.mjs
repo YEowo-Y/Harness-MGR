@@ -1,10 +1,10 @@
 /**
  * MCP toggle STASH — persist a disabled server's config in .mgr-state so `enable` can re-add it.
  *
- * The stash IS the mcp toggle's undo point (there is NO ~/.claude.json snapshot — claude-mgr
+ * The stash IS the mcp toggle's undo point (there is NO ~/.claude.json snapshot — harness-mgr
  * never writes that OAuth-secret-bearing file; the official `claude mcp remove`/`add-json` CLI
  * does). disable stashes the server's config + delegates the removal; enable reads the stash +
- * delegates the re-add + deletes the stash. claude-mgr only ever writes
+ * delegates the re-add + deletes the stash. harness-mgr only ever writes
  * `<mgrStateDir>/mcp-disabled/<name>.json` (GATED — .mgr-state is always-writable), NEVER
  * ~/.claude.json.
  *

@@ -4,7 +4,7 @@
  *
  * Wires the `mcpRemove` engine (src/ops/mcp-write.mjs) into the CLI behind the
  * SAME write gate every write command uses: `resolveWriteIntent` requires
- * `--apply` (dry-run by default; set `CLAUDE_MGR_ENABLE_WRITES=0` to force-lock writes).
+ * `--apply` (dry-run by default; set `HARNESS_MGR_ENABLE_WRITES=0` to force-lock writes).
  *
  * DRY-RUN BY DEFAULT: a bare `mcp remove someServer` validates the name + scope and
  * PREVIEWS the delegated `claude mcp remove <name> [--scope …]` command, writing

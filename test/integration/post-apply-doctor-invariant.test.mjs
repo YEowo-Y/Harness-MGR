@@ -15,7 +15,7 @@
  * Two harnesses, because the four write paths differ in how they reach an apply:
  *
  *   (A) remove + cascade — driven END-TO-END via run(argv) from src/cli.mjs with
- *       CLAUDE_CONFIG_DIR + CLAUDE_MGR_ENABLE_WRITES + --config-dir all pointing at
+ *       CLAUDE_CONFIG_DIR + HARNESS_MGR_ENABLE_WRITES + --config-dir all pointing at
  *       the temp tree. These ACTUALLY delete governed files (mirrors
  *       remove-cli-roundtrip.test.mjs / cascade-roundtrip.test.mjs).
  *
@@ -32,7 +32,7 @@
  *
  * Every apply path takes an auto-snapshot via the system `tar`, so each test
  * GRACEFUL-SKIPs when tar is unavailable. Each test uses a fresh temp dir and
- * saves + restores process.env.CLAUDE_CONFIG_DIR / CLAUDE_MGR_ENABLE_WRITES in a
+ * saves + restores process.env.CLAUDE_CONFIG_DIR / HARNESS_MGR_ENABLE_WRITES in a
  * finally, then best-effort rmSync's the temp tree.
  *
  * NON-VACUOUS doctor assertion (assertDoctorHealthy): code <= 1 AND
@@ -100,7 +100,7 @@ test('post-apply doctor invariant #44: remove path leaves doctor exit <=1', asyn
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-inv44-rm-'));
 
   try {
@@ -111,7 +111,7 @@ test('post-apply doctor invariant #44: remove path leaves doctor exit <=1', asyn
     mkdirSync(join(tmp, '.mgr-state'), { recursive: true });
 
     process.env.CLAUDE_CONFIG_DIR = tmp;
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
 
     const r = await run(['remove', 'agent:foo', '--apply', '--config-dir', tmp]);
     assert.equal(r.code, 0,
@@ -124,8 +124,8 @@ test('post-apply doctor invariant #44: remove path leaves doctor exit <=1', asyn
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });
@@ -139,7 +139,7 @@ test('post-apply doctor invariant #44: cascade path leaves doctor exit <=1', asy
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-inv44-cascade-'));
 
   try {
@@ -152,7 +152,7 @@ test('post-apply doctor invariant #44: cascade path leaves doctor exit <=1', asy
     mkdirSync(join(tmp, '.mgr-state'), { recursive: true });
 
     process.env.CLAUDE_CONFIG_DIR = tmp;
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
 
     const r = await run(['remove', 'agent:tracer', '--cascade', '--force', '--apply', '--config-dir', tmp]);
     assert.equal(r.code, 0,
@@ -167,8 +167,8 @@ test('post-apply doctor invariant #44: cascade path leaves doctor exit <=1', asy
   } finally {
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }
 });

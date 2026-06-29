@@ -219,7 +219,7 @@ test('#23: wildcard entries in allow → one warn each', () => {
 
 test('#23: specific rule without wildcard is not flagged', () => {
   const r = runDoctor({
-    permissions: { allow: ['Read', 'Bash(/c/Dev/Projects/claude-mgr)', 'Write(/tmp/x)'] },
+    permissions: { allow: ['Read', 'Bash(/c/Dev/Projects/harness-mgr)', 'Write(/tmp/x)'] },
   });
   assert.equal(byCode(r.diagnostics, 'permissions-overbroad').length, 0);
 });

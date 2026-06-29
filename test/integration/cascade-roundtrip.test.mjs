@@ -87,7 +87,7 @@ test('cascade CLI roundtrip: dry-run → apply-no-force → apply-force → roll
   }
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
-  const savedEnableWrites = process.env.CLAUDE_MGR_ENABLE_WRITES;
+  const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
 
   const tmp = mkdtempSync(join(tmpdir(), 'cmgr-cascade-'));
   const stateDir = join(tmp, '.mgr-state');
@@ -114,7 +114,7 @@ test('cascade CLI roundtrip: dry-run → apply-no-force → apply-force → roll
     process.env.CLAUDE_CONFIG_DIR = tmp;
 
     // ── LEG 1: DRY-RUN ──────────────────────────────────────────────────────
-    delete process.env.CLAUDE_MGR_ENABLE_WRITES;
+    delete process.env.HARNESS_MGR_ENABLE_WRITES;
 
     const dryResult = await run([
       'remove', 'agent:tracer', '--cascade', '--config-dir', tmp,
@@ -138,7 +138,7 @@ test('cascade CLI roundtrip: dry-run → apply-no-force → apply-force → roll
       'dry-run must NOT create any snapshot');
 
     // ── LEG 2: --apply WITHOUT --force (env armed, dependents exist) ────────
-    process.env.CLAUDE_MGR_ENABLE_WRITES = '1';
+    process.env.HARNESS_MGR_ENABLE_WRITES = '1';
 
     const noForceResult = await run([
       'remove', 'agent:tracer', '--cascade', '--apply', '--config-dir', tmp,
@@ -211,8 +211,8 @@ test('cascade CLI roundtrip: dry-run → apply-no-force → apply-force → roll
     if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
 
-    if (savedEnableWrites === undefined) delete process.env.CLAUDE_MGR_ENABLE_WRITES;
-    else process.env.CLAUDE_MGR_ENABLE_WRITES = savedEnableWrites;
+    if (savedEnableWrites === undefined) delete process.env.HARNESS_MGR_ENABLE_WRITES;
+    else process.env.HARNESS_MGR_ENABLE_WRITES = savedEnableWrites;
 
     try { rmSync(tmp, { recursive: true, force: true }); } catch { /* best-effort */ }
   }

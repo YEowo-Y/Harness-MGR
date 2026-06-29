@@ -27,7 +27,7 @@ test('resolveWriteIntent: no --apply → dry-run, enableWrites:false, no refusal
 });
 
 test('resolveWriteIntent: --apply + env=1 → enableWrites:true, no refusal', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '1' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
@@ -41,7 +41,7 @@ test('resolveWriteIntent: --apply + env unset → ENABLED (relaxation: unset no 
 });
 
 test('resolveWriteIntent: --apply + env=0 → refused (explicit opt-out lock)', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   assert.equal(r.enableWrites, false);
   assert.equal(r.code, 3);
   assert.equal(r.refusal.code, 'writes-disabled-env');
@@ -50,7 +50,7 @@ test('resolveWriteIntent: --apply + env=0 → refused (explicit opt-out lock)', 
 });
 
 test('resolveWriteIntent: --apply + env="true" → ENABLED (any non-"0" value enables)', () => {
-  const r = resolveWriteIntent({ apply: true, env: { CLAUDE_MGR_ENABLE_WRITES: 'true' } });
+  const r = resolveWriteIntent({ apply: true, env: { HARNESS_MGR_ENABLE_WRITES: 'true' } });
   assert.equal(r.enableWrites, true);
   assert.equal(r.refusal, null);
   assert.equal(r.code, null);
@@ -158,7 +158,7 @@ test('rollbackCommand: --apply + env=0 closed → code:3 writes-disabled-env, sp
   const loadPaths = makeLoadPaths();
   const out = await rollbackCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { positionals: ['snap-1'], apply: true } },
-    { rollbackFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '0' } },
+    { rollbackFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '0' } },
   );
   assert.equal(out.code, 3);
   assert.equal(out.result.status, 'refused');
@@ -178,7 +178,7 @@ test('rollbackCommand: --apply + env=1 → loadPaths once, spy gets enableWrites
   const loadPaths = makeLoadPaths();
   const out = await rollbackCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { positionals: ['snap-1'], apply: true } },
-    { rollbackFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { rollbackFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(loadPaths.calls.length, 1, 'paths.mjs loaded exactly once on the real apply path');
   assert.equal(spy.calls.length, 1);
@@ -212,7 +212,7 @@ test('rollbackCommand: --apply + env=1 but loadPaths throws → write-unavailabl
   const loadPaths = () => Promise.reject(new Error('no hooks lib'));
   const out = await rollbackCommand(
     { configDir: '/cfg', mgrStateDir: '/cfg/.mgr-state', args: { positionals: ['snap-1'], apply: true } },
-    { rollbackFn: spy, loadPaths, env: { CLAUDE_MGR_ENABLE_WRITES: '1' } },
+    { rollbackFn: spy, loadPaths, env: { HARNESS_MGR_ENABLE_WRITES: '1' } },
   );
   assert.equal(out.result.status, 'write-unavailable');
   assert.equal(out.code, 1);

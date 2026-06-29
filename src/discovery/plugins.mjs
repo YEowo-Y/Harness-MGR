@@ -90,7 +90,7 @@ export function discoverPlugins(rootDir) {
       message: `unknown installed_plugins.json schema version: ${value.version === undefined ? '(missing)' : value.version} (known: 2); parsing best-effort`,
       path: file,
       phase: 'plugins',
-      fix: 'upgrade claude-mgr if Claude Code changed the plugins schema',
+      fix: 'upgrade harness-mgr if Claude Code changed the plugins schema',
     });
   }
 

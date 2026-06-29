@@ -7,9 +7,9 @@
  *   - initialize handshake succeeds (server identity pinned),
  *   - tools/list returns EXACTLY the 4 read-only tools (names + descriptions
  *     pinned literally — a drift in either is a deliberate contract change),
- *   - tools/call claude_mgr_health → content[0].text parses as the
+ *   - tools/call harness_mgr_health → content[0].text parses as the
  *     {version:1, command:'health'} envelope with all three sections,
- *   - tools/call claude_mgr_doctor → PASSIVE (probeLevel 'passive', checks
+ *   - tools/call harness_mgr_doctor → PASSIVE (probeLevel 'passive', checks
  *     non-empty) — the server must never pass --active-probes,
  *   - unknown tool name → the SDK error path (client rejects, -32601),
  *   - deterministic tool ordering across calls,
@@ -31,10 +31,10 @@ import { buildServer, TOOLS } from '../src/mcp/server.mjs';
 
 /** The pinned tool contract — names AND descriptions (drift = contract change). */
 const EXPECTED_TOOLS = [
-  ['claude_mgr_inventory', 'Read-only inventory of the Claude Code harness: counts and lists skills, agents, commands, plugins, and MCP servers.'],
-  ['claude_mgr_health', 'Read-only severity-layered health report: per-component loadability, offline best-practice advice, and hook explanations.'],
-  ['claude_mgr_conflicts', 'Read-only load-order conflict report: duplicate component names and which copy Claude Code likely loads.'],
-  ['claude_mgr_doctor', 'Read-only doctor report running the passive health checks only (active probes stay behind an explicit human opt-in).'],
+  ['harness_mgr_inventory', 'Read-only inventory of the Claude Code harness: counts and lists skills, agents, commands, plugins, and MCP servers.'],
+  ['harness_mgr_health', 'Read-only severity-layered health report: per-component loadability, offline best-practice advice, and hook explanations.'],
+  ['harness_mgr_conflicts', 'Read-only load-order conflict report: duplicate component names and which copy Claude Code likely loads.'],
+  ['harness_mgr_doctor', 'Read-only doctor report running the passive health checks only (active probes stay behind an explicit human opt-in).'],
 ];
 
 /** Minimal sandbox ~/.claude (the full-command-smoke pattern). */
@@ -66,7 +66,7 @@ test('mcp — initialize handshake succeeds and pins the server identity', async
   const pair = await connectPair({ runFn: async () => ({ code: 0, stdout: '{}' }) });
   try {
     const info = pair.client.getServerVersion();
-    assert.equal(info.name, 'claude-mgr');
+    assert.equal(info.name, 'harness-mgr');
     assert.equal(typeof info.version, 'string');
   } finally {
     await pair.close();
@@ -96,11 +96,11 @@ test('mcp — tools/list returns EXACTLY the 4 read-only tools, names+descriptio
   }
 });
 
-test('mcp — claude_mgr_health returns the real version:1 health envelope with all three sections', async () => {
+test('mcp — harness_mgr_health returns the real version:1 health envelope with all three sections', async () => {
   const sandbox = buildSandbox();
   const pair = await connectPair({ configDir: sandbox });
   try {
-    const res = await pair.client.callTool({ name: 'claude_mgr_health', arguments: {} });
+    const res = await pair.client.callTool({ name: 'harness_mgr_health', arguments: {} });
     assert.equal(res.isError ?? false, false, 'a clean sandbox health report is not an error');
     assert.equal(res.content[0].type, 'text');
     const envelope = JSON.parse(res.content[0].text);
@@ -115,11 +115,11 @@ test('mcp — claude_mgr_health returns the real version:1 health envelope with 
   }
 });
 
-test('mcp — claude_mgr_doctor is PASSIVE (probeLevel passive, checks non-empty)', async () => {
+test('mcp — harness_mgr_doctor is PASSIVE (probeLevel passive, checks non-empty)', async () => {
   const sandbox = buildSandbox();
   const pair = await connectPair({ configDir: sandbox });
   try {
-    const res = await pair.client.callTool({ name: 'claude_mgr_doctor', arguments: {} });
+    const res = await pair.client.callTool({ name: 'harness_mgr_doctor', arguments: {} });
     const envelope = JSON.parse(res.content[0].text);
     assert.equal(envelope.version, 1);
     assert.equal(envelope.command, 'doctor');
@@ -135,7 +135,7 @@ test('mcp — inventory and conflicts tools return their matching envelopes', as
   const sandbox = buildSandbox();
   const pair = await connectPair({ configDir: sandbox });
   try {
-    for (const [toolName, command] of [['claude_mgr_inventory', 'inventory'], ['claude_mgr_conflicts', 'conflicts']]) {
+    for (const [toolName, command] of [['harness_mgr_inventory', 'inventory'], ['harness_mgr_conflicts', 'conflicts']]) {
       const res = await pair.client.callTool({ name: toolName, arguments: {} });
       const envelope = JSON.parse(res.content[0].text);
       assert.equal(envelope.version, 1, `${toolName}: version 1 envelope`);
@@ -151,7 +151,7 @@ test('mcp — unknown tool name rejects through the SDK error path (-32601)', as
   const pair = await connectPair({ runFn: async () => ({ code: 0, stdout: '{}' }) });
   try {
     await assert.rejects(
-      pair.client.callTool({ name: 'claude_mgr_nope', arguments: {} }),
+      pair.client.callTool({ name: 'harness_mgr_nope', arguments: {} }),
       (err) => {
         assert.equal(err.code, -32601, 'MethodNotFound JSON-RPC code');
         assert.match(err.message, /unknown tool/);
@@ -167,7 +167,7 @@ test('mcp — exit-code → isError mapping: 0/1 are valid reports, ≥2 is an e
   const byCode = async (code) => {
     const pair = await connectPair({ runFn: async () => ({ code, stdout: `{"code":${code}}` }) });
     try {
-      return await pair.client.callTool({ name: 'claude_mgr_doctor', arguments: {} });
+      return await pair.client.callTool({ name: 'harness_mgr_doctor', arguments: {} });
     } finally {
       await pair.close();
     }
@@ -184,7 +184,7 @@ test('mcp — exit-code → isError mapping: 0/1 are valid reports, ≥2 is an e
 test('mcp — a throwing runFn seam degrades to an isError result (never-throws)', async () => {
   const pair = await connectPair({ runFn: async () => { throw new Error('seam boom'); } });
   try {
-    const res = await pair.client.callTool({ name: 'claude_mgr_inventory', arguments: {} });
+    const res = await pair.client.callTool({ name: 'harness_mgr_inventory', arguments: {} });
     assert.equal(res.isError, true);
     const body = JSON.parse(res.content[0].text);
     assert.equal(body.error, 'mcp-tool-failed');
@@ -202,7 +202,7 @@ test('mcp — the configDir seam reaches run() as --config-dir (hermetic plumbin
     configDir: '/tmp/sandbox-x',
   });
   try {
-    await pair.client.callTool({ name: 'claude_mgr_health', arguments: {} });
+    await pair.client.callTool({ name: 'harness_mgr_health', arguments: {} });
     assert.deepEqual(calls, [['health', '--format', 'json', '--config-dir', '/tmp/sandbox-x']]);
   } finally {
     await pair.close();

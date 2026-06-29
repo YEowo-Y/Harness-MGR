@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * claude-mgr — npm-bin entry point (thin wrapper; ALL logic lives in src/cli.mjs).
+ * harness-mgr — npm-bin entry point (thin wrapper; ALL logic lives in src/cli.mjs).
  *
- * The shell analogs are claude-mgr.ps1 (Windows) and claude-mgr.sh (POSIX); this is
+ * The shell analogs are harness-mgr.ps1 (Windows) and harness-mgr.sh (POSIX); this is
  * the npm global-install analog, so `npm link` (or a future published install) puts a
- * `claude-mgr` command on PATH and the non-coder owner can type `claude-mgr doctor`
+ * `harness-mgr` command on PATH and the non-coder owner can type `harness-mgr doctor`
  * from any directory instead of cd'ing into the repo to run a wrapper.
  *
  * It mirrors cli.mjs's own executable main-guard (the bottom of src/cli.mjs): call the

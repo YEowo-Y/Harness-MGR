@@ -1,5 +1,5 @@
 /**
- * MCP server (P5.U6) — exposes claude-mgr's READ-ONLY view as Model Context
+ * MCP server (P5.U6) — exposes harness-mgr's READ-ONLY view as Model Context
  * Protocol tools over stdio, so the same local user's Claude Code can inspect
  * the live harness (inventory / health / conflicts / doctor).
  *
@@ -8,13 +8,13 @@
  * server has no place in the run()→exit command model, and the full-command
  * smoke drift-guard deepEquals its table against COMMANDS keys). Launch it
  * directly:  `node src/mcp/server.mjs`  — e.g. registered in Claude Code via
- * `claude mcp add claude-mgr -- node <abs path>/src/mcp/server.mjs`.
+ * `claude mcp add harness-mgr -- node <abs path>/src/mcp/server.mjs`.
  *
  * --- Tools delegate to the EXISTING stable contract ---
  * Every tool invokes `run(['<command>','--format','json'])` from cli.mjs — the
  * same `version:1` JSON envelope the TUI consumes — so secret redaction,
  * diagnostics, and exit semantics come for free and cannot drift from the CLI.
- * `claude_mgr_doctor` runs PASSIVE checks only (never `--active-probes`:
+ * `harness_mgr_doctor` runs PASSIVE checks only (never `--active-probes`:
  * active probing spawns tools and briefly writes a probe file — that stays an
  * explicit human opt-in, not an MCP client's whim). Tools take NO inputs in
  * U6 (least surface; the client gets the live-harness view).
@@ -29,7 +29,7 @@
  * --- Dependency exception (owner-sanctioned 2026-06-10) ---
  * The ONLY imports from `@modelcontextprotocol/sdk` are the stdio-transport
  * server entry points + protocol types — never an HTTP/SSE transport module.
- * claude-mgr's own code still opens no sockets (the P5.U1 zero-network gate
+ * harness-mgr's own code still opens no sockets (the P5.U1 zero-network gate
  * keeps machine-enforcing that); this server speaks stdio pipes only. See
  * docs/threat-model.md §5.10 for the supply-chain carve-out.
  *
@@ -51,7 +51,7 @@ import {
 import { run } from '../cli.mjs';
 
 /** Server identity presented in the MCP initialize handshake. */
-const SERVER_INFO = Object.freeze({ name: 'claude-mgr', version: '0.0.0' });
+const SERVER_INFO = Object.freeze({ name: 'harness-mgr', version: '0.0.0' });
 
 /** All four U6 tools take no inputs — one shared empty-object schema. */
 const NO_INPUT_SCHEMA = Object.freeze({
@@ -68,22 +68,22 @@ const NO_INPUT_SCHEMA = Object.freeze({
  */
 export const TOOLS = Object.freeze([
   Object.freeze({
-    name: 'claude_mgr_inventory',
+    name: 'harness_mgr_inventory',
     description: 'Read-only inventory of the Claude Code harness: counts and lists skills, agents, commands, plugins, and MCP servers.',
     argv: Object.freeze(['inventory']),
   }),
   Object.freeze({
-    name: 'claude_mgr_health',
+    name: 'harness_mgr_health',
     description: 'Read-only severity-layered health report: per-component loadability, offline best-practice advice, and hook explanations.',
     argv: Object.freeze(['health']),
   }),
   Object.freeze({
-    name: 'claude_mgr_conflicts',
+    name: 'harness_mgr_conflicts',
     description: 'Read-only load-order conflict report: duplicate component names and which copy Claude Code likely loads.',
     argv: Object.freeze(['conflicts']),
   }),
   Object.freeze({
-    name: 'claude_mgr_doctor',
+    name: 'harness_mgr_doctor',
     description: 'Read-only doctor report running the passive health checks only (active probes stay behind an explicit human opt-in).',
     argv: Object.freeze(['doctor']),
   }),

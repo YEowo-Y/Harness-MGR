@@ -1,5 +1,5 @@
 /**
- * claude-mgr web — localhost API server (P0, read-only).
+ * harness-mgr web — localhost API server (P0, read-only).
  *
  * Surfaces the zero-dependency engine over HTTP for the browser UI. It calls the
  * SAME in-process boundary the CLI uses (resolveTargetAndConfig → COMMANDS[cmd](ctx)
@@ -114,7 +114,7 @@ const WRITE_COMMANDS = Object.freeze(new Set(Object.keys(WRITE_SPEC)));
  * header forces a CORS preflight this server never answers with allow-headers. So
  * this defeats CSRF-style drive-by writes on top of the 127.0.0.1 + Host guard.
  */
-const WRITE_HEADER = "x-claude-mgr-write";
+const WRITE_HEADER = "x-harness-mgr-write";
 
 /**
  * Query params that may flow into ctx.args. Excludes configDir (server-resolved),
@@ -436,11 +436,11 @@ if (import.meta.main) {
     app.get("*", serveStatic({ path: indexPath }));
   }
 
-  const port = Number(process.env.CLAUDE_MGR_WEB_PORT) || DEFAULT_PORT;
+  const port = Number(process.env.HARNESS_MGR_WEB_PORT) || DEFAULT_PORT;
   serve({ fetch: app.fetch, hostname: HOST, port }, (info) => {
     // eslint-disable-next-line no-console
     console.log(
-      `claude-mgr web API → http://${HOST}:${info.port}  (read + writes: plugin / skill-visibility / codex-mcp / remove)`,
+      `harness-mgr web API → http://${HOST}:${info.port}  (read + writes: plugin / skill-visibility / codex-mcp / remove)`,
     );
   });
 }

@@ -13,7 +13,7 @@ import { render, type RenderOptions, type RenderResult } from "@testing-library/
 import { LangProvider, type Lang } from "@/lib/i18n";
 
 // Mirrors STORAGE_KEY in src/lib/i18n.tsx (a stable persistence contract).
-const LANG_STORAGE_KEY = "claude-mgr-lang";
+const LANG_STORAGE_KEY = "harness-mgr-lang";
 
 export function renderWithLang(
   ui: ReactElement,

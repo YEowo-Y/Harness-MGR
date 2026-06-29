@@ -1,5 +1,5 @@
 /**
- * Tagged-result helpers for claude-mgr.
+ * Tagged-result helpers for harness-mgr.
  *
  * A Result is a discriminated union: either `{ ok: true, value }` or
  * `{ ok: false, error }` where `error` is a Diagnostic. This keeps "never throw

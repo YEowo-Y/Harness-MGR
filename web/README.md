@@ -1,6 +1,6 @@
-# claude-mgr web UI
+# harness-mgr web UI
 
-A **localhost-only** web front-end for the `claude-mgr` engine. It surfaces your live
+A **localhost-only** web front-end for the `harness-mgr` engine. It surfaces your live
 `~/.claude` / `~/.codex` harness (inventory, conflicts, compare, doctor/health) in the
 browser, with the Claude warm-brand design system — and supports a focused set of
 **gated, reversible config writes**.
@@ -66,7 +66,7 @@ This server reads sensitive config AND performs gated writes, so it is hardened:
   SEPARATE frozen allowlist (`WRITE_SPEC`: plugin/MCP enable·disable, skill visibility,
   component remove) on a distinct `POST /api/write/:cmd` handler. A second, target-aware
   gate decides which kinds each target actually supports (e.g. the MCP toggle is Codex-only).
-- Every write request MUST carry the `x-claude-mgr-write` header — a custom header forces a
+- Every write request MUST carry the `x-harness-mgr-write` header — a custom header forces a
   CORS preflight this server never allows cross-origin, defeating CSRF-style drive-by writes.
 - **Never** honors a client-supplied config directory — the dir is resolved server-side
   from the `target` param, so the browser can't turn the engine into a filesystem reader.

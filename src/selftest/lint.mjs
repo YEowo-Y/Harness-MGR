@@ -1,7 +1,7 @@
 /**
  * Source-size linter (P1.U16) — the `selftest --lint` gate's enforcement core.
  *
- * Enforces three size limits on claude-mgr's OWN source so the read-CLI stays
+ * Enforces three size limits on harness-mgr's OWN source so the read-CLI stays
  * small and reviewable: a module is <= 200 SLOC, every function is <= 80 SLOC, and
  * no function takes more than 5 parameters. The point of SLOC ("source lines of
  * code") rather than physical lines is that this codebase's modules run 200-300

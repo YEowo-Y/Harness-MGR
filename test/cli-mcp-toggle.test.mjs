@@ -78,8 +78,8 @@ test('--apply resolves the bare gate + forwards enableWrites:true', async () => 
   assert.equal(c.assertWritable, BARE, 'claude → the bare paths.assertWritable');
 });
 
-test('--apply with CLAUDE_MGR_ENABLE_WRITES=0 → env lock refusal, engine never called', async () => {
-  const deps = makeDeps({ env: { CLAUDE_MGR_ENABLE_WRITES: '0' } });
+test('--apply with HARNESS_MGR_ENABLE_WRITES=0 → env lock refusal, engine never called', async () => {
+  const deps = makeDeps({ env: { HARNESS_MGR_ENABLE_WRITES: '0' } });
   const out = await mcpToggleCommand(claudeCtx({ type: 'mcp', positionals: ['ctx7'], apply: true }), deps, false, 'disable');
   assert.equal(out.code, 3);
   assert.ok(out.diagnostics.some((d) => d.code === 'writes-disabled-env'));
