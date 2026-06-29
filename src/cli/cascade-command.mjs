@@ -24,10 +24,15 @@
  *   6 — apply lock could not be acquired
  *   1 — any other apply failure
  *
- * M2-SAFETY: never STATICALLY imports src/paths.mjs. The write gate
- * (assertWritable) is resolved via DYNAMIC `import()` ONLY on the real --apply
- * path; on import failure the command degrades gracefully. The dry-run path
- * never touches paths.mjs.
+ * M2-SAFETY: never STATICALLY imports src/paths.mjs — the assertWritable gate
+ * is resolved via DYNAMIC `import()` ONLY on the real --apply path, keeping this
+ * module's static graph paths.mjs-free (the M2-safe property the boundary
+ * self-check enforces). The dynamic import is also under try/catch so that if
+ * paths.mjs ever fails to load the command degrades instead of crashing
+ * (defence-in-depth). The dry-run path never touches paths.mjs.
+ * (Historically paths.mjs -> reexport.mjs top-level-awaited and rejected when
+ * ~/.claude/hooks/lib was absent; the resolver is first-party now, so that
+ * specific reject is gone — the static-graph and try/catch guards remain.)
  *
  * `deps` is the injectable test seam: fake `loadPaths` + `cascadeFn` + `env`
  * make every path hermetically unit-testable.
@@ -187,7 +192,7 @@ export async function cascadeCommand(ctx, deps = {}) {
         result: { status: 'write-unavailable' },
         diagnostics: [{
           severity: 'warn', code: 'cascade-write-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; cascade --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; cascade --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       };
