@@ -9,9 +9,8 @@
 #   0  — clean result (no error diagnostics)
 #   1  — one or more error-level diagnostics in the output
 #   2  — usage error / unhandled throw (JSON error envelope written to stdout)
-#
-# NOTE: src/cli.mjs currently exports run() only; an executable main() guard
-# will be wired in a sibling task. This wrapper is ready for it.
+#   3  — a write was refused (write gate locked via CLAUDE_MGR_ENABLE_WRITES=0,
+#        missing spec, or --force required)
 
 $cliPath = Join-Path $PSScriptRoot "src\cli.mjs"
 node "$cliPath" @args
