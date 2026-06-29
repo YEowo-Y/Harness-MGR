@@ -48,9 +48,10 @@
  *
  * M2-SAFETY: imports ONLY node:os(tmpdir), ../lib/diagnostic, ../lib/safe-spawn,
  * ../lib/resolve-claude-exe, ./snapshot.mjs, ./audit-writer.mjs, and
- * ../discovery/plugins.mjs (behind an injectable seam — discovery carries no
- * top-level await, so this is M2-safe; cascade.mjs sets the precedent). NEVER
- * src/paths.mjs or src/lib/reexport.mjs.
+ * ../discovery/plugins.mjs (behind an injectable seam; cascade.mjs sets the
+ * precedent). NEVER imports src/paths.mjs — the assertWritable gate + dirs are
+ * injected params, keeping this module's static graph paths.mjs-free (the
+ * M2-safe property the boundary self-check enforces).
  *
  * Ops-layer constraint: node:* stdlib + src/lib/** + sibling src/ops/* +
  * src/discovery/* (seam) only. Zero npm deps. NEVER THROWS — the whole body is
