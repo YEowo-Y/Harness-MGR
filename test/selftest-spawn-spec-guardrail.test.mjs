@@ -40,11 +40,13 @@ test('real SPAWN_SPECS registry -> zero spawn-spec-* errors', () => {
   );
 });
 
-test('real SPAWN_SPECS has exactly one descriptor (probe-hook-syntax)', () => {
-  assert.equal(SPAWN_SPECS.length, 1);
-  assert.equal(SPAWN_SPECS[0].id, 'probe-hook-syntax');
-  assert.equal(SPAWN_SPECS[0].allowSlashPositionals, true);
-  assert.ok(SPAWN_SPECS[0].positionalPattern instanceof RegExp);
+test('real SPAWN_SPECS holds the registered descriptors (probe-hook-syntax + snapshot-tar)', () => {
+  assert.equal(SPAWN_SPECS.length, 2);
+  assert.deepEqual(SPAWN_SPECS.map((s) => s.id), ['probe-hook-syntax', 'snapshot-tar']);
+  for (const s of SPAWN_SPECS) {
+    assert.equal(s.allowSlashPositionals, true);
+    assert.ok(s.positionalPattern instanceof RegExp);
+  }
 });
 
 // ── 2. Synthetic permissive /.+/ -> flagged for every mutation flag ────────
