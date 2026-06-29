@@ -36,10 +36,10 @@
  *
  * M2-SAFETY: imports ONLY node:fs / node:path / node:crypto, ../lib/diagnostic, and
  * M2-safe sibling src/ops/* (accept-select, snapshot, lock, atomic-write, atomic-delete,
- * apply-manifest-check). NEVER src/paths.mjs or src/lib/reexport.mjs (both carry a
- * top-level await that would poison this ops module's M2-safe graph). assertWritable +
- * the lock/write/delete/snapshot primitives are injected or imported only as M2-safe
- * siblings. sha256 via node:crypto.
+ * apply-manifest-check). NEVER src/paths.mjs — the assertWritable gate + dirs are
+ * injected params, keeping this module's static graph paths.mjs-free (the M2-safe
+ * property the boundary self-check enforces). The lock/write/delete/snapshot primitives
+ * are injected or imported only as M2-safe siblings. sha256 via node:crypto.
  *
  * Ops-layer constraint: node:* stdlib + src/lib/** + sibling src/ops/* only. Zero npm
  * deps. NEVER THROWS — the whole body is wrapped; any unexpected error becomes a
