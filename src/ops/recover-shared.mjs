@@ -16,8 +16,9 @@
  *   • assertWritable is treated as REQUIRED + fail-safe by the caller: a missing gate
  *     is a validation failure, never a silent bypass.
  *
- * M2-SAFETY: imports only node:path + src/lib/diagnostic. NEVER src/paths.mjs (its
- * top-level await would poison the M2-safe ops graph). The gate + dirs are params.
+ * M2-SAFETY: imports only node:path + src/lib/diagnostic. NEVER src/paths.mjs — the
+ * assertWritable gate + dirs are injected params, keeping this module's static graph
+ * paths.mjs-free (the M2-safe property the boundary self-check enforces).
  *
  * Ops-layer constraint: node:* stdlib + src/lib/** + sibling src/ops/* only. Pure;
  * never throws. Zero npm dependencies.
