@@ -3,8 +3,8 @@
 /*
  * claude-mgr web — design system (Claude warm brand).
  *
- * Tokens are the WCAG-CORRECTED set from docs/internal/web-ui-design.md §3 (the
- * authoritative source), NOT the prototype's .72/.55/.40 ink tiers — those
+ * Tokens are the WCAG-CORRECTED, authoritative set, NOT the prototype's
+ * .72/.55/.40 ink tiers — those
  * reintroduce the measured AA failure (tertiary text 2.63:1) the readability pass
  * fixed. Ink hierarchy: --i80 body (9.6:1 AAA) / --i60 secondary (5.9:1 AA) /
  * --i42 tertiary (4.8:1 AA) / --idec decorative GLYPHS ONLY, never text. The one
