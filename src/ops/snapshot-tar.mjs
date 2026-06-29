@@ -34,12 +34,14 @@
  *
  * CROSS-PLATFORM POSITIONALS: on Windows the absolute path positionals are drive-
  * letter paths (`C:\...`), which do NOT begin with `/`, so they are positionals by
- * default. On POSIX they are `/abs` paths, so the tar schema opts into safe-spawn's
- * allowSlashPositionals (via TAR_SPAWN_SPEC, registered in spawn-spec-registry.mjs):
- * a `/`-leading token is then validated as a POSITIONAL by TAR_PATH_RE — which is
- * tightened to require a MULTI-SEGMENT path, so it admits real archive/base/dest
- * paths while still rejecting the single-segment `/grant`-family Windows mutation
- * flags the guardrail probes. The `-`/`--` flag families stay deny-by-default.
+ * default and we KEEP safe-spawn's strict flag-gate (a `/`-token stays a denied flag —
+ * a Windows mutation flag can never become a positional). On POSIX the paths are `/abs`,
+ * so tarSchema opts into allowSlashPositionals ONLY there (process.platform !== 'win32'):
+ * a `/`-leading token is then validated as a POSITIONAL by TAR_PATH_RE — tightened to
+ * require a MULTI-SEGMENT path, so it admits real archive/base/dest paths while still
+ * rejecting the single-segment `/grant`-family mutation flags the guardrail probes
+ * (TAR_SPAWN_SPEC, registered in spawn-spec-registry.mjs). The `-`/`--` flag families
+ * stay deny-by-default everywhere.
  *
  * NEVER THROWS: a missing tar, a spawn failure, or a non-zero tar exit becomes a
  * Diagnostic + `{ ok:false }`. Injectable resolveFn / spawnFn / statFn seams make
@@ -93,12 +95,13 @@ const TAR_ALLOWED_FLAGS = Object.freeze(['-c', '-r', '-f', '-x', '-C', '--versio
 const TAR_PATH_RE = /^(?:[^/\0-\x1F"'`|&;<>$*?][^\0-\x1F"'`|&;<>$*?]*|\/[^\0-\x1F"'`|&;<>$*?]*\/[^\0-\x1F"'`|&;<>$*?]*)$/;
 
 /**
- * Spawn-spec descriptor for snapshot-tar's safeSpawn calls. Opts into
- * allowSlashPositionals so POSIX absolute archive/base/dest paths (which begin with
- * `/`) are validated as POSITIONALS by TAR_PATH_RE instead of rejected as flags.
- * Exported + registered in spawn-spec-registry.mjs so the guardrail proves
- * TAR_PATH_RE rejects every known Windows mutation flag while accepting a real POSIX
- * path. On Windows this is a no-op (paths are drive-lettered `C:\...`, never `/`-led).
+ * Spawn-spec descriptor for snapshot-tar's safeSpawn calls. DECLARES the POSIX
+ * allowSlashPositionals opt-in (`true`) + the positional pattern, and is registered in
+ * spawn-spec-registry.mjs so the guardrail PROVES TAR_PATH_RE rejects every known
+ * Windows mutation flag while accepting a real POSIX path — that proof is what makes
+ * the opt-in safe. The descriptor stays `true` for the guardrail; the RUNTIME schema
+ * (tarSchema) gates the opt-in to non-win32, so on Windows a `/`-token stays a denied
+ * flag (paths are drive-lettered `C:\...`, never `/`-leading).
  * @type {Readonly<{id:string, allowSlashPositionals:true, positionalPattern:RegExp}>}
  */
 export const TAR_SPAWN_SPEC = Object.freeze({
@@ -130,9 +133,11 @@ const TAR_TIMEOUT_MS = 60000;
 /**
  * Build the safe-spawn schema for a tar call. `maxArgs` is sized to the EXACT argv
  * length of this call (no slack) so the cap is a tight, call-specific bound rather
- * than a loose constant. Single source of truth for the flag allowlist + path
- * pattern + the allowSlashPositionals opt-in (spread from TAR_SPAWN_SPEC so the
- * GATED pattern and the guardrail-CHECKED pattern are the same object reference).
+ * than a loose constant. The flag allowlist + positionalPattern are the single source
+ * of truth (positionalPattern is spread from TAR_SPAWN_SPEC, so the GATED and the
+ * guardrail-CHECKED pattern are the SAME object). allowSlashPositionals is gated to
+ * POSIX (process.platform !== 'win32'): the opt-in is needed only where the paths are
+ * `/abs`, and Windows keeps the strict flag-gate default — see the module header.
  * @param {number} argvLen exact number of tokens in this call's args array
  * @returns {{ allowedFlags: string[], positionalPattern: RegExp, allowSlashPositionals: boolean, maxArgs: number }}
  */
@@ -140,7 +145,9 @@ function tarSchema(argvLen) {
   return {
     allowedFlags: [...TAR_ALLOWED_FLAGS],
     positionalPattern: TAR_SPAWN_SPEC.positionalPattern,
-    allowSlashPositionals: TAR_SPAWN_SPEC.allowSlashPositionals,
+    // POSIX-only opt-in (see header + TAR_SPAWN_SPEC): on Windows we KEEP safe-spawn's
+    // strict default so a `/`-token stays a denied flag (Windows paths are `C:\...`).
+    allowSlashPositionals: process.platform !== 'win32',
     maxArgs: argvLen,
   };
 }
