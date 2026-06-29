@@ -38,6 +38,7 @@
  */
 
 import { HOOK_SYNTAX_SPAWN_SPEC } from '../discovery/probe-hook-syntax.mjs';
+import { TAR_SPAWN_SPEC } from '../ops/snapshot-tar.mjs';
 
 /**
  * Every registered allowSlashPositionals:true spawn-spec descriptor.
@@ -47,4 +48,5 @@ import { HOOK_SYNTAX_SPAWN_SPEC } from '../discovery/probe-hook-syntax.mjs';
  */
 export const SPAWN_SPECS = Object.freeze([
   HOOK_SYNTAX_SPAWN_SPEC,
+  TAR_SPAWN_SPEC,
 ]);
