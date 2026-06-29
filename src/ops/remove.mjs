@@ -43,9 +43,9 @@
  *     directly in agents/ or commands/.
  *
  * M2-SAFETY: imports ONLY node:fs (lstatSync), node:path (join), ../lib/plan.mjs,
- * ../lib/diagnostic.mjs, and ./apply.mjs. NEVER src/paths.mjs or src/lib/reexport
- * .mjs (both carry a top-level await that would poison this ops module's M2-safe
- * graph). assertWritable is injected, never imported. apply.mjs is itself M2-safe.
+ * ../lib/diagnostic.mjs, and ./apply.mjs. NEVER src/paths.mjs — the assertWritable
+ * gate + dirs are injected params, keeping this module's static graph paths.mjs-free
+ * (the M2-safe property the boundary self-check enforces). apply.mjs is itself M2-safe.
  *
  * Ops-layer constraint: node:* stdlib + src/lib/** + sibling src/ops/* only. Zero
  * npm deps. NEVER THROWS — the whole body is wrapped; any unexpected error becomes
