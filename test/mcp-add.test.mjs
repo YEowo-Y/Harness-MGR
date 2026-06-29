@@ -12,10 +12,17 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { mcpAddJson, MCP_ADD_JSON_SCHEMA } from '../src/ops/mcp-add.mjs';
 import { validateSpawnSpec } from '../src/lib/safe-spawn.mjs';
 
-const DIR = 'C:\\claude';
+// Absolute on the current OS (POSIX on Linux CI, drive-letter on Windows) so the
+// safe-spawn isAbsolute(exe) gate passes everywhere; the mcp-add tests are hermetic
+// (mocked spawn seam — these paths are never touched on disk).
+const DIR = join(tmpdir(), 'cmgr-mcp-add-claude');
+/** ABSOLUTE exe path used in the validateSpawnSpec specs below (must satisfy isAbsolute). */
+const EXE = join(tmpdir(), 'cmgr-mcp-add-claude', 'bin', 'claude.exe');
 const JSON_CFG = '{"command":"npx","args":["-y","@upstash/context7-mcp"],"type":"stdio"}';
 const TAB = String.fromCharCode(9);
 /** A json string carrying a raw TAB control char inside a value (built explicitly). */
@@ -28,7 +35,7 @@ function recSpawn(result = {}) {
   fn.calls = calls;
   return fn;
 }
-const okExe = () => ({ exe: 'C:\\claude\\bin\\claude.exe', diagnostics: [] });
+const okExe = () => ({ exe: EXE, diagnostics: [] });
 const noExe = () => ({ exe: null, diagnostics: [] });
 
 const base = { name: 'context7', json: JSON_CFG, targetClaudeDir: DIR };
@@ -52,7 +59,7 @@ test('apply: delegates the exact argv via safeSpawn with MCP_ADD_JSON_SCHEMA', a
   const spec = spawnFn.calls[0];
   assert.deepEqual(spec.args, ['mcp', 'add-json', 'context7', JSON_CFG, '--scope', 'user']);
   assert.equal(spec.schema, MCP_ADD_JSON_SCHEMA);
-  assert.equal(spec.exe, 'C:\\claude\\bin\\claude.exe');
+  assert.equal(spec.exe, EXE);
 });
 
 test('apply: a spawn failure is caught → ok:false, no throw', async () => {
@@ -91,19 +98,19 @@ test('never throws on garbage opts', async () => {
 // ── the security-critical schema assertion ──────────────────────────────────────
 
 test('MCP_ADD_JSON_SCHEMA accepts a JSON positional via validateSpawnSpec', () => {
-  const cwd = 'C:\\tmp';
-  const spec = { exe: 'C:\\claude\\bin\\claude.exe', args: ['mcp', 'add-json', 'context7', JSON_CFG, '--scope', 'user'], cwd, allowedCwds: [cwd], schema: MCP_ADD_JSON_SCHEMA };
+  const cwd = join(tmpdir(), 'cmgr-mcp-add-cwd');
+  const spec = { exe: EXE, args: ['mcp', 'add-json', 'context7', JSON_CFG, '--scope', 'user'], cwd, allowedCwds: [cwd], schema: MCP_ADD_JSON_SCHEMA };
   assert.doesNotThrow(() => validateSpawnSpec(spec)); // the JSON braces/quotes pass (printable ASCII)
 });
 
 test('MCP_ADD_JSON_SCHEMA rejects a control char in the JSON positional (belt holds)', () => {
-  const cwd = 'C:\\tmp';
-  const evil = { exe: 'C:\\claude\\bin\\claude.exe', args: ['mcp', 'add-json', 'x', CTRL_JSON, '--scope', 'user'], cwd, allowedCwds: [cwd], schema: MCP_ADD_JSON_SCHEMA };
+  const cwd = join(tmpdir(), 'cmgr-mcp-add-cwd');
+  const evil = { exe: EXE, args: ['mcp', 'add-json', 'x', CTRL_JSON, '--scope', 'user'], cwd, allowedCwds: [cwd], schema: MCP_ADD_JSON_SCHEMA };
   assert.throws(() => validateSpawnSpec(evil), /positional rejected by pattern/);
 });
 
 test('MCP_ADD_JSON_SCHEMA still denies an unlisted flag', () => {
-  const cwd = 'C:\\tmp';
-  const evil = { exe: 'C:\\claude\\bin\\claude.exe', args: ['mcp', 'add-json', 'x', '{}', '--evil'], cwd, allowedCwds: [cwd], schema: MCP_ADD_JSON_SCHEMA };
+  const cwd = join(tmpdir(), 'cmgr-mcp-add-cwd');
+  const evil = { exe: EXE, args: ['mcp', 'add-json', 'x', '{}', '--evil'], cwd, allowedCwds: [cwd], schema: MCP_ADD_JSON_SCHEMA };
   assert.throws(() => validateSpawnSpec(evil), /flag not allowed/);
 });
