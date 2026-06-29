@@ -16,7 +16,7 @@ cross-target `compare`. The CLI core is zero-runtime-dependency Node ESM, Window
 - Keep `src/analysis/**` pure (no I/O); gather facts in `src/discovery/**`.
 
 ## Build & verify
-- Tests: `node --test` (Node >= 24).
+- Tests: `npm test` (Node >= 24).
 - Lint / import-boundary self-checks: `node src/cli.mjs selftest --lint` and `node src/cli.mjs selftest --boundary`.
 
 ## Layout
