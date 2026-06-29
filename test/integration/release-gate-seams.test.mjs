@@ -13,7 +13,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -161,7 +161,10 @@ test('defaultRunDoctorPassive: hermetic fixture → object with boolean pass (no
 test('defaultRunTests: temp dir with one passing test → {pass:true}', () => {
   const dir = mkTemp('mgr-runtests-pass-');
   try {
-    writeFileSync(join(dir, 'x.test.mjs'),
+    // defaultRunTests scopes discovery to test/**/*.test.mjs, so the fixture must
+    // live under test/ (mirrors the real repo layout) to be discovered at all.
+    mkdirSync(join(dir, 'test'));
+    writeFileSync(join(dir, 'test', 'x.test.mjs'),
       "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('ok', () => assert.equal(1, 1));\n", 'utf8');
     const r = defaultRunTests({ repoRoot: dir });
     assert.equal(r.pass, true, `detail: ${r.detail}`);
@@ -173,7 +176,9 @@ test('defaultRunTests: temp dir with one passing test → {pass:true}', () => {
 test('defaultRunTests: temp dir with one failing test → {pass:false}', () => {
   const dir = mkTemp('mgr-runtests-fail-');
   try {
-    writeFileSync(join(dir, 'x.test.mjs'),
+    // Under test/ so the test/**/*.test.mjs scope discovers it (see passing case).
+    mkdirSync(join(dir, 'test'));
+    writeFileSync(join(dir, 'test', 'x.test.mjs'),
       "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('boom', () => assert.equal(1, 2));\n", 'utf8');
     const r = defaultRunTests({ repoRoot: dir });
     assert.equal(r.pass, false, `detail: ${r.detail}`);
