@@ -4,7 +4,7 @@
 Briefly describe the change and the problem it solves. Link any related issue (`Closes #123`).
 
 ## Checklist
-- [ ] `node --test` passes
+- [ ] `npm test` passes
 - [ ] `node src/cli.mjs selftest --lint` and `--boundary` pass
 - [ ] New behavior has tests (and a never-throws case for new discovery/analysis code)
 - [ ] `src/analysis/**` stays pure (no I/O); writes stay dry-run-by-default + reversible
