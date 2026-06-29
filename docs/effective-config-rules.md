@@ -22,7 +22,7 @@ Layers are merged lowest → highest; a higher layer overrides per the per-key r
 5. **`managed-settings.json` / MDM / Registry** — reported, **not merged** (read-only floor)
 
 Phase 1 governs the **user** level; project/local/CLI layers participate only when
-the caller supplies them. The CLI boundary (P1.U15) assembles the ordered layer
+the caller supplies them. The CLI boundary assembles the ordered layer
 stack from the real settings files at runtime; `settings-merge.mjs` itself is a
 pure function over that stack.
 
