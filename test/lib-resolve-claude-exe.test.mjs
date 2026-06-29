@@ -229,7 +229,7 @@ describe('resolveClaudeExe', () => {
     try {
       const result = resolveClaudeExe({
         platform: 'win32',
-        resolveFn: () => ({ resolved: true, path: 'C:\\npm\\claude' }),
+        resolveFn: () => ({ resolved: true, path: join(tmpdir(), 'cmgr-npm-shim', 'claude') }),
         existsFn: () => { throw new Error('simulated existsFn crash'); },
       });
 
