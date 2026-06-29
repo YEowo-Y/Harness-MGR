@@ -9,7 +9,7 @@
  *                        file is <root>/src/paths.mjs, so the root is its grandparent.
  *   2. targetClaudeDir — the ~/.claude being governed (the SUBJECT of the CLI).
  *                        This is the ONLY root that varies with CLAUDE_CONFIG_DIR,
- *                        and it comes straight from the borrowed resolver.
+ *                        and it comes straight from the first-party resolver.
  *   3. mgrStateDir     — where claude-mgr keeps ITS OWN state (snapshots, logs,
  *                        STABILITY-LOG). This is <targetClaudeDir>/.mgr-state.
  *                        Canonical name is the exported MGR_STATE_DIRNAME constant
@@ -26,9 +26,11 @@
  * Claude DEFAULT entry `assertWritable` (it resolves the dirs at call time) and
  * re-exports the gate's public surface, so existing callers import unchanged.
  *
- * --- Async-shim note ---
- * Re-export is async (top-level await in reexport.mjs), so importing this module
- * is also async. That is by design (clarification #2).
+ * --- Loading note ---
+ * reexport.mjs is now a SYNCHRONOUS first-party re-export (no top-level await), so
+ * importing this module is synchronous too. It was async while the config-dir resolver
+ * was borrowed from ~/.claude/hooks/lib at runtime; that borrow (and its portability
+ * cost) is gone — the resolver is first-party in src/lib/config-dir.mjs.
  *
  * Zero npm dependencies.
  */
@@ -36,7 +38,7 @@
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Re-export the borrowed resolver so callers get it through paths.mjs too,
+// Re-export the first-party resolver so callers get it through paths.mjs too,
 // reinforcing "one source of truth for config-dir". (reexport BEFORE paths:
 // clarification #3 — paths imports reexport, so the shim must load first.)
 import { getClaudeConfigDir } from './lib/reexport.mjs';
@@ -73,7 +75,7 @@ export function mgrInstallDir() {
 }
 
 /**
- * The ~/.claude under governance. DELEGATES to the borrowed resolver — this is
+ * The ~/.claude under governance. DELEGATES to the first-party resolver — this is
  * the single place CLAUDE_CONFIG_DIR is honored. No reimplementation.
  * @returns {string}
  */
