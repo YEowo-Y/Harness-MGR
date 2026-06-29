@@ -30,7 +30,7 @@ const STORAGE_KEY = "claude-mgr-lang";
  * and the Chinese table must supply exactly the same keys (enforced by the typed
  * STRINGS record below). `{token}` placeholders are filled by t()'s second arg.
  */
-const EN = {
+export const EN = {
   // nav + view titles (shared between the sidebar nav and the page header)
   "nav.dashboard": "Dashboard",
   "nav.compare": "Compare",
@@ -213,7 +213,7 @@ const EN = {
 
 export type StringKey = keyof typeof EN;
 
-const ZH: Record<StringKey, string> = {
+export const ZH: Record<StringKey, string> = {
   "nav.dashboard": "总览",
   "nav.compare": "对比",
   "nav.doctor": "体检",
@@ -383,7 +383,7 @@ const STRINGS: Record<Lang, Record<StringKey, string>> = { en: EN, zh: ZH };
 export type TVars = Record<string, string | number>;
 export type TFn = (key: StringKey, vars?: TVars) => string;
 
-function format(template: string, vars?: TVars): string {
+export function format(template: string, vars?: TVars): string {
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (_, k: string) =>
     k in vars ? String(vars[k]) : `{${k}}`,
