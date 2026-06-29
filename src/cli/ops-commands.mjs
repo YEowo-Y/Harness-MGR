@@ -7,9 +7,9 @@
  * Both handlers honour the never-throws and pure-result contract defined in
  * commands.mjs: they return `{ result, diagnostics }` and never call process.exit
  * or write to stdout. `analyzeDrift` is statically imported (pure). `probe-state.mjs`
- * is DYNAMICALLY imported inside `driftCommand` because it statically imports
- * `src/paths.mjs`, which top-level-awaits and rejects when `~/.claude/hooks/lib`
- * is absent (the M2 constraint).
+ * is DYNAMICALLY imported inside `driftCommand` (under try/catch) so that if its load
+ * ever fails the command degrades instead of crashing (defence-in-depth) — it
+ * statically imports `src/paths.mjs`, which we keep off this module's static graph.
  *
  * Zero npm dependencies. Node stdlib only.
  */
@@ -63,9 +63,11 @@ export function auditCommand(ctx) {
  *   `args.update`  (optional boolean) re-writes the lockfile to lock in the current
  *                  state as the new drift baseline.
  *
- * `probe-state.mjs` is DYNAMICALLY imported (never statically) because it statically
- * imports `src/paths.mjs`, which top-level-awaits and rejects when
- * `~/.claude/hooks/lib` is absent (the M2 constraint). On import failure the command
+ * `probe-state.mjs` is DYNAMICALLY imported (never statically), under try/catch, so
+ * that if its load ever fails the command degrades instead of crashing (defence-in-
+ * depth). (Historically `src/paths.mjs` -> `reexport.mjs` top-level-awaited and
+ * rejected when `~/.claude/hooks/lib` was absent — the M2 constraint; the resolver is
+ * first-party now, so that specific reject is gone.) On import failure the command
  * degrades gracefully: `{status:'unavailable'}` + a `drift-unavailable` warn.
  *
  * Never throws — every code path is guarded or wrapped.
@@ -141,11 +143,14 @@ export async function driftCommand(ctx) {
  * unaffected — the opt-out lock is irrelevant there.
  *
  * `createSnapshot` statically imports only ops/lib (no paths.mjs), so it is safe to
- * import here. The WRITE GATE (`assertWritable`) lives in paths.mjs, which top-level-
- * awaits and rejects when `~/.claude/hooks/lib` is absent (the M2 constraint), so it
- * is DYNAMICALLY imported (via `deps.loadPaths`) ONLY on the --apply path. On import
- * failure the command degrades gracefully: `{status:'write-unavailable'}` + a
- * `snapshot-write-unavailable` warn (mirrors driftCommand). Dry-run needs no gate.
+ * import here. The WRITE GATE (`assertWritable`) lives in paths.mjs, which is imported
+ * DYNAMICALLY (via `deps.loadPaths`), under try/catch, ONLY on the --apply path, so
+ * that if its load ever fails the command degrades instead of crashing (defence-in-
+ * depth). (Historically paths.mjs -> reexport.mjs top-level-awaited and rejected when
+ * `~/.claude/hooks/lib` was absent — the M2 constraint; the resolver is first-party
+ * now, so that specific reject is gone.) On import failure the command degrades
+ * gracefully: `{status:'write-unavailable'}` + a `snapshot-write-unavailable` warn
+ * (mirrors driftCommand). Dry-run needs no gate.
  *
  * `deps` is the injectable test seam (mirrors resolve-config's loadPaths): a fake
  * `loadPaths` + `createFn` make the --apply path unit-testable without a real gate.
@@ -190,7 +195,7 @@ export async function snapshotCommand(ctx, deps = {}) {
     const message = err instanceof Error ? err.message : String(err ?? '');
     return {
       result: { mode: 'applied', status: 'write-unavailable' },
-      diagnostics: [{ severity: 'warn', code: 'snapshot-write-unavailable', message: `~/.claude/hooks/lib unloadable; snapshot --apply needs the write gate: ${message}`, phase: 'cli' }],
+      diagnostics: [{ severity: 'warn', code: 'snapshot-write-unavailable', message: `the write gate is unloadable; snapshot --apply needs it: ${message}`, phase: 'cli' }],
     };
   }
   // Pick the target-bound gate: Codex needs a gate bound to ~/.codex (the bare
