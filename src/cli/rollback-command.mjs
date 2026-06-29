@@ -10,12 +10,16 @@
  * nothing — no lock, no write gate, no restore. `--apply` (with the env factor set)
  * acquires the apply lock and restores the snapshot's bytes onto the live tree.
  *
- * M2-SAFETY: this module never STATICALLY imports src/paths.mjs (which carries a
- * top-level await that rejects when `~/.claude/hooks/lib` is absent). The write gate
- * (`assertWritable`) is resolved via a DYNAMIC `import()` ONLY on the real --apply
- * path (mirrors snapshotCommand in ops-commands.mjs); on import failure the command
- * degrades gracefully to a `rollback-write-unavailable` warn. The dry-run path needs
- * no gate, so paths.mjs is never reached there.
+ * M2-SAFETY: this module never STATICALLY imports src/paths.mjs — the write gate
+ * (`assertWritable`) + dirs are injected/dynamically resolved, keeping this module's
+ * static graph paths.mjs-free (the M2-safe property the boundary self-check enforces).
+ * The gate is resolved via a DYNAMIC `import()` ONLY on the real --apply path (mirrors
+ * snapshotCommand in ops-commands.mjs) and is wrapped in try/catch so that if its load
+ * ever fails the command degrades to a `rollback-write-unavailable` warn instead of
+ * crashing (defence-in-depth). (Historically paths.mjs -> reexport.mjs top-level-awaited
+ * and rejected when `~/.claude/hooks/lib` was absent; the resolver is first-party now, so
+ * that specific reject is gone.) The dry-run path needs no gate, so paths.mjs is never
+ * reached there.
  *
  * `deps` is the injectable test seam (mirrors snapshotCommand): fake `loadPaths` +
  * `rollbackFn` + `env` make every path hermetically unit-testable without a real
@@ -124,7 +128,7 @@ export async function rollbackCommand(ctx, deps = {}) {
         result: { status: 'write-unavailable' },
         diagnostics: [{
           severity: 'warn', code: 'rollback-write-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; rollback --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; rollback --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       };
