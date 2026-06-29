@@ -28,8 +28,9 @@
  * Async because the rollback modes await the U17 `rollbackSnapshot` orchestrator;
  * --mark-failed stays synchronous internally (no await) and is returned as-is.
  *
- * M2-SAFETY: this module never imports src/paths.mjs (its top-level await would poison
- * the M2-safe ops graph) — the gate + state dir are params; the CLI injects them.
+ * M2-SAFETY: this module NEVER imports src/paths.mjs — the assertWritable gate + state
+ * dir are injected params, keeping this module's static graph paths.mjs-free (the
+ * M2-safe property the boundary self-check enforces); the CLI injects them.
  *
  * Ops-layer constraint: node:* stdlib + src/lib/** + sibling src/ops/* only. NEVER
  * THROWS / never rejects — every failure (incl. a thrown seam) becomes a Diagnostic +
