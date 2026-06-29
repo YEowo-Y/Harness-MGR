@@ -42,7 +42,10 @@ function childEnv() {
  */
 export function defaultRunTests({ repoRoot }) {
   try {
-    execFileSync(process.execPath, ['--test'], {
+    // Scope discovery to test/**/*.test.mjs: a bare `node --test` from repoRoot would
+    // also sweep up web/'s .ts vitest files (Node 24 auto-includes .ts + any test/ dir),
+    // which cannot run under node --test and fail the gate. All root tests live in test/.
+    execFileSync(process.execPath, ['--test', 'test/**/*.test.mjs'], {
       cwd: repoRoot, stdio: 'pipe', timeout: 300_000, env: childEnv(),
     });
     return { pass: true, detail: 'node --test exited 0' };
@@ -69,7 +72,9 @@ export function defaultRunCoverage({ repoRoot }) {
   try {
     execFileSync(process.execPath, [
       c8Bin, '--reporter=json-summary', '--reporter=text',
-      process.execPath, '--test',
+      // Same discovery scope as defaultRunTests: keep coverage on the root suite
+      // (test/**/*.test.mjs) so it never sweeps web/'s vitest .ts files.
+      process.execPath, '--test', 'test/**/*.test.mjs',
     ], { cwd: repoRoot, stdio: 'pipe', timeout: 300_000, env: childEnv() });
   } catch (err) {
     // c8 may exit non-zero even when the summary was written (no threshold config).
