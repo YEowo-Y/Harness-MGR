@@ -21,7 +21,9 @@
  *
  * M2-SAFETY: imports ONLY node:os(tmpdir) + ../lib/diagnostic + ../lib/safe-spawn +
  * ../lib/resolve-claude-exe + the sibling mcp-write.mjs (for the shared NAME_RE/VALID_SCOPES —
- * both pure leafs, no top-level await). NEVER src/paths.mjs. Zero npm deps.
+ * both pure leafs). NEVER src/paths.mjs — the governed dir + enable flag are injected params,
+ * keeping this module's static graph paths.mjs-free (the M2-safe property the boundary
+ * self-check enforces). Zero npm deps.
  */
 
 import { tmpdir } from 'node:os';
