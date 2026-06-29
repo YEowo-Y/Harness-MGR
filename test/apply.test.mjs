@@ -19,14 +19,23 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import { applyPlan } from '../src/ops/apply.mjs';
 import { transition, createJournal } from '../src/ops/apply-journal-writer.mjs';
 import { atomicApplyWrite } from '../src/ops/atomic-write.mjs';
 
 const FIXED_NOW = () => new Date('2026-05-30T00:00:00.000Z');
 const FIXED_ID = '2026-05-30T00-00-00Z';
-const STATE = 'C:\\tmp\\.mgr-state';
-const TARGET = 'C:\\tmp\\.claude';
+// Hermetic test — no real fs is touched, but the op targets must relativize cleanly
+// against TARGET (the manifest cross-check does `relative(TARGET, op.target)`), so
+// the paths must be ABSOLUTE on the host OS. Derive them from tmpdir() and keep STATE
+// and TARGET siblings under a common base, mirroring the original C:\tmp layout. All
+// path literals below join with the platform `sep` so `relative(...).split(sep)` yields
+// clean POSIX-relative paths ('settings.json', 'agents/foo.md') on Windows AND Linux.
+const BASE = join(tmpdir(), 'cmgr-apply');
+const STATE = join(BASE, '.mgr-state');
+const TARGET = join(BASE, '.claude');
 const PASS = (p) => p; // passthrough write gate
 
 /** A minimal valid Plan with one patch op (it is never applied — writes disabled). */
@@ -34,7 +43,7 @@ function makePlan() {
   return {
     planVersion: 1,
     command: 'config set',
-    ops: [{ kind: 'patch', target: `${TARGET}\\settings.json`, summary: 'set model', pointer: '/model', before: 'sonnet', after: 'opus' }],
+    ops: [{ kind: 'patch', target: `${TARGET}${sep}settings.json`, summary: 'set model', pointer: '/model', before: 'sonnet', after: 'opus' }],
     apply: true,
   };
 }
@@ -46,7 +55,7 @@ function planWith(ops) {
 
 /** A single create/overwrite op writing CONTENT to a settings.json target. */
 function writeOp(kind, content = '{"model":"opus"}\n') {
-  return { kind, target: `${TARGET}\\settings.json`, summary: `${kind} settings`, content };
+  return { kind, target: `${TARGET}${sep}settings.json`, summary: `${kind} settings`, content };
 }
 
 /** A recording acquireLock seam. */
@@ -73,9 +82,9 @@ function makeSnapshot(result = {}) {
     if (result.throw) return Promise.reject(result.throw);
     return Promise.resolve({
       ok: true, snapshotId: FIXED_ID,
-      snapshotDir: `${STATE}\\snapshots\\${FIXED_ID}`,
-      archivePath: `${STATE}\\snapshots\\${FIXED_ID}\\files.tar`,
-      manifestPath: `${STATE}\\snapshots\\${FIXED_ID}\\manifest.json`,
+      snapshotDir: `${STATE}${sep}snapshots${sep}${FIXED_ID}`,
+      archivePath: `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}files.tar`,
+      manifestPath: `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}manifest.json`,
       kept: [], dropped: [], fileCount: 0, diagnostics: [],
       ...result,
     });
@@ -114,7 +123,7 @@ function makeWriteJournal(result = {}) {
   const fn = (opts) => {
     calls.push(opts);
     if (result.written === false) return { written: false, path: null, diagnostics: result.diagnostics ?? [] };
-    return { written: true, path: `${STATE}\\snapshots\\${FIXED_ID}\\apply-journal.json`, diagnostics: [] };
+    return { written: true, path: `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}apply-journal.json`, diagnostics: [] };
   };
   fn.calls = calls;
   return fn;
@@ -172,7 +181,7 @@ function makeAtomicDirDelete(result = {}) {
 }
 
 /** A single delete op removing a settings.json target (no content). */
-function deleteOp(target = `${TARGET}\\agents\\foo.md`) {
+function deleteOp(target = `${TARGET}${sep}agents${sep}foo.md`) {
   return { kind: 'delete', target, summary: 'remove agent foo' };
 }
 
@@ -252,9 +261,9 @@ test('applyPlan: happy path reaches snapshotted and stops (applied:false, writes
   assert.equal(res.state, 'snapshotted');
   assert.equal(res.applied, false);
   assert.equal(res.snapshotId, FIXED_ID);
-  assert.equal(res.journalPath, `${STATE}\\snapshots\\${FIXED_ID}\\apply-journal.json`);
-  assert.equal(res.manifestPath, `${STATE}\\snapshots\\${FIXED_ID}\\manifest.json`);
-  assert.equal(res.archivePath, `${STATE}\\snapshots\\${FIXED_ID}\\files.tar`);
+  assert.equal(res.journalPath, `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}apply-journal.json`);
+  assert.equal(res.manifestPath, `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}manifest.json`);
+  assert.equal(res.archivePath, `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}files.tar`);
   assert.equal(res.lock.acquired, true);
   // the writes-disabled INFO diagnostic is present.
   const info = res.diagnostics.find((d) => d.code === 'apply-writes-disabled');
@@ -349,7 +358,7 @@ test('applyPlan: a journal-write failure → ok:false, state snapshotted, lock r
   assert.ok(res.diagnostics.some((d) => d.code === 'apply-journal-write-failed'), 'own rollup code');
   // snapshot id/paths are still surfaced on the failure result.
   assert.equal(res.snapshotId, FIXED_ID);
-  assert.equal(res.manifestPath, `${STATE}\\snapshots\\${FIXED_ID}\\manifest.json`);
+  assert.equal(res.manifestPath, `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}manifest.json`);
   // lock released.
   assert.equal(seams.releaseFn.calls.length, 1);
 });
@@ -490,7 +499,7 @@ test('applyPlan enableWrites: single create op reaches committed (applied, opsWr
   assert.deepEqual(states, ['snapshotted', 'applying', 'committed']);
   // atomicWriteFn called ONCE with the op's target+content and the injected gate.
   assert.equal(seams.atomicWriteFn.calls.length, 1);
-  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}${sep}settings.json`);
   assert.equal(seams.atomicWriteFn.calls[0].content, '{"model":"opus"}\n');
   assert.equal(seams.atomicWriteFn.calls[0].assertWritable, PASS);
   // journal persisted three times: snapshotted, applying, committed.
@@ -509,13 +518,13 @@ test('applyPlan enableWrites: single overwrite op reaches committed', async () =
   assert.equal(res.applied, true);
   assert.equal(res.opsWritten, 1);
   assert.equal(seams.atomicWriteFn.calls.length, 1);
-  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}${sep}settings.json`);
 });
 
 // ── (C4) enableWrites + atomic write fails (with leftovers) → failed ─────────────
 
 test('applyPlan enableWrites: a failed atomic write → journal failed, applied:false, leftovers surfaced', async () => {
-  const leftovers = { newPath: `${TARGET}\\settings.json.mgr-new`, oldPath: `${TARGET}\\settings.json.mgr-old` };
+  const leftovers = { newPath: `${TARGET}${sep}settings.json.mgr-new`, oldPath: `${TARGET}${sep}settings.json.mgr-old` };
   const atomicWriteFn = makeAtomicWrite({ ok: false, leftovers,
     diagnostics: [{ severity: 'error', code: 'apply-write-commit-unrecoverable', message: 'boom', phase: 'apply' }] });
   const seams = happySeams({ atomicWriteFn });
@@ -558,7 +567,7 @@ test('applyPlan enableWrites: 2 ops → committed, both written, opsWritten:2 (C
 // ── (C5b) enableWrites + 3 ops, 2nd write fails → failed, opsWritten:1, 3rd never tried ──
 
 test('applyPlan enableWrites: a mid-sequence write failure stops the loop (opsWritten:1, 3rd op never attempted) (C5b)', async () => {
-  const leftovers = { newPath: `${TARGET}\\settings.json.mgr-new`, oldPath: `${TARGET}\\settings.json.mgr-old` };
+  const leftovers = { newPath: `${TARGET}${sep}settings.json.mgr-new`, oldPath: `${TARGET}${sep}settings.json.mgr-old` };
   // A per-call seam: succeed on call 1, fail (with leftovers) on call 2.
   const atomicWriteFn = (() => {
     const calls = [];
@@ -599,7 +608,7 @@ test('applyPlan enableWrites: one INVALID op among valid → refused before appl
     enableWrites: true,
     plan: planWith([
       writeOp('create'),
-      { kind: 'patch', target: `${TARGET}\\settings.json`, summary: 'patch', pointer: '/x' },
+      { kind: 'patch', target: `${TARGET}${sep}settings.json`, summary: 'patch', pointer: '/x' },
     ]),
   }));
   assert.equal(res.ok, false);
@@ -626,8 +635,8 @@ test('applyPlan enableWrites: two ops on the SAME target → both written in ord
   // both writes targeted the SAME settings.json, in plan order (1 then 2) — a legit
   // plan shape; the snapshot still captured the pre-apply bytes, so rollback is whole.
   assert.equal(seams.atomicWriteFn.calls.length, 2);
-  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}\\settings.json`);
-  assert.equal(seams.atomicWriteFn.calls[1].target, `${TARGET}\\settings.json`);
+  assert.equal(seams.atomicWriteFn.calls[0].target, `${TARGET}${sep}settings.json`);
+  assert.equal(seams.atomicWriteFn.calls[1].target, `${TARGET}${sep}settings.json`);
   assert.equal(seams.atomicWriteFn.calls[0].content, '{"a":1}\n');
   assert.equal(seams.atomicWriteFn.calls[1].content, '{"a":2}\n');
 });
@@ -654,7 +663,7 @@ test('applyPlan enableWrites: a create op with no content → failed + apply-op-
   const seams = happySeams();
   const res = await applyPlan(baseOpts(seams, {
     enableWrites: true,
-    plan: planWith([{ kind: 'create', target: `${TARGET}\\settings.json`, summary: 'no content' }]),
+    plan: planWith([{ kind: 'create', target: `${TARGET}${sep}settings.json`, summary: 'no content' }]),
   }));
   assert.equal(res.ok, false);
   assert.equal(res.state, 'failed');
@@ -760,7 +769,7 @@ test('applyPlan enableWrites: writeJournalFn fails on 3rd call (committed persis
         // 3rd call is the 'committed' persist — inject a failure.
         return { written: false, path: null, diagnostics: [] };
       }
-      return { written: true, path: `${STATE}\\snapshots\\${FIXED_ID}\\apply-journal.json`, diagnostics: [] };
+      return { written: true, path: `${STATE}${sep}snapshots${sep}${FIXED_ID}${sep}apply-journal.json`, diagnostics: [] };
     };
     fn.calls = calls;
     return fn;
@@ -785,7 +794,7 @@ test('applyPlan enableWrites: real atomicApplyWrite + gate that denies CLAUDE.md
   // exercises the end-to-end gate-denial path: atomicApplyWrite calls assertWritable
   // first (before any fs touch), the gate throws, atomicApplyWrite returns ok:false,
   // and applyPlan transitions the journal to 'failed' with apply-op-failed.
-  const deniedTarget = `${TARGET}\\CLAUDE.md`;
+  const deniedTarget = `${TARGET}${sep}CLAUDE.md`;
   const fakeAssertWritable = (p) => {
     // Deny only the CLAUDE.md target; allow everything else (stateDir writes from
     // acquire/snapshot/journal seams do not call this injected gate — they are stubbed).
@@ -835,7 +844,7 @@ test('applyPlan paranoid: a valid-JSON write passes the re-parse → committed, 
   assert.equal(res.opsWritten, 1);
   // the paranoid re-read happened exactly once, for the op's (.json) target.
   assert.equal(readFileFn.calls.length, 1, 'paranoid re-read the written file once');
-  assert.equal(readFileFn.calls[0], `${TARGET}\\settings.json`);
+  assert.equal(readFileFn.calls[0], `${TARGET}${sep}settings.json`);
 });
 
 // ── (P2) paranoid CATCHES a broken file (DoD headline) → failed, applied:true ────
@@ -881,7 +890,7 @@ test('applyPlan paranoid: a non-JSON target is NOT re-read (isJsonTarget false) 
   const seams = { ...happySeams(), readFileFn };
   const res = await applyPlan(baseOpts(seams, {
     enableWrites: true, paranoid: true,
-    plan: planWith([{ kind: 'overwrite', target: `${TARGET}\\agents\\a.md`, summary: 'write md', content: '# a\n' }]),
+    plan: planWith([{ kind: 'overwrite', target: `${TARGET}${sep}agents${sep}a.md`, summary: 'write md', content: '# a\n' }]),
   }));
   assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
   assert.equal(res.state, 'committed');
@@ -926,7 +935,7 @@ test('applyPlan paranoid: an unreadable re-read after a landed write → failed,
 
 test('applyPlan enableWrites: single delete op reaches committed (applied, opsWritten:1) (D1)', async () => {
   const seams = happySeams();
-  const target = `${TARGET}\\agents\\foo.md`;
+  const target = `${TARGET}${sep}agents${sep}foo.md`;
   const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([deleteOp(target)]) }));
   assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
   assert.equal(res.state, 'committed');
@@ -971,8 +980,8 @@ test('applyPlan enableWrites: a failed atomicDeleteFn → journal failed, applie
 
 test('applyPlan enableWrites: mixed plan [overwrite, delete] → committed, opsWritten:2, both primitives called in order (D3)', async () => {
   const seams = happySeams();
-  const wt = `${TARGET}\\settings.json`;
-  const dt = `${TARGET}\\agents\\foo.md`;
+  const wt = `${TARGET}${sep}settings.json`;
+  const dt = `${TARGET}${sep}agents${sep}foo.md`;
   const res = await applyPlan(baseOpts(seams, {
     enableWrites: true, plan: planWith([writeOp('overwrite'), deleteOp(dt)]),
   }));
@@ -1048,7 +1057,7 @@ test('applyPlan paranoid + delete: a delete op is NOT re-read (paranoid skipped)
 // ════════════════════════════════════════════════════════════════════════════════
 
 /** A single delete-dir op for a skill directory. */
-function deleteDirOp(target = `${TARGET}\\skills\\foo`) {
+function deleteDirOp(target = `${TARGET}${sep}skills${sep}foo`) {
   return { kind: 'delete-dir', target, summary: 'remove skill foo' };
 }
 
@@ -1056,7 +1065,7 @@ function deleteDirOp(target = `${TARGET}\\skills\\foo`) {
 
 test('applyPlan enableWrites: single delete-dir op reaches committed (DD1)', async () => {
   const seams = happySeams();
-  const target = `${TARGET}\\skills\\foo`;
+  const target = `${TARGET}${sep}skills${sep}foo`;
   const res = await applyPlan(baseOpts(seams, { enableWrites: true, plan: planWith([deleteDirOp(target)]) }));
   assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
   assert.equal(res.state, 'committed');
@@ -1133,7 +1142,7 @@ test('applyPlan paranoid + delete-dir: readFileFn is never called (DD4)', async 
 
 /** A config-edit op targeting config.toml (selector + desired, NO content). */
 function configEditOp(over = {}) {
-  return { kind: 'config-edit', target: `${TARGET}\\config.toml`, summary: 'disable plugin a@b', selector: { kind: 'plugin', name: 'a@b' }, desired: false, ...over };
+  return { kind: 'config-edit', target: `${TARGET}${sep}config.toml`, summary: 'disable plugin a@b', selector: { kind: 'plugin', name: 'a@b' }, desired: false, ...over };
 }
 
 /** A recording atomicConfigEdit seam (default: a successful flip that wrote). */
@@ -1158,7 +1167,7 @@ test('config-edit op: dispatches to atomicConfigEditFn (selector+desired) and re
   assert.equal(res.state, 'committed');
   assert.equal(res.opsWritten, 1);
   assert.equal(atomicConfigEditFn.calls.length, 1);
-  assert.equal(atomicConfigEditFn.calls[0].target, `${TARGET}\\config.toml`);
+  assert.equal(atomicConfigEditFn.calls[0].target, `${TARGET}${sep}config.toml`);
   assert.deepEqual(atomicConfigEditFn.calls[0].selector, { kind: 'plugin', name: 'a@b' });
   assert.equal(atomicConfigEditFn.calls[0].desired, false);
   // config-edit is NOT a *.json write → the paranoid re-parse seam is never invoked for it.
@@ -1187,7 +1196,7 @@ test('config-edit op: an invalid op (missing desired) is refused BEFORE any edit
 
 /** A config-block-delete op targeting config.toml (selector only, NO content, NO desired). */
 function configBlockDeleteOp(over = {}) {
-  return { kind: 'config-block-delete', target: `${TARGET}\\config.toml`, summary: 'prune skill foo', selector: { kind: 'skill', match: { field: 'name', value: 'foo' } }, ...over };
+  return { kind: 'config-block-delete', target: `${TARGET}${sep}config.toml`, summary: 'prune skill foo', selector: { kind: 'skill', match: { field: 'name', value: 'foo' } }, ...over };
 }
 
 /** A recording atomicConfigBlockDelete seam (default: a successful delete that wrote). */
@@ -1206,7 +1215,7 @@ test('config-block-delete op: dispatches to atomicConfigBlockDeleteFn (selector,
   assert.equal(res.state, 'committed');
   assert.equal(res.opsWritten, 1);
   assert.equal(atomicConfigBlockDeleteFn.calls.length, 1);
-  assert.equal(atomicConfigBlockDeleteFn.calls[0].target, `${TARGET}\\config.toml`);
+  assert.equal(atomicConfigBlockDeleteFn.calls[0].target, `${TARGET}${sep}config.toml`);
   assert.deepEqual(atomicConfigBlockDeleteFn.calls[0].selector, { kind: 'skill', match: { field: 'name', value: 'foo' } });
   // A whole-block delete carries NO `desired` and NO `content` into the primitive.
   assert.equal(atomicConfigBlockDeleteFn.calls[0].desired, undefined);
@@ -1255,7 +1264,7 @@ test('config-block-delete op: NOT a *.json write → the paranoid re-parse seam 
 
 /** A json-edit op targeting settings.json (selector.key + desired, NO content). */
 function jsonEditOp(over = {}) {
-  return { kind: 'json-edit', target: `${TARGET}\\settings.json`, summary: 'disable plugin a@b', selector: { key: 'a@b' }, desired: false, ...over };
+  return { kind: 'json-edit', target: `${TARGET}${sep}settings.json`, summary: 'disable plugin a@b', selector: { key: 'a@b' }, desired: false, ...over };
 }
 
 /** A recording atomicJsonEdit seam (default: a successful flip that wrote). */
@@ -1270,7 +1279,7 @@ function makeAtomicJsonEdit(result = { ok: true, wrote: true }) {
 
 /** A json-map-set op targeting settings.json (selector.mapKey+memberKey + value, NO content/desired). */
 function jsonMapSetOp(over = {}) {
-  return { kind: 'json-map-set', target: `${TARGET}\\settings.json`, summary: 'skill visibility tdd off', selector: { mapKey: 'skillOverrides', memberKey: 'tdd' }, value: 'off', ...over };
+  return { kind: 'json-map-set', target: `${TARGET}${sep}settings.json`, summary: 'skill visibility tdd off', selector: { mapKey: 'skillOverrides', memberKey: 'tdd' }, value: 'off', ...over };
 }
 
 /** A recording atomicJsonMapEdit seam (default: a successful set that wrote). */
@@ -1289,7 +1298,7 @@ test('json-map-set op: dispatches to atomicJsonMapEditFn (selector+value, NO con
   assert.equal(res.state, 'committed');
   assert.equal(res.opsWritten, 1);
   assert.equal(atomicJsonMapEditFn.calls.length, 1);
-  assert.equal(atomicJsonMapEditFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.equal(atomicJsonMapEditFn.calls[0].target, `${TARGET}${sep}settings.json`);
   assert.deepEqual(atomicJsonMapEditFn.calls[0].selector, { mapKey: 'skillOverrides', memberKey: 'tdd' });
   assert.equal(atomicJsonMapEditFn.calls[0].value, 'off');
   assert.equal(atomicJsonMapEditFn.calls[0].content, undefined);
@@ -1336,7 +1345,7 @@ test('json-map-set op: does its OWN reparse → the paranoid *.json re-read seam
 test('json-map-set op NOT in the snapshot manifest → refused (apply-target-not-snapshotted), no write', async () => {
   const atomicJsonMapEditFn = makeAtomicJsonMapEdit();
   const seams = happySeams({ atomicJsonMapEditFn });
-  const op = jsonMapSetOp({ target: `${TARGET}\\settings.local.json` });
+  const op = jsonMapSetOp({ target: `${TARGET}${sep}settings.local.json` });
   const res = await applyPlan(baseOpts(seams, { plan: planWith([op]), enableWrites: true }));
   assert.equal(res.ok, false);
   assert.ok(res.diagnostics.some((d) => d.code === 'apply-target-not-snapshotted'), JSON.stringify(res.diagnostics));
@@ -1352,7 +1361,7 @@ test('json-edit op: dispatches to atomicJsonEditFn (selector.key+desired, NO con
   assert.equal(res.state, 'committed');
   assert.equal(res.opsWritten, 1);
   assert.equal(atomicJsonEditFn.calls.length, 1);
-  assert.equal(atomicJsonEditFn.calls[0].target, `${TARGET}\\settings.json`);
+  assert.equal(atomicJsonEditFn.calls[0].target, `${TARGET}${sep}settings.json`);
   assert.deepEqual(atomicJsonEditFn.calls[0].selector, { key: 'a@b' });
   assert.equal(atomicJsonEditFn.calls[0].desired, false);
   assert.equal(atomicJsonEditFn.calls[0].content, undefined);
@@ -1399,7 +1408,7 @@ test('json-edit op NOT in the snapshot manifest → refused (apply-target-not-sn
   // a json-edit op targeting a file the manifest does NOT list (settings.local.json) must refuse.
   const atomicJsonEditFn = makeAtomicJsonEdit();
   const seams = happySeams({ atomicJsonEditFn });
-  const op = jsonEditOp({ target: `${TARGET}\\settings.local.json` });
+  const op = jsonEditOp({ target: `${TARGET}${sep}settings.local.json` });
   const res = await applyPlan(baseOpts(seams, { plan: planWith([op]), enableWrites: true }));
   assert.equal(res.ok, false);
   assert.ok(res.diagnostics.some((d) => d.code === 'apply-target-not-snapshotted'), JSON.stringify(res.diagnostics));
