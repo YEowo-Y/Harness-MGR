@@ -11,7 +11,7 @@
 #   0  — clean result (no error diagnostics)
 #   1  — one or more error-level diagnostics in the output
 #   2  — usage error / unhandled throw (JSON error envelope written to stdout)
-#   3  — a write was refused by the two-factor gate (e.g. CLAUDE_MGR_ENABLE_WRITES unset)
+#   3  — a write was refused (write gate locked via CLAUDE_MGR_ENABLE_WRITES=0, missing spec, or --force required)
 #
 # Usage:  ./claude-mgr.sh <command> [flags]     (or:  sh claude-mgr.sh <command> [flags])
 #
