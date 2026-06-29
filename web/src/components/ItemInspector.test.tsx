@@ -297,3 +297,21 @@ describe("ItemInspector — shadowing card", () => {
     expect(screen.queryByText(/Loadability & shadowing/)).not.toBeInTheDocument();
   });
 });
+
+/*
+ * Section assembly (ItemInspector.tsx:128-144) — each section drops fields whose
+ * renderer returns null, and a section left with zero visible fields renders NO
+ * heading. SKILL_ITEM is the clean probe: it has a visibility but NO frontmatter
+ * and NO source, so the Governance section renders (Tier always yields at least
+ * "—", plus the visibility badge) while the Frontmatter section (description /
+ * origin / tools all null) collapses to nothing.
+ */
+describe("ItemInspector — section assembly", () => {
+  it("renders a section with its non-null fields and HIDES a section whose fields are all null", () => {
+    mount({ item: SKILL_ITEM, type: "skill", writeKinds: [], removeKinds: [] });
+
+    expect(screen.getByText("Governance")).toBeInTheDocument(); // section with ≥1 visible field
+    expect(screen.getByText("Tier")).toBeInTheDocument(); // a field rendered inside it
+    expect(screen.queryByText("Frontmatter")).not.toBeInTheDocument(); // all-null section → no heading
+  });
+});
