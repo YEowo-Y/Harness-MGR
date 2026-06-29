@@ -19,10 +19,12 @@
  *   4 — auto-snapshot integrity failure during --apply
  *   1 — any other apply failure (spawn failed, write-gate unloadable, unexpected)
  *
- * M2-SAFETY: never STATICALLY imports src/paths.mjs. The write gate
- * (assertWritable) is resolved via DYNAMIC `import()` ONLY on the real --apply
- * path; on import failure the command degrades gracefully. The dry-run path
- * never touches paths.mjs.
+ * M2-SAFE STATIC GRAPH: never STATICALLY imports src/paths.mjs — the
+ * assertWritable gate + dirs are injected params, keeping this module's static
+ * graph paths.mjs-free (the property the boundary self-check enforces). The gate
+ * is still resolved via DYNAMIC `import()` ONLY on the real --apply path, under
+ * try/catch, so that if its load ever fails the command degrades instead of
+ * crashing (defence-in-depth). The dry-run path never touches paths.mjs.
  *
  * `deps` is the injectable test seam: fake `loadPaths` + `updateFn` + `env` make
  * every path hermetically unit-testable.
@@ -140,7 +142,7 @@ export async function updateCommand(ctx, deps = {}) {
         result: { status: 'write-unavailable' },
         diagnostics: [{
           severity: 'warn', code: 'update-write-unavailable', phase: 'cli',
-          message: `~/.claude/hooks/lib unloadable; update --apply needs the write gate: ${err instanceof Error ? err.message : String(err)}`,
+          message: `the write gate is unloadable; update --apply needs it: ${err instanceof Error ? err.message : String(err)}`,
         }],
         code: 1,
       };
