@@ -44,8 +44,9 @@
  *
  * M2-SAFETY: imports ONLY node:fs / node:path / node:crypto, ../output/diff.mjs (the
  * ops→output precedent: snapshot-diff.mjs), and sibling src/ops/* (snapshot-manifest
- * for makeSnapshotId, lock, atomic-write). NEVER src/paths.mjs or src/lib/reexport.mjs
- * (both carry a top-level await that would poison this ops module's M2-safe graph).
+ * for makeSnapshotId, lock, atomic-write). NEVER imports src/paths.mjs — the assertWritable
+ * gate + dirs are injected params, keeping this module's static graph paths.mjs-free (the
+ * M2-safe property the boundary self-check enforces).
  * assertWritable + acquireLock/releaseLock/atomicApplyWrite are injected (lock/write)
  * or imported only as M2-safe siblings.
  *
