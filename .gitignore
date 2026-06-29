@@ -22,6 +22,8 @@ coverage/
 # (build journal, generated agent context, per-machine IDE/tool config)
 WORKING-CONTEXT.md
 AGENTS.md
+# Internal dogfooding journal (prose); the machine-readable STABILITY-LOG.jsonl ships.
+STABILITY-LOG.md
 .claude/
 .codex/
 .serena/
