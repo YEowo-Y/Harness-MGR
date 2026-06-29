@@ -8,16 +8,17 @@
  *   - an explicit `configDir` override (e.g. a `--config-dir` flag, or a test) →
  *     used verbatim; paths.mjs is never imported (no async, no throw risk).
  *   - otherwise the live resolution: dynamically import paths.mjs and call
- *     `targetClaudeDir()`, which honours CLAUDE_CONFIG_DIR via the borrowed loader.
+ *     `targetClaudeDir()`, which honours CLAUDE_CONFIG_DIR via the first-party resolver.
  *
- * --- The M2 missing-hooks-lib fallback ---
- * Importing paths.mjs is ASYNC and can REJECT at load time: paths.mjs → reexport.mjs
- * does a top-level await that requires `~/.claude/hooks/lib`; if that lib is absent
- * the dynamic import throws. A read-mostly governance CLI must still work in that
- * state (you cannot inspect a broken config if the inspector refuses to start). So
- * any throw on the live branch degrades to a direct config-dir fallback plus a
- * single `missing-hooks-lib` warn Diagnostic — read commands work; writes (which
- * need the loader) stay unavailable until the lib is restored.
+ * --- The defensive load-failure fallback (`missing-hooks-lib`) ---
+ * The live branch is wrapped in try/catch as insurance: a read-mostly governance CLI
+ * must still START even if importing paths.mjs ever throws, so any failure degrades to
+ * a direct config-dir fallback plus a single `missing-hooks-lib` warn Diagnostic — read
+ * commands work; writes (which need the resolver) stay unavailable. This once guarded a
+ * REAL fault: reexport.mjs did a top-level await that rejected when `~/.claude/hooks/lib`
+ * was absent (breaking CI and fresh clones). The resolver is first-party now, so that
+ * rejection is gone and the catch is pure defence-in-depth; the diagnostic code is kept
+ * as a stable identifier.
  *
  * `loadPaths` is the injectable test seam (defaults to importing paths.mjs). It is
  * the ONLY async/throwing dependency; everything else here is pure aside from
@@ -44,11 +45,11 @@ import { join } from 'node:path';
 const defaultLoadPaths = () => import('../paths.mjs');
 
 /**
- * The .mgr-state dir name, kept as a LOCAL literal so resolve-config never
- * statically imports paths.mjs (which top-level-awaits and would reject when
- * ~/.claude/hooks/lib is absent — the M2 fault-tolerance constraint). Mirrors
- * the orphan-detector precedent (a local literal reconciled by a drift-guard
- * test against paths.mjs's MGR_STATE_DIRNAME).
+ * The .mgr-state dir name, kept as a LOCAL literal so this module can build a
+ * fallback path WITHOUT statically importing paths.mjs — the live branch imports it
+ * dynamically inside the try, so a load failure degrades here instead of crashing the
+ * import. Mirrors the orphan-detector precedent (a local literal reconciled by a
+ * drift-guard test against paths.mjs's MGR_STATE_DIRNAME).
  */
 const MGR_STATE_DIRNAME = '.mgr-state';
 
@@ -64,7 +65,7 @@ export async function resolveConfigDir({ configDir, loadPaths } = {}) {
     return { configDir, mgrStateDir: join(configDir, MGR_STATE_DIRNAME), diagnostics: [] };
   }
 
-  // Live resolution: a missing hooks/lib makes this import reject (the M2 case).
+  // Live resolution: dynamically import the resolver; degrade on any load failure.
   try {
     const mod = await (loadPaths ?? defaultLoadPaths)();
     const cd = mod.targetClaudeDir();
@@ -77,7 +78,7 @@ export async function resolveConfigDir({ configDir, loadPaths } = {}) {
 
 /**
  * The read-only fallback config dir when paths.mjs cannot load: honour
- * CLAUDE_CONFIG_DIR (the same env the borrowed loader reads) if set, else
+ * CLAUDE_CONFIG_DIR (the same env `getClaudeConfigDir` reads) if set, else
  * `~/.claude`. Mirrors the loader's default without importing it.
  * @returns {string}
  */
@@ -92,8 +93,8 @@ function missingHooksLibDiag() {
   return {
     severity: 'warn',
     code: 'missing-hooks-lib',
-    message: '~/.claude/hooks/lib not found or unloadable; using a direct config-dir fallback '
-      + '(read-only commands work; writes are unavailable until the hooks lib is present)',
+    message: 'config-dir resolver failed to load; using a direct config-dir fallback '
+      + '(read-only commands work; writes are unavailable until it loads)',
     phase: 'cli',
   };
 }
