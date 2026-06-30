@@ -11,6 +11,13 @@
 > snapshot/rollback, and cross-target compare. Every write is gated, auto-snapshotted, and
 > reversible.
 
+<p align="center">
+  <img src="docs/assets/cli-hero.png" width="820"
+       alt="harness-mgr terminal session: inventory counts, a health summary, and a remove command previewing as a dry-run that would auto-snapshot first and is reversible via rollback">
+</p>
+
+<p align="center"><sub><em>Read-only by default — and a <code>remove</code> that only <strong>previews</strong> until you pass <code>--apply</code> (auto-snapshotted, reversible).</em></sub></p>
+
 ## What it is
 
 If you run a large Claude Code (or Codex) harness — dozens of skills, agents, commands,
@@ -148,7 +155,26 @@ claude mcp add harness-mgr -- node /absolute/path/to/harness-mgr/src/mcp/server.
 Two isolated front-ends wrap the same engine envelope; the root CLI stays zero-dependency.
 
 - **`tui/`** — a terminal UI (Go + Bubble Tea).
-- **`web/`** — a web UI (React + Vite + Hono).
+- **`web/`** — a web UI (React + Vite + Hono): localhost-only, read-first, and bilingual (English · 中文).
+
+<p align="center">
+  <img src="docs/assets/tui-hero.png" width="600"
+       alt="harness-mgr terminal UI: a split-pane inventory browser with a scrollable skills tree on the left and a per-item detail pane on the right, under a tab bar and a one-line counts summary">
+  <br><sub><em><code>tui/</code> — the split-pane terminal browser (tab bar · counts · tree + detail)</em></sub>
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/web-dashboard-en.png" alt="harness-mgr web UI inventory dashboard (English) listing skills with source and visibility columns"></td>
+    <td width="50%"><img src="docs/assets/web-doctor-zh.png" alt="harness-mgr web UI doctor view (Chinese) showing 100% loadability and findings grouped by severity"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><code>web/</code> — inventory dashboard (English UI)</sub></td>
+    <td align="center"><sub><code>web/</code> — Doctor health checks (中文界面)</sub></td>
+  </tr>
+</table>
+
+<sub><em>The web UI binds <code>127.0.0.1</code> only, surfaces the same read engine, and exposes only a frozen set of gated, reversible writes. Paths in every screenshot are redacted.</em></sub>
 
 ## Output formats
 
