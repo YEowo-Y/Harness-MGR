@@ -163,8 +163,10 @@ Both read the live `~/.claude` / `~/.codex` and need Node on `PATH` (they shell 
 # tui/ — terminal UI (needs Go); auto-resolves ../src/cli.mjs. Press ? for keys, q to quit.
 cd tui && go run .
 
-# web/ — web UI (needs one npm install). Opens http://127.0.0.1:5173 (API on :4319).
-cd web && npm install && npm run dev
+# web/ — web UI (needs Node + one npm install in web/):
+cd web && npm install
+npm run dev                  # dev + live-reload → http://127.0.0.1:5173 (API on :4319)
+npm run build && npm start   # …or single-port production → http://127.0.0.1:4319
 ```
 
 <p align="center">
