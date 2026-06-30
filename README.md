@@ -52,6 +52,16 @@ cd harness-mgr
 node src/cli.mjs doctor          # run a health check against ~/.claude
 ```
 
+**One command, no clone** — install the `harness-mgr` command globally straight from GitHub (the repo is public, so no `npm publish` is needed), or run it once with `npx`:
+
+```sh
+npm install -g github:YEowo-Y/harness-mgr   # puts `harness-mgr` on your PATH
+harness-mgr doctor
+npx github:YEowo-Y/harness-mgr doctor       # …or run once, without installing
+```
+
+> Once the package is published to npm, this shortens to `npm install -g harness-mgr` / `npx harness-mgr`.
+
 Pick whichever entry point you prefer — they all forward to the same core and work from any
 directory:
 
