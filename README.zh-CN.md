@@ -10,6 +10,13 @@
 > （`~/.claude`）和 Codex（`~/.codex`）配置——清点、冲突检测、生效配置、体检、
 > 快照/回滚、跨目标对比。每一次写入都经过门控、自动快照、可回滚。
 
+<p align="center">
+  <img src="docs/assets/cli-hero.png" width="820"
+       alt="harness-mgr 终端会话：清点计数、体检摘要，以及一条 remove 命令以 dry-run 预览——它会先自动快照、可经 rollback 回滚">
+</p>
+
+<p align="center"><sub><em>默认只读——<code>remove</code> 也只<strong>预览</strong>，直到你加上 <code>--apply</code>（届时自动快照、可回滚）。</em></sub></p>
+
 ## 这是什么
 
 如果你的 Claude Code（或 Codex）配置很大——几十个技能、代理、命令、插件、MCP 服务器——
@@ -136,7 +143,26 @@ claude mcp add harness-mgr -- node /你的仓库绝对路径/harness-mgr/src/mcp
 两个相互隔离的前端包裹同一套引擎信封；根 CLI 保持零依赖。
 
 - **`tui/`**——终端界面（Go + Bubble Tea）。
-- **`web/`**——网页界面（React + Vite + Hono）。
+- **`web/`**——网页界面（React + Vite + Hono）：仅本地、以只读为先、中英双语。
+
+<p align="center">
+  <img src="docs/assets/tui-hero.png" width="600"
+       alt="harness-mgr 终端界面：分屏的清点浏览器——左侧可滚动的技能树，右侧逐项详情，顶部标签栏与一行计数摘要">
+  <br><sub><em><code>tui/</code> — 分屏终端浏览器（标签栏 · 计数 · 树 + 详情）</em></sub>
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/web-dashboard-zh.png" alt="harness-mgr 网页界面清点面板（中文），列出技能及其来源、可见性"></td>
+    <td width="50%"><img src="docs/assets/web-doctor-en.png" alt="harness-mgr 网页界面体检视图（英文），显示 100% 可加载性与按严重度分类的发现"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><code>web/</code> — 清点面板（中文界面）</sub></td>
+    <td align="center"><sub><code>web/</code> — Doctor 体检（English UI）</sub></td>
+  </tr>
+</table>
+
+<sub><em>网页界面仅绑定 <code>127.0.0.1</code>（仅本地），复用同一套只读引擎，只暴露一组冻结的、门控且可回滚的写入。所有截图中的路径均已脱敏。</em></sub>
 
 ## 输出格式
 
