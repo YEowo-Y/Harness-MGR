@@ -157,8 +157,18 @@ Two isolated front-ends wrap the same engine envelope; the root CLI stays zero-d
 - **`tui/`** — a terminal UI (Go + Bubble Tea).
 - **`web/`** — a web UI (React + Vite + Hono): localhost-only, read-first, and bilingual (English · 中文).
 
+Both read the live `~/.claude` / `~/.codex` and need Node on `PATH` (they shell out to the CLI engine). Launch either from the repo root:
+
+```sh
+# tui/ — terminal UI (needs Go); auto-resolves ../src/cli.mjs. Press ? for keys, q to quit.
+cd tui && go run .
+
+# web/ — web UI (needs one npm install). Opens http://127.0.0.1:5173 (API on :4319).
+cd web && npm install && npm run dev
+```
+
 <p align="center">
-  <img src="docs/assets/tui-hero.png" width="600"
+  <img src="docs/assets/tui-hero.png" width="451"
        alt="harness-mgr terminal UI: a split-pane inventory browser with a scrollable skills tree on the left and a per-item detail pane on the right, under a tab bar and a one-line counts summary">
   <br><sub><em><code>tui/</code> — the split-pane terminal browser (tab bar · counts · tree + detail)</em></sub>
 </p>
