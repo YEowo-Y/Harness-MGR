@@ -145,8 +145,18 @@ claude mcp add harness-mgr -- node /你的仓库绝对路径/harness-mgr/src/mcp
 - **`tui/`**——终端界面（Go + Bubble Tea）。
 - **`web/`**——网页界面（React + Vite + Hono）：仅本地、以只读为先、中英双语。
 
+两者都读取实时的 `~/.claude` / `~/.codex`，且需要 `PATH` 上有 Node（它们会调用 CLI 引擎）。在仓库根目录任选其一启动：
+
+```sh
+# tui/ — 终端界面（需要 Go）；自动定位 ../src/cli.mjs。按 ? 看快捷键、q 退出。
+cd tui && go run .
+
+# web/ — 网页界面（需先跑一次 npm install）。打开 http://127.0.0.1:5173（API 在 :4319）。
+cd web && npm install && npm run dev
+```
+
 <p align="center">
-  <img src="docs/assets/tui-hero.png" width="600"
+  <img src="docs/assets/tui-hero.png" width="451"
        alt="harness-mgr 终端界面：分屏的清点浏览器——左侧可滚动的技能树，右侧逐项详情，顶部标签栏与一行计数摘要">
   <br><sub><em><code>tui/</code> — 分屏终端浏览器（标签栏 · 计数 · 树 + 详情）</em></sub>
 </p>
