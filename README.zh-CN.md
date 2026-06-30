@@ -46,6 +46,16 @@ cd harness-mgr
 node src/cli.mjs doctor          # 对 ~/.claude 跑一次体检
 ```
 
+**一条命令、无需克隆**——直接从 GitHub 全局安装 `harness-mgr` 命令（仓库是公开的，无需 `npm publish`），或用 `npx` 跑一次：
+
+```sh
+npm install -g github:YEowo-Y/harness-mgr   # 把 `harness-mgr` 装到 PATH 上
+harness-mgr doctor
+npx github:YEowo-Y/harness-mgr doctor       # …或不安装、跑一次
+```
+
+> 待该包发布到 npm 后，这会简化为 `npm install -g harness-mgr` / `npx harness-mgr`。
+
 四个入口随你挑——它们都转发到同一个核心，且在任意目录下都能用：
 
 | 入口 | 怎么获得 | 示例 |
