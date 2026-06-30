@@ -151,8 +151,10 @@ claude mcp add harness-mgr -- node /你的仓库绝对路径/harness-mgr/src/mcp
 # tui/ — 终端界面（需要 Go）；自动定位 ../src/cli.mjs。按 ? 看快捷键、q 退出。
 cd tui && go run .
 
-# web/ — 网页界面（需先跑一次 npm install）。打开 http://127.0.0.1:5173（API 在 :4319）。
-cd web && npm install && npm run dev
+# web/ — 网页界面（需要 Node，并在 web/ 里先跑一次 npm install）：
+cd web && npm install
+npm run dev                  # 开发模式 + 热重载 → http://127.0.0.1:5173（API 在 :4319）
+npm run build && npm start   # …或单端口生产模式 → http://127.0.0.1:4319
 ```
 
 <p align="center">
