@@ -7,7 +7,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -97,6 +97,7 @@ test('resolution: good resolves, bad does not, http skipped', () => {
     const isWin = process.platform === 'win32';
     const filename = isWin ? 'mytool.cmd' : 'mytool';
     writeFileSync(join(tmp, filename), isWin ? '@echo hi' : '#!/bin/sh\necho hi', 'utf-8');
+    if (!isWin) chmodSync(join(tmp, filename), 0o755); // an mcp stdio command must be executable to resolve (P2-3 X_OK)
     const env = isWin
       ? { PATH: tmp, PATHEXT: '.COM;.EXE;.BAT;.CMD' }
       : { PATH: tmp };
