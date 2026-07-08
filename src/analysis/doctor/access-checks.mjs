@@ -21,8 +21,9 @@
  * A read-open probe detects only EXCLUSIVE locks (another process holding an
  * exclusive write lock). Shared locks held by other readers will not surface —
  * this is the honest limitation of a read-only, dry-run probe. Status 'locked'
- * → WARN. All other statuses ('free', 'absent', 'indeterminate') → no finding.
- * No fact (null or non-object) → no finding.
+ * → WARN. All other statuses ('free', 'absent', 'unsupported', 'indeterminate')
+ * → no finding — in particular 'unsupported' (non-Windows) means the probe did
+ * not run, so #17 stays silent off win32. No fact (null or non-object) → no finding.
  *
  * @param {DoctorInput} input
  * @returns {Diagnostic[]}
