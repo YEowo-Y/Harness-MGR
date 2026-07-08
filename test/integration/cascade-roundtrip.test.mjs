@@ -35,7 +35,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync,
-  existsSync, readdirSync, rmSync,
+  existsSync, readdirSync, rmSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -89,7 +89,7 @@ test('cascade CLI roundtrip: dry-run → apply-no-force → apply-force → roll
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
 
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-cascade-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-cascade-')));
   const stateDir = join(tmp, '.mgr-state');
 
   try {
