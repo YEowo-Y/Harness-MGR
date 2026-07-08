@@ -35,7 +35,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -74,7 +74,7 @@ test('rollback round-trip: restores CLAUDE.md byte-identical, skips out-of-surfa
   }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-rb-rt-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rb-rt-')));
   // The REAL gate resolves the governed dir from CLAUDE_CONFIG_DIR (read at call time).
   process.env.CLAUDE_CONFIG_DIR = tmp;
   const stateDir = join(tmp, '.mgr-state');
