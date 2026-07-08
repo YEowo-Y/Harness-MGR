@@ -21,6 +21,7 @@
  * Zero npm dependencies. Node stdlib only.
  */
 
+import { statSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
 import { resolveCommand } from '../lib/resolve-command.mjs';
 import { classifyHookCommand } from '../lib/hook-command.mjs';
@@ -56,13 +57,24 @@ function resolveStatus(cls, opts) {
   if (cls.kind === 'file') {
     const baseCwd = typeof opts.cwd === 'string' ? opts.cwd : process.cwd();
     const abs = isAbsolute(cls.target) ? cls.target : resolve(baseCwd, cls.target);
-    const { resolved } = resolveCommand(abs, opts);
-    return resolved ? 'found' : 'missing';
+    // #18 (like #3) checks that the target FILE EXISTS — a statusLine script run via
+    // an interpreter (node hooks/statusline.mjs) is a data file that needs no execute
+    // bit, so require EXISTENCE only. resolveCommand's P2-3 X_OK gate (correct for an
+    // EXTERNAL executable) would false-flag a non-chmod-+x script as missing on POSIX.
+    return existsAsFile(abs) ? 'found' : 'missing';
   }
 
-  // 'external': bare command name, PATH-searched
+  // 'external': bare command name, PATH-searched (X_OK-gated — must be launchable).
   const { resolved } = resolveCommand(cls.target, opts);
   return resolved ? 'found' : 'missing';
+}
+
+/** True when `p` is an existing regular file — EXISTENCE only, no execute-bit
+ *  requirement (unlike resolveCommand's X_OK). Never throws. Mirrors the identical
+ *  helper in probe-hooks.mjs (TODO: hoist the shared file/external resolveStatus into
+ *  one module so the two probes cannot drift again — this is why #18 lagged the #3 fix). */
+function existsAsFile(p) {
+  try { return statSync(p).isFile(); } catch { return false; }
 }
 
 /**
