@@ -44,6 +44,7 @@ import { gatherCodexConfig } from '../discovery/probe-codex-config.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
 import { targetModelsShadowing } from '../analysis/codex-coexistence.mjs';
 import { analyzeOrphans } from '../analysis/orphans.mjs';
+import { isCaseInsensitiveFs } from '../lib/name-identity.mjs';
 import { mergeSettings } from '../analysis/settings-merge.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
 import { gatherEffectiveHooks } from './effective-hooks.mjs';
@@ -110,7 +111,14 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
     // target would mis-report plugin-vs-plugin co-existence as a #11 winner. Keep #11
     // honestly empty for codex; Claude is byte-identical. targetModelsShadowing is the
     // single source for the "codex doesn't shadow" decision (shared with conflictsCommand).
-    const conflicts = targetModelsShadowing(descriptor) ? analyzeConflicts(s.components).conflicts : [];
+    // Whether the governed volume folds case (Windows NTFS / macOS APFS default).
+    // Threaded into both conflict grouping and the #29 skillOverrides audit so a
+    // differently-cased name is treated as the SAME identity there (and stays
+    // distinct on a case-sensitive Linux volume).
+    const caseInsensitive = isCaseInsensitiveFs();
+    const conflicts = targetModelsShadowing(descriptor)
+      ? analyzeConflicts(s.components, { caseInsensitive }).conflicts
+      : [];
 
     /** @type {DoctorInput} */
     const input = {
@@ -128,6 +136,7 @@ export async function gatherDoctorInput({ configDir, mgrStateDir, descriptor, ac
       // directory-backed skill names it should point at. Codex → {} (no skillOverrides).
       skillOverrides: skillOverridesForTarget(descriptor, effective),
       skillDirs: skillNamesFromScan(s.components),
+      caseInsensitive, // #29 compares override keys vs skillDirs by case-folded identity here
       installedPlugins: s.plugins,
       marketplaces: s.marketplaces,
       conflicts,
