@@ -1,1 +1,16 @@
+# Default: normalize text to LF in the repo (keeps the sh wrapper + hashed
+# source stable across Windows/macOS/Linux clones).
 * text=auto eol=lf
+
+# The POSIX wrapper MUST stay LF or it will not execute on macOS/Linux.
+*.sh text eol=lf
+
+# Go sources: LF (gofmt-friendly, matches the default).
+*.go text eol=lf
+
+# Never treat committed binaries as text.
+*.exe binary
+
+# Test fixtures are HASH-SENSITIVE: git must never apply EOL/encoding
+# conversion to them, or snapshot/rollback hashes would differ per platform.
+test/fixtures/** -text

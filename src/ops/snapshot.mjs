@@ -32,7 +32,7 @@
  */
 
 import { join, basename, dirname } from 'node:path';
-import { readFileSync, mkdirSync, unlinkSync, rmdirSync } from 'node:fs';
+import { readFileSync, lstatSync, mkdirSync, unlinkSync, rmdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { snapshotDirHashes, checkSpawnWriteBoundary } from '../lib/spawn-write-boundary.mjs';
@@ -89,14 +89,22 @@ function sha256Hex(buf) {
  * of the readable files is still useful; mirrors buildManifest's skip-malformed
  * tolerance). Hashing happens BEFORE tar so the hash is point-in-time.
  *
+ * Also captures each file's POSIX permission bits (`mode`) via lstat so a POSIX
+ * rollback can chmod the restored file back (buildManifest masks to 0o777). This
+ * is BEST-EFFORT and orthogonal to content: an lstat failure omits `mode` (→
+ * restore skips chmod) but the file is still hashed + captured. lstat (not stat)
+ * keeps the walk's never-follow-symlink invariant; kept files are all regular
+ * files, so lstat === stat here anyway.
+ *
  * @param {string} baseDir   absolute root the rel-paths resolve under
  * @param {string[]} kept    POSIX-relative kept paths (from the filter)
  * @param {(p:string)=>Buffer} readFileFn
+ * @param {(p:string)=>{mode:number}} lstatFn
  * @param {DiagnosticBag} bag
- * @returns {Array<{path:string, sha256:string}>}
+ * @returns {Array<{path:string, sha256:string, mode?:number}>}
  */
-function hashKeptFiles(baseDir, kept, readFileFn, bag) {
-  /** @type {Array<{path:string, sha256:string}>} */
+function hashKeptFiles(baseDir, kept, readFileFn, lstatFn, bag) {
+  /** @type {Array<{path:string, sha256:string, mode?:number}>} */
   const records = [];
   for (const rel of kept) {
     const abs = join(baseDir, ...rel.split('/'));
@@ -110,7 +118,9 @@ function hashKeptFiles(baseDir, kept, readFileFn, bag) {
       });
       continue;
     }
-    records.push({ path: rel, sha256: sha256Hex(buf) });
+    const rec = { path: rel, sha256: sha256Hex(buf) };
+    try { rec.mode = lstatFn(abs).mode; } catch { /* mode unavailable — content-only record */ }
+    records.push(rec);
   }
   return records;
 }
@@ -263,6 +273,27 @@ async function archiveWithBoundary(tarOpts, dir, bag) {
 }
 
 /**
+ * Resolve createSnapshot's injectable fs/tar seams to their defaults. Extracted so
+ * createSnapshot stays under the function-SLOC ceiling; behaviour-identical to the
+ * former inline block. `spawnFn` is intentionally left undefined by default (→
+ * createSnapshotTar falls back to safeSpawn); the D2 cleanup seams (unlink/rmdir)
+ * are the targeted, EMPTY-only removers the failure path uses.
+ * @param {object} [seams]
+ */
+function resolveSnapshotSeams(seams) {
+  const s = seams && typeof seams === 'object' ? seams : {};
+  return {
+    resolveFn: s.resolveFn ?? resolveTar,
+    spawnFn: s.spawnFn,
+    readFileFn: s.readFileFn ?? readFileSync,
+    lstatFn: s.lstatFn ?? lstatSync,
+    mkdirFn: s.mkdirFn ?? defaultMkdir,
+    unlinkFn: s.unlinkFn ?? unlinkSync,
+    rmdirFn: s.rmdirFn ?? rmdirSync,
+  };
+}
+
+/**
  * Create a snapshot of `targetClaudeDir` into `<mgrStateDir>/snapshots/<id>/`.
  * Wires walk → secrets-filter → hash → tar → manifest. Pure orchestration over
  * injectable seams; NEVER throws — every failure yields a Diagnostic + ok:false
@@ -292,7 +323,7 @@ async function archiveWithBoundary(tarOpts, dir, bag) {
  * @param {import('./snapshot-walk.mjs').SnapshotScope} [opts.scope]  per-target capture
  *   scope forwarded to walkSnapshotScope (default: Claude). Codex passes descriptor.snapshotScope.
  * @param {() => Date} [opts.now]               clock injection (defaults to Date)
- * @param {object} [opts.seams]                 { resolveFn, spawnFn, readFileFn, mkdirFn, unlinkFn, rmdirFn }
+ * @param {object} [opts.seams]                 { resolveFn, spawnFn, readFileFn, lstatFn, mkdirFn, unlinkFn, rmdirFn }
  * @returns {Promise<SnapshotResult>}
  */
 export async function createSnapshot(opts) {
@@ -301,14 +332,7 @@ export async function createSnapshot(opts) {
   const { targetClaudeDir, mgrStateDir, reason = '', includeAuth = false, dryRun = false,
     skipSecretFilter = false, assertWritable, scope } = o;
   const now = typeof o.now === 'function' ? o.now : () => new Date();
-  const seams = o.seams && typeof o.seams === 'object' ? o.seams : {};
-  const resolveFn = seams.resolveFn ?? resolveTar;
-  const spawnFn = seams.spawnFn; // undefined → createSnapshotTar uses safeSpawn
-  const readFileFn = seams.readFileFn ?? readFileSync;
-  const mkdirFn = seams.mkdirFn ?? defaultMkdir;
-  // D2 cleanup seams: targeted unlink + EMPTY-only rmdir (never recursive).
-  const unlinkFn = seams.unlinkFn ?? unlinkSync;
-  const rmdirFn = seams.rmdirFn ?? rmdirSync;
+  const { resolveFn, spawnFn, readFileFn, lstatFn, mkdirFn, unlinkFn, rmdirFn } = resolveSnapshotSeams(o.seams);
 
   /** @type {SnapshotResult} */
   const empty = {
@@ -382,8 +406,9 @@ export async function createSnapshot(opts) {
     };
   };
 
-  // 6. Hash each KEPT file (point-in-time, before tar). Unreadable → skip + warn.
-  const records = hashKeptFiles(targetClaudeDir, filter.kept, readFileFn, bag);
+  // 6. Hash each KEPT file (point-in-time, before tar) + capture its mode via
+  //    lstat. Unreadable → skip + warn; un-stat'able → captured without mode.
+  const records = hashKeptFiles(targetClaudeDir, filter.kept, readFileFn, lstatFn, bag);
 
   // 7. Validate the .mgr-state destination through the gate, then mkdir it.
   try { assertWritable(archivePath, 'apply'); }

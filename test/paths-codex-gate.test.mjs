@@ -14,13 +14,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
 import { makeAssertWritable, CLAUDE_WRITE_SURFACE, WriteForbiddenError, assertWritable, MGR_STATE_DIRNAME } from '../src/paths.mjs';
 import { codexDescriptor } from '../src/targets/codex.mjs';
 
 /** Build a codex-bound gate over a fresh temp `~/.codex`-shaped dir. */
 function withCodexGate(fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-codex-gate-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-codex-gate-')));
   const stateDir = join(dir, MGR_STATE_DIRNAME);
   const gate = makeAssertWritable({ configDir: dir, mgrStateDir: stateDir, surface: codexDescriptor.writeSurface });
   try {
@@ -199,7 +199,7 @@ test('codex gate: an unknown path under the config dir -> write-not-allowed', ()
 
 test('drift guard: makeAssertWritable(CLAUDE_WRITE_SURFACE) matches the default assertWritable', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-driftguard-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-driftguard-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const gate = makeAssertWritable({ configDir: dir, mgrStateDir: join(dir, MGR_STATE_DIRNAME), surface: CLAUDE_WRITE_SURFACE });
@@ -248,7 +248,7 @@ const CONFIG_EDIT_SURFACE = Object.freeze({
 
 /** Build a gate over a fresh temp dir with a given surface. */
 function withGate(surface, fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-ce-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-ce-')));
   const gate = makeAssertWritable({ configDir: dir, mgrStateDir: join(dir, MGR_STATE_DIRNAME), surface });
   try { fn({ dir, gate }); } finally { rmSync(dir, { recursive: true, force: true }); }
 }

@@ -16,7 +16,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import { setMcpEnabledClaude } from '../../src/ops/mcp-toggle.mjs';
 import { stashExists, readStash } from '../../src/ops/mcp-stash.mjs';
 import { makeAssertWritable, MGR_STATE_DIRNAME } from '../../src/paths.mjs';
@@ -24,7 +24,7 @@ import { makeAssertWritable, MGR_STATE_DIRNAME } from '../../src/paths.mjs';
 const CFG = { command: 'npx', args: ['-y', '@upstash/context7-mcp'], type: 'stdio', timeout: 30000 };
 
 async function withTree(fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-mcptoggle-rt-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-mcptoggle-rt-')));
   const stateDir = join(dir, MGR_STATE_DIRNAME);
   mkdirSync(stateDir, { recursive: true });
   const gate = makeAssertWritable({ configDir: dir, mgrStateDir: stateDir });

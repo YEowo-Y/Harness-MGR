@@ -36,6 +36,7 @@ import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { KNOWN_TOP_DIRS } from './settings.mjs';
+import { isAppleMetadata } from '../lib/apple-metadata.mjs';
 
 /**
  * Files that legitimately live directly in a Claude Code config root. This list
@@ -271,6 +272,7 @@ function classifyTopLevel(rootDir, ownTopDirs, tables, bag) {
     const name = entry.name;
     const entryType = resolveEntryType(entry, rootDir);
     if (entryType === null) continue;
+    if (isAppleMetadata(name)) continue; // .DS_Store/._*/.AppleDouble are not orphans (mac noise)
     if (ownTopDirs.has(name)) continue;
 
     if (entryType === 'dir') {
@@ -320,6 +322,7 @@ function collectSoftOrphans(rootDir, componentDirsPresent, componentDirs, bag) {
       const name = entry.name;
       const entryType = resolveEntryType(entry, subDir);
       if (entryType === null || entryType === 'dir') continue; // dirs are not flagged
+      if (isAppleMetadata(name)) continue; // .DS_Store/._* inside skills/agents/commands are not orphans
 
       if (isSoftOrphanForLayout(name, layout)) {
         soft.push({ category: 'soft', entryType: 'file', name, path: join(subDir, name), container, reason: softOrphanReason(layout, container) });

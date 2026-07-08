@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, realpathSync } from 'node:fs';
 import { setMcpEnabledClaude } from '../src/ops/mcp-toggle.mjs';
 import { writeStash, readStash, stashExists } from '../src/ops/mcp-stash.mjs';
 import { makeAssertWritable, MGR_STATE_DIRNAME } from '../src/paths.mjs';
@@ -24,7 +24,7 @@ const CFG_HEADERS = { type: 'http', url: 'https://x/mcp', headers: { Authorizati
 // `try { return fn() } finally { rmSync }` would delete the temp dir MID-RUN (the cleanup
 // race the config-edit-codex-roundtrip helper documents).
 async function withTree(fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-mcptoggle-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-mcptoggle-')));
   const stateDir = join(dir, MGR_STATE_DIRNAME);
   mkdirSync(stateDir, { recursive: true });
   const gate = makeAssertWritable({ configDir: dir, mgrStateDir: stateDir });

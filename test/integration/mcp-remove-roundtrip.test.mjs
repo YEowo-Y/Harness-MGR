@@ -27,7 +27,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -68,7 +68,7 @@ function makeFakeSpawn() {
 
 /** Build a temp governed ~/.claude tree with a `.mcp.json` server + unrelated files. */
 function makeTree() {
-  const tmp = mkdtempSync(join(tmpdir(), 'mgr-mcp-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'mgr-mcp-')));
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
 
@@ -150,7 +150,7 @@ test('mcp-remove-roundtrip: .mcp.json with token-shaped content is captured (ski
   if (!tarPath) { t.skip('system tar not found — skipping'); return; }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'mgr-mcp-secret-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'mgr-mcp-secret-')));
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
 

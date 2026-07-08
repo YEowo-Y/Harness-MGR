@@ -24,7 +24,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSnapshot } from '../../src/ops/snapshot.mjs';
@@ -58,7 +58,7 @@ test('codex rollback round-trip: restores config.toml + skills byte-identical, z
     return;
   }
 
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-codex-rb-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-codex-rb-')));
   const stateDir = join(tmp, MGR_STATE_DIRNAME);
   mkdirSync(stateDir, { recursive: true });
   // The REAL codex-bound gate: bound to the temp ~/.codex + the codex rollback surface.

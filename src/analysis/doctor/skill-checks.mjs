@@ -24,6 +24,8 @@
  * @typedef {import('../../lib/diagnostic.mjs').Diagnostic} Diagnostic
  */
 
+import { identityKey } from '../../lib/name-identity.mjs';
+
 /** Reject prototype keys when iterating a user/config-authored map (pollution-safe). */
 function isSafeKey(key) {
   return key !== '__proto__' && key !== 'constructor' && key !== 'prototype';
@@ -40,13 +42,23 @@ function isSafeKey(key) {
 function checkSkillOverridesOrphaned(input) {
   const overrides = input && input.skillOverrides;
   if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) return [];
-  const dirs = new Set(Array.isArray(input.skillDirs) ? input.skillDirs.filter((n) => typeof n === 'string') : []);
+  // Compare override keys to directory-backed skill names by DERIVED identity
+  // (NFC + case fold on a case-insensitive volume), so skillOverrides['myskill']
+  // is NOT falsely flagged as orphaned when the on-disk dir is 'MySkill' on
+  // Windows/macOS — while a Linux (case-sensitive) volume keeps the exact match.
+  const ci = input.caseInsensitive === true;
+  const dirs = new Set(
+    (Array.isArray(input.skillDirs) ? input.skillDirs.filter((n) => typeof n === 'string') : [])
+      .map((n) => identityKey(n, ci)),
+  );
   /** @type {Diagnostic[]} */
   const out = [];
   const seen = new Set();
   for (const name of Object.keys(overrides)) {
-    if (!isSafeKey(name) || seen.has(name) || dirs.has(name)) continue;
-    seen.add(name);
+    if (!isSafeKey(name)) continue;
+    const id = identityKey(name, ci);
+    if (seen.has(id) || dirs.has(id)) continue;
+    seen.add(id);
     out.push({
       severity: 'warn',
       code: 'skill-overrides-orphaned',

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -1731,6 +1732,21 @@ func main() {
 
 	if *snapshot {
 		os.Exit(runSnapshot(cliPath))
+	}
+
+	// Pre-flight: the interactive TUI shells out to `node <cli> ...` for every
+	// data fetch (fetchInventory et al.). If node is not on PATH, every tab would
+	// otherwise surface the same opaque per-fetch error. This is common on a macOS
+	// GUI launch, where Finder/Dock hand the process a minimal PATH that omits
+	// Homebrew/nvm node dirs. Fail fast here with a clear, actionable message.
+	// (Headless --probe/--snapshot exit above and keep their plain node-error
+	// output unchanged, so tests/CI behavior is untouched.)
+	if _, err := exec.LookPath("node"); err != nil {
+		fmt.Fprintln(os.Stderr, "harness-mgr: Node.js was not found on your PATH.")
+		fmt.Fprintln(os.Stderr, "The TUI drives the harness-mgr Node CLI, so Node (>=24) must be installed and on PATH.")
+		fmt.Fprintln(os.Stderr, "  • Install Node.js from https://nodejs.org (on macOS: `brew install node`).")
+		fmt.Fprintln(os.Stderr, "  • If you launched from the macOS Dock/Finder, start it from a terminal instead so your shell PATH is inherited.")
+		os.Exit(1)
 	}
 
 	// Mouse capture is intentionally NOT enabled: the splash is dismissed by any

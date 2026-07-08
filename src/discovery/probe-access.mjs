@@ -11,6 +11,12 @@
  *                            locks; shared locks held by other readers will not
  *                            surface. This is the honest behaviour for a
  *                            dry-run tool that only reads.
+ *                            WINDOWS-ONLY: on POSIX a shared read-open never
+ *                            fails because of another process's lock (only on a
+ *                            real EACCES/EPERM permission error), so classifying
+ *                            that as 'locked' would be a false positive with
+ *                            Windows wording. The probe reports 'unsupported' off
+ *                            win32 (mirrors #24) and the doctor then skips #17.
  *
  *   #24 insecure-permissions — icacls-based ACL probe (async, Windows only).
  *                            Reads the ACL of .mgr-state/ via a read-only
@@ -34,10 +40,11 @@ import { safeSpawn } from '../lib/safe-spawn.mjs';
 /**
  * @typedef {Object} LockFact
  * @property {string} path    absolute path to the file that was probed
- * @property {'free'|'locked'|'absent'|'indeterminate'} status
+ * @property {'free'|'locked'|'absent'|'unsupported'|'indeterminate'} status
  *   - free          opened and closed with no error (no exclusive lock detected)
  *   - locked        OS returned EBUSY / EACCES / EPERM / ELOCK (file locked)
  *   - absent        ENOENT — the file does not exist (benign; no settings.json)
+ *   - unsupported   platform is not win32 — lock detection is a Windows-only concern
  *   - indeterminate an unexpected error; cannot determine lock status
  */
 
@@ -72,12 +79,14 @@ function classifyError(err) {
 /**
  * Gather the passive settings.json lock fact for the doctor layer.
  *
- * @param {{ configDir?: string, openFn?: (path: string) => void }} opts
+ * @param {{ configDir?: string, openFn?: (path: string) => void, platform?: string }} opts
+ *   platform is injectable (defaults to process.platform); off win32 the probe
+ *   short-circuits to 'unsupported' since lock detection is Windows-only.
  * @returns {{ lock: LockFact | null, diagnostics: Diagnostic[] }}
  */
 export function gatherLockProbe(opts) {
   const bag = new DiagnosticBag();
-  const { configDir, openFn } = opts ?? {};
+  const { configDir, openFn, platform = process.platform } = opts ?? {};
 
   if (typeof configDir !== 'string' || configDir.length === 0) {
     bag.add({ severity: 'error', code: 'discover-bad-root', message: 'configDir must be a non-empty string', phase: 'access-probe' });
@@ -85,6 +94,15 @@ export function gatherLockProbe(opts) {
   }
 
   const target = join(configDir, 'settings.json');
+
+  // Lock detection is a Windows-only concern (see module header). Off win32 a
+  // shared read-open cannot fail on another process's lock, so report
+  // 'unsupported' rather than misclassifying a permission error as 'locked'.
+  // Placed AFTER configDir validation so a bad root still yields discover-bad-root.
+  if (platform !== 'win32') {
+    return { lock: { path: target, status: 'unsupported' }, diagnostics: bag.all() };
+  }
+
   const opener = typeof openFn === 'function' ? openFn : defaultOpenFn;
 
   /** @type {'free'|'locked'|'absent'|'indeterminate'} */

@@ -126,6 +126,7 @@ import { strOr, numOr } from './util.mjs';
  * @property {{tomlError: string|null, trustedProjects: string[], homeDir: string, leftoverStateTmp: {count: number, sample: string[]}}} [codexConfig]  codex facts (probe-codex-config); judged by #26/#27/#28. Only gathered for a codex target.
  * @property {Record<string, unknown>} [skillOverrides]  the merged Claude skillOverrides map (name → visibility state); judged by #29. Codex → {} (no skillOverrides concept).
  * @property {string[]} [skillDirs]  directory-backed skill names from the scan (the set skillOverrides governs); #29 flags an override key absent here.
+ * @property {boolean} [caseInsensitive]  whether the governed volume folds case (Windows/macOS default); #29 compares override keys vs skillDirs by NFC + case-folded identity when true.
  */
 
 /**

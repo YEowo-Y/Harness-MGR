@@ -141,9 +141,11 @@ export class WriteForbiddenError extends Error {
 /**
  * Normalize a path for prefix comparison: resolve symlinks where possible
  * (security L1 — resolve via realpathSync BEFORE the allowlist check so a
- * symlink cannot escape the allowlist), then lowercase-normalize on Windows
- * where the filesystem is case-insensitive. Falls back to a plain resolve when
- * the path does not yet exist (the common case for to-be-created files).
+ * symlink cannot escape the allowlist), then lowercase-normalize on a
+ * case-INSENSITIVE filesystem (Windows NTFS and the macOS APFS/HFS+ default) so a
+ * case-only variant of a governed path is not spuriously rejected. Linux stays
+ * exact-case. Falls back to a plain resolve when the path does not yet exist (the
+ * common case for to-be-created files).
  * @param {string} p
  * @returns {string}
  */
@@ -179,7 +181,11 @@ function canonical(p) {
     }
   }
   const norm = normalize(real);
-  return process.platform === 'win32' ? norm.toLowerCase() : norm;
+  // Case-fold on a case-INSENSITIVE filesystem (Windows NTFS + macOS APFS/HFS+
+  // default) so a differently-cased spelling of a governed path canonicalizes to
+  // the same allowlist key; Linux (case-sensitive) keeps the exact case.
+  const plat = process.platform;
+  return (plat === 'win32' || plat === 'darwin') ? norm.toLowerCase() : norm;
 }
 
 /**

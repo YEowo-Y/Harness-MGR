@@ -36,7 +36,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,7 +86,7 @@ test('chaos: recover --from-manifest restores a mutated tree despite a CORRUPT j
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-chaos-cj-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-chaos-cj-')));
   process.env.CLAUDE_CONFIG_DIR = tmp;
   process.env.HARNESS_MGR_ENABLE_WRITES = '1'; // arm the write factor for the --apply legs
   const stateDir = join(tmp, '.mgr-state');
@@ -151,7 +151,7 @@ test('chaos: recover --from-manifest RE-CREATES a DELETED target (the crash wind
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-chaos-cw-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-chaos-cw-')));
   process.env.CLAUDE_CONFIG_DIR = tmp;
   process.env.HARNESS_MGR_ENABLE_WRITES = '1';
   const stateDir = join(tmp, '.mgr-state');
@@ -198,7 +198,7 @@ test('chaos: recover --rollback advances an "applying" journal + restores the tr
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-chaos-rb-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-chaos-rb-')));
   process.env.CLAUDE_CONFIG_DIR = tmp;
   process.env.HARNESS_MGR_ENABLE_WRITES = '1';
   const stateDir = join(tmp, '.mgr-state');

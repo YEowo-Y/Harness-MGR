@@ -202,12 +202,32 @@ test('input object is not mutated', () => {
   assert.equal(input.nested.q, origQ, 'input.nested.q must not be mutated');
 });
 
-// ── 10. Win32 case-insensitivity ──────────────────────────────────────────────
+// ── 10. Case-insensitivity is platform-driven (win32 + macOS), exact on Linux ──
+// The active platform is injected (3rd arg) so these are deterministic on ANY
+// host — the old test could only run its assertion when the host itself was win32.
 
 test('win32 case-insensitivity: lowercase path matches against mixed-case homeDir', () => {
-  if (process.platform !== 'win32') return; // guard
   const homeDir = 'C:\\Users\\bob';
-  const input = 'c:\\users\\bob\\x';
-  const out = redactHomePaths(input, homeDir);
+  const out = redactHomePaths('c:\\users\\bob\\x', homeDir, 'win32');
   assert.equal(out, '~\\x', 'lowercase variant should be redacted on win32');
+});
+
+test('darwin case-insensitivity: mixed-case path is redacted (macOS FS is case-insensitive)', () => {
+  // Privacy regression guard for P0-2: on macOS a path that spells the home dir
+  // with different case still points at the same home and MUST be scrubbed.
+  const homeDir = '/Users/Bob';
+  const out = redactHomePaths('/users/bob/.claude/x', homeDir, 'darwin');
+  assert.equal(out, '~/.claude/x', 'macOS: differently-cased home path must still be redacted');
+});
+
+test('linux case-sensitivity: differently-cased path is NOT redacted (case-sensitive FS)', () => {
+  const homeDir = '/home/alice';
+  const out = redactHomePaths('/HOME/ALICE/x', homeDir, 'linux');
+  assert.equal(out, '/HOME/ALICE/x', 'Linux: a differently-cased path is a different path — not redacted');
+});
+
+test('linux exact-case path IS redacted', () => {
+  const homeDir = '/home/alice';
+  const out = redactHomePaths('/home/alice/x', homeDir, 'linux');
+  assert.equal(out, '~/x');
 });

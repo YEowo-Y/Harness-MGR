@@ -27,6 +27,7 @@ import { assertWritable } from '../paths.mjs';
 import { readJsonFile, isJsonObject } from './read-json.mjs';
 import { stableStringify } from '../output/json.mjs';
 import { isLeftoverSidecar } from '../lib/leftover-sidecars.mjs';
+import { isAppleMetadata } from '../lib/apple-metadata.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -123,6 +124,10 @@ function collectDirFiles(dir, configDir, files, depth = 0) {
   }
   for (const ent of entries) {
     if (ent.isSymbolicLink()) continue; // never follow symlinks
+    // Skip macOS Finder/AppleDouble metadata (.DS_Store, ._*, .AppleDouble) — a file
+    // OR a dir; before the isDirectory branch so .AppleDouble is never recursed into.
+    // Hashing these would make a Finder visit read as spurious config drift.
+    if (isAppleMetadata(ent.name)) continue;
     const abs = join(dir, ent.name);
     if (ent.isDirectory()) {
       collectDirFiles(abs, configDir, files, depth + 1);

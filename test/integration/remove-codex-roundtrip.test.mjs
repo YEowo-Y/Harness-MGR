@@ -14,7 +14,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { removeComponent } from '../../src/ops/remove.mjs';
@@ -30,7 +30,7 @@ function put(base, rel, bytes) {
 }
 
 function buildCodexTree() {
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-codex-rm-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-codex-rm-')));
   mkdirSync(join(tmp, MGR_STATE_DIRNAME), { recursive: true });
   put(tmp, 'config.toml', Buffer.from('model = "gpt-5.5"\n', 'utf8'));
   put(tmp, 'AGENTS.md', Buffer.from('# AGENTS\n', 'utf8'));

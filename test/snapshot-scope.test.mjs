@@ -241,6 +241,57 @@ test('a stranded .mgr-new / .mgr-old sidecar is NEVER captured into a snapshot',
   }
 });
 
+test('macOS Apple metadata (.DS_Store / ._* / .AppleDouble) is NEVER captured into a snapshot', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    writeFileAt(dir, 'agents/real.md');
+    writeFileAt(dir, 'agents/.DS_Store');            // Finder metadata FILE
+    writeFileAt(dir, 'skills/my-skill/SKILL.md');
+    writeFileAt(dir, 'skills/my-skill/._SKILL.md');   // AppleDouble sidecar
+    writeFileAt(dir, 'skills/.AppleDouble/data');      // AppleDouble DIR — must NOT be recursed into
+    writeFileAt(dir, 'hooks/.DS_Store');
+
+    const { files } = walkSnapshotScope({ targetClaudeDir: dir });
+    const fileSet = new Set(files);
+    // Real governed files ARE captured.
+    assert.equal(fileSet.has('agents/real.md'), true);
+    assert.equal(fileSet.has('skills/my-skill/SKILL.md'), true);
+    // Apple metadata is excluded (PRE-FIX ALL of these ARE captured).
+    assert.equal(fileSet.has('agents/.DS_Store'), false, '.DS_Store must be excluded');
+    assert.equal(fileSet.has('skills/my-skill/._SKILL.md'), false, '._* AppleDouble sidecar must be excluded');
+    assert.equal(fileSet.has('skills/.AppleDouble/data'), false, '.AppleDouble dir must not be recursed into');
+    assert.equal(fileSet.has('hooks/.DS_Store'), false);
+    // Belt: nothing captured is apple metadata.
+    for (const p of files) {
+      const base = p.split('/').pop();
+      assert.equal(base === '.DS_Store' || base === '.AppleDouble' || base.startsWith('._'), false, `${p} is apple metadata`);
+      assert.equal(p.includes('/.AppleDouble/'), false, `${p} is under an .AppleDouble dir`);
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test('case-insensitive exclusion (P2-2): a case-variant forbidden dir is folded out on darwin/win32, kept on linux', () => {
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    writeFileAt(dir, 'agents/x.md');
+    // A synthetic scope whose forbidden-top set overlaps the walked dir but in a
+    // DIFFERENT case, so the case-fold is the ONLY thing that can exclude it.
+    const scope = { walkDirs: ['agents'], topFiles: [], pluginFiles: [], excludeTop: ['AGENTS'], excludePrefixes: [] };
+    // darwin + win32 are case-insensitive → folded 'agents' === folded 'AGENTS' → excluded.
+    assert.deepStrictEqual(walkSnapshotScope({ targetClaudeDir: dir, scope, platform: 'darwin' }).files, [],
+      'case-variant forbidden dir is folded out on darwin');
+    assert.deepStrictEqual(walkSnapshotScope({ targetClaudeDir: dir, scope, platform: 'win32' }).files, [],
+      'and on win32');
+    // linux is case-sensitive → 'agents' !== 'AGENTS' → NOT excluded → captured.
+    assert.deepStrictEqual(walkSnapshotScope({ targetClaudeDir: dir, scope, platform: 'linux' }).files, ['agents/x.md'],
+      'a case-sensitive volume keeps a differently-cased name');
+  } finally {
+    cleanup();
+  }
+});
+
 // ── COMPLETENESS drift-guard: all 19 KNOWN_TOP_DIRS explicitly accounted for ──
 
 test('every KNOWN_TOP_DIR is explicitly decided (allowlist | plugins | exclusion)', () => {

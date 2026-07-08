@@ -10,7 +10,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveCommand } from '../src/lib/resolve-command.mjs';
@@ -29,7 +29,9 @@ test('bare name resolves when file exists in single-dir PATH', () => {
   const tmp = makeTmp();
   try {
     const name = process.platform === 'win32' ? 'tool.cmd' : 'tool';
-    writeFileSync(join(tmp, name), '#!/bin/sh\necho hi');
+    const filePath = join(tmp, name);
+    writeFileSync(filePath, '#!/bin/sh\necho hi');
+    chmodSync(filePath, 0o755); // real commands are executable — required for the POSIX X_OK check
     // Use the host platform so the PATH delimiter matches the host.
     const env = process.platform === 'win32'
       ? { PATH: tmp, PATHEXT: '.CMD' }
@@ -93,6 +95,7 @@ test('absolute path to existing file resolves', () => {
   try {
     const file = join(tmp, 'mything');
     writeFileSync(file, 'x');
+    chmodSync(file, 0o755); // executable so the POSIX X_OK check passes
     const r = resolveCommand(file, { platform: 'linux' });
     assert.equal(r.resolved, true);
     assert.equal(r.path, file);
@@ -151,7 +154,9 @@ test('multi-dir PATH: resolves from second dir when not in first', () => {
       assert.ok(r.path.startsWith(dirB), `expected from dirB, got: ${r.path}`);
     } else {
       cmdName = 'tool';
-      writeFileSync(join(dirB, 'tool'), '#!/bin/sh');
+      const toolPath = join(dirB, 'tool');
+      writeFileSync(toolPath, '#!/bin/sh');
+      chmodSync(toolPath, 0o755); // executable so the POSIX X_OK check passes
       const r = resolveCommand(cmdName, {
         env: { PATH: dirA + DELIM + dirB },
       });
@@ -183,4 +188,28 @@ test('empty PATH returns resolved:false without throwing', () => {
     assert.equal(r.resolved, false);
     assert.equal(r.path, null);
   });
+});
+
+// ── 10. Execute-bit requirement (P2-3) ───────────────────────────────────────
+// A regular, readable-but-NON-executable file must not count as a resolvable
+// command on POSIX (the OS loader would refuse it with EACCES). On Windows there
+// is no execute bit — executability is by extension — so X_OK is inert and a
+// readable file resolves. Asserted on BOTH host platforms (no skip): the branch
+// documents the real cross-platform difference.
+
+test('exec-bit: POSIX rejects a non-executable file; Windows resolves it (X_OK inert)', () => {
+  const tmp = makeTmp();
+  try {
+    const file = join(tmp, 'plainfile');
+    writeFileSync(file, 'not executable'); // fresh file → mode ~0644 on POSIX, no +x
+    const r = resolveCommand(file); // host platform + host filesystem
+    if (process.platform === 'win32') {
+      assert.equal(r.resolved, true, 'Windows: readable file resolves (no exec bit concept)');
+    } else {
+      assert.equal(r.resolved, false, 'POSIX: no execute bit → not resolvable');
+      assert.equal(r.path, null);
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 });

@@ -22,7 +22,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   mkdtempSync, mkdirSync, writeFileSync, readFileSync,
-  existsSync, rmSync, readdirSync,
+  existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,7 +65,7 @@ test('skill-removal-roundtrip: dry-run writes nothing; --apply removes dir; roll
   }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-skill-rm-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-skill-rm-')));
   process.env.CLAUDE_CONFIG_DIR = tmp;
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });

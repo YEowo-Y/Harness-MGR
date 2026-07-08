@@ -32,6 +32,8 @@ import { join, relative, sep } from 'node:path';
 import { readdirSync, lstatSync } from 'node:fs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { isLeftoverSidecar } from '../lib/leftover-sidecars.mjs';
+import { isAppleMetadata } from '../lib/apple-metadata.mjs';
+import { isCaseInsensitiveFs } from '../lib/name-identity.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -160,14 +162,14 @@ function toPosixRel(configDir, absPath) {
  * plugins/marketplaces/). The belt-and-suspenders filter applied to every emitted
  * candidate.
  * @param {string} rel
- * @param {{set: Set<string>, prefixes: ReadonlyArray<string>}} excl  top-segment + path-prefix exclusions
+ * @param {{set: Set<string>, prefixes: ReadonlyArray<string>, fold: (s:string)=>string}} excl  case-folded top-segment + path-prefix exclusions
  * @returns {boolean}
  */
 function isExcluded(rel, excl) {
-  const first = rel.split('/', 1)[0];
-  if (excl.set.has(first)) return true;
+  if (excl.set.has(excl.fold(rel.split('/', 1)[0]))) return true;
+  const folded = excl.fold(rel);
   for (const prefix of excl.prefixes) {
-    if (rel.startsWith(prefix)) return true;
+    if (folded.startsWith(prefix)) return true; // prefixes are pre-folded in excl
   }
   return false;
 }
@@ -199,6 +201,10 @@ function collectDirFiles(dir, configDir, out, excl, depth = 0) {
   }
   for (const ent of entries) {
     if (ent.isSymbolicLink()) continue; // never follow symlinks
+    // Skip macOS Finder/AppleDouble metadata (.DS_Store, ._*, .AppleDouble) — a file
+    // OR a dir; placed before the isDirectory branch so .AppleDouble is never recursed
+    // into. Not governed config; must never enter a snapshot archive.
+    if (isAppleMetadata(ent.name)) continue;
     const abs = join(dir, ent.name);
     if (ent.isDirectory()) {
       collectDirFiles(abs, configDir, out, excl, depth + 1);
@@ -224,7 +230,7 @@ function collectDirFiles(dir, configDir, out, excl, depth = 0) {
  * @param {string} configDir
  * @param {string} rel          POSIX-relative candidate
  * @param {string[]} out
- * @param {{set: Set<string>, prefixes: ReadonlyArray<string>}} excl
+ * @param {{set: Set<string>, prefixes: ReadonlyArray<string>, fold: (s:string)=>string}} excl
  */
 function addFileIfPresent(configDir, rel, out, excl) {
   if (isExcluded(rel, excl)) return; // belt-and-suspenders
@@ -246,11 +252,13 @@ function addFileIfPresent(configDir, rel, out, excl) {
  * @param {string} [opts.mgrStateDirname='.mgr-state'] self-exclusion dir name
  * @param {SnapshotScope} [opts.scope]               per-target capture scope (default:
  *   CLAUDE_SNAPSHOT_SCOPE). Codex passes its descriptor.snapshotScope via the CLI.
+ * @param {string} [opts.platform]                   OS id for the case-insensitive
+ *   exclusion match (default process.platform; win32/darwin fold, Linux exact).
  * @returns {SnapshotWalkResult}
  */
 export function walkSnapshotScope(opts) {
   const bag = new DiagnosticBag();
-  const { targetClaudeDir, mgrStateDirname = DEFAULT_MGR_STATE_DIRNAME } = opts ?? {};
+  const { targetClaudeDir, mgrStateDirname = DEFAULT_MGR_STATE_DIRNAME, platform } = opts ?? {};
   const scope = (opts && opts.scope && typeof opts.scope === 'object') ? opts.scope : CLAUDE_SNAPSHOT_SCOPE;
 
   if (typeof targetClaudeDir !== 'string' || targetClaudeDir.length === 0) {
@@ -265,7 +273,11 @@ export function walkSnapshotScope(opts) {
   // bundled with the scope's path-prefix exclusions (they travel together as `excl`).
   const stateDir = typeof mgrStateDirname === 'string' && mgrStateDirname.length > 0
     ? mgrStateDirname : DEFAULT_MGR_STATE_DIRNAME;
-  const excl = { set: new Set([...scope.excludeTop, stateDir]), prefixes: scope.excludePrefixes };
+  // Case-INSENSITIVE exclusion match on win32/darwin volumes (P2-2): fold the
+  // forbidden-top set + the path-prefixes + every candidate to one case, so a
+  // case-variant (e.g. `Sessions/`) can never evade the belt-and-suspenders filter.
+  const fold = isCaseInsensitiveFs(platform) ? (s) => s.toLowerCase() : (s) => s;
+  const excl = { set: new Set([...scope.excludeTop, stateDir].map(fold)), prefixes: scope.excludePrefixes.map(fold), fold };
 
   /** @type {string[]} */
   const out = [];

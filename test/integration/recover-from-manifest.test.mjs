@@ -22,7 +22,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -72,7 +72,7 @@ test('recover --from-manifest recovers a mutated tree despite a CORRUPT journal'
   }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-recover-fm-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-recover-fm-')));
   process.env.CLAUDE_CONFIG_DIR = tmp;
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
@@ -144,7 +144,7 @@ test('recover --rollback restores a DELETED target (the crash window) + marks jo
   if (!tarPath) { t.skip('system tar not found — skipping'); return; }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-recover-cw-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-recover-cw-')));
   process.env.CLAUDE_CONFIG_DIR = tmp;
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });

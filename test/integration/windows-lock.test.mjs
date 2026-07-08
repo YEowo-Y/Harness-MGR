@@ -37,7 +37,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -77,7 +77,7 @@ test('apply-lock contention: live-held BLOCKS the write, break + recover proceed
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-winlock-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-winlock-')));
   process.env.CLAUDE_CONFIG_DIR = tmp;
   process.env.HARNESS_MGR_ENABLE_WRITES = '1'; // arm the write factor for every --apply leg
   const stateDir = join(tmp, '.mgr-state');

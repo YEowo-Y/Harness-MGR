@@ -20,6 +20,7 @@
 
 import { scan } from '../discovery/scan.mjs';
 import { analyzeConflicts } from '../analysis/conflicts.mjs';
+import { isCaseInsensitiveFs } from '../lib/name-identity.mjs';
 import { analyzeDisposition } from '../analysis/disposition.mjs';
 import { analyzeCoexistence, targetModelsShadowing } from '../analysis/codex-coexistence.mjs';
 import { loaderConfidence } from '../analysis/load-order.mjs';
@@ -81,8 +82,9 @@ export function conflictsCommand(ctx) {
     return { result: { conflicts: [], dispositions: [], coexistence }, diagnostics };
   }
 
-  // CLAUDE (default): the verified shadowing model (byte-identical to the pre-split handler).
-  const c = analyzeConflicts(s.components);
+  // CLAUDE (default): the verified shadowing model. caseInsensitive folds case-only
+  // shadows on a Windows/macOS volume (NFC folding applies on every platform).
+  const c = analyzeConflicts(s.components, { caseInsensitive: isCaseInsensitiveFs() });
   let conflicts = c.conflicts;
   if (re) conflicts = conflicts.filter((cl) => re.test(cl.key));
 

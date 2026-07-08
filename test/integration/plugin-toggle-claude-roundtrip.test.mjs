@@ -17,7 +17,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setPluginEnabledClaude } from '../../src/ops/plugin-toggle.mjs';
@@ -45,7 +45,7 @@ function put(base, rel, bytes) {
 
 /** A realistic temp ~/.claude with settings.json + the dirs the default Claude scope walks. */
 function buildClaudeTree() {
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-claude-plugtoggle-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-claude-plugtoggle-')));
   mkdirSync(join(tmp, MGR_STATE_DIRNAME), { recursive: true });
   put(tmp, 'settings.json', Buffer.from(SETTINGS, 'utf8'));
   put(tmp, 'CLAUDE.md', Buffer.from('# CLAUDE\n', 'utf8'));

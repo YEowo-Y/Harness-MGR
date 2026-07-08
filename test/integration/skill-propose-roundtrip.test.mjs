@@ -32,7 +32,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -84,7 +84,7 @@ function allFilePaths(dir) {
 test('skill propose CLI roundtrip: dry-run → apply (only .proposed written, SKILL.md untouched) → no-change → gate-locked', async () => {
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-propose-cli-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-propose-cli-')));
   const stateDir = join(tmp, '.mgr-state');
   // A --from source OUTSIDE the config dir (design §1: content comes from the user).
   const fromFile = join(mkdtempSync(join(tmpdir(), 'cmgr-propose-src-')), 'proposed.md');

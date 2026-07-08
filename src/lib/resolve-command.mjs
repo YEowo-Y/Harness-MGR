@@ -12,27 +12,40 @@
  *   - Uses the host node:path for join/isAbsolute/sep (fs.statSync is always host-bound).
  *   - The injected `platform` controls ONLY PATHEXT usage and PATH delimiter, not
  *     path.win32 vs path.posix (which would break statSync on the host).
- *   - A matching directory name does NOT count (isFile check rejects it).
+ *   - A matching directory name does NOT count (the isExecutableFile check rejects it).
+ *   - On POSIX a non-executable regular file does NOT count (no execute bit → the
+ *     OS loader would refuse it); on Windows executability is by extension (PATHEXT).
  *
  * Zero npm dependencies; node:fs and node:path only.
  */
 
-import { statSync } from 'node:fs';
+import { statSync, accessSync, constants } from 'node:fs';
 import { join, isAbsolute, resolve } from 'node:path';
 
 /** Default PATHEXT when env.PATHEXT is missing on Windows. */
 const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
 
 /**
- * Decide whether `p` is an existing regular file. Uses statSync so it is
- * synchronous and requires no child process. Returns false on any error
+ * Decide whether `p` is a regular file the OS loader would actually run.
+ * Uses statSync (synchronous, no child process). Returns false on any error
  * (ENOENT, EACCES, etc.) and explicitly rejects directories.
+ *
+ * On POSIX (win=false) a regular file is only launchable if it has the execute
+ * bit, so an additional accessSync(X_OK) is required — otherwise a readable but
+ * non-executable file that happens to share a command's name (e.g. a stray
+ * README) would be falsely reported as resolvable, then EACCES at spawn time.
+ * On Windows executability is decided by extension (PATHEXT), not a mode bit, and
+ * X_OK is inert, so no exec-bit check is applied there.
+ *
  * @param {string} p absolute candidate path
+ * @param {boolean} win whether the target platform is Windows (skip the X_OK check)
  * @returns {boolean}
  */
-function isFile(p) {
+function isExecutableFile(p, win) {
   try {
-    return statSync(p).isFile();
+    if (!statSync(p).isFile()) return false;
+    if (!win) accessSync(p, constants.X_OK);
+    return true;
   } catch {
     return false;
   }
@@ -105,7 +118,7 @@ export function resolveCommand(command, opts = {}) {
     const base = isAbsolute(cmd) ? cmd : resolve(cwd, cmd);
     for (const ext of exts) {
       const candidate = base + ext;
-      if (isFile(candidate)) return { resolved: true, path: candidate };
+      if (isExecutableFile(candidate, win)) return { resolved: true, path: candidate };
     }
     return { resolved: false, path: null };
   }
@@ -113,7 +126,7 @@ export function resolveCommand(command, opts = {}) {
   for (const dir of pathDirs(env, win)) {
     for (const ext of exts) {
       const candidate = join(dir, cmd + ext);
-      if (isFile(candidate)) return { resolved: true, path: candidate };
+      if (isExecutableFile(candidate, win)) return { resolved: true, path: candidate };
     }
   }
   return { resolved: false, path: null };

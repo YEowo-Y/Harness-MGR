@@ -17,7 +17,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setComponentEnabled } from '../../src/ops/config-edit.mjs';
@@ -62,7 +62,7 @@ function put(base, rel, bytes) {
 
 /** A realistic temp ~/.codex with config.toml + the dirs the codex scope walks. */
 function buildCodexTree() {
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-codex-cfgedit-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-codex-cfgedit-')));
   mkdirSync(join(tmp, MGR_STATE_DIRNAME), { recursive: true });
   put(tmp, 'config.toml', Buffer.from(CONFIG, 'utf8'));
   put(tmp, 'AGENTS.md', Buffer.from('# AGENTS\n', 'utf8'));
