@@ -27,7 +27,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync,
+  mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync, rmSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,7 +65,7 @@ test('config diff snapshot roundtrip: manifest + content over two real snapshots
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnable = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-snapdiff-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-snapdiff-')));
   const stateDir = join(tmp, '.mgr-state');
 
   try {

@@ -24,6 +24,7 @@
  * Zero npm dependencies. Node stdlib only.
  */
 
+import { statSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
 import { isJsonObject } from './read-json.mjs';
 import { resolveCommand } from '../lib/resolve-command.mjs';
@@ -71,13 +72,25 @@ function resolveStatus(cls, opts) {
   if (cls.kind === 'file') {
     const baseCwd = typeof opts.cwd === 'string' ? opts.cwd : process.cwd();
     const abs = isAbsolute(cls.target) ? cls.target : resolve(baseCwd, cls.target);
-    const { resolved } = resolveCommand(abs, opts);
-    return resolved ? 'found' : 'missing';
+    // #3 is "hook-file-EXISTS" — check EXISTENCE, not executability. A hook script is
+    // either an interpreter argument (node foo.mjs) or a direct path (./hook.sh); in
+    // BOTH cases #3's job is "does the file exist", so it must NOT be routed through
+    // resolveCommand — whose P2-3 X_OK gate (correct for the #2/#5 EXTERNAL-executable
+    // checks) would false-flag every non-chmod-+x `node hooks/*.mjs` as missing on
+    // macOS/Linux, since interpreter-run .mjs scripts are never marked executable.
+    return existsAsFile(abs) ? 'found' : 'missing';
   }
 
-  // 'external': bare command name, PATH-searched
+  // 'external': bare command name, PATH-searched (X_OK-gated — must be launchable).
   const { resolved } = resolveCommand(cls.target, opts);
   return resolved ? 'found' : 'missing';
+}
+
+/** True when `p` is an existing regular file — EXISTENCE only, no execute-bit
+ *  requirement (unlike resolveCommand's X_OK, which #2/#5 need for real executables).
+ *  Never throws. This is exactly what #3 "hook-file-exists" asks. */
+function existsAsFile(p) {
+  try { return statSync(p).isFile(); } catch { return false; }
 }
 
 /**

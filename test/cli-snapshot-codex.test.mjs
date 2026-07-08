@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
 import { resolveAssertWritable } from '../src/cli/write-gate.mjs';
 import { assertWritable, makeAssertWritable, WriteForbiddenError, MGR_STATE_DIRNAME } from '../src/paths.mjs';
 import { createSnapshot } from '../src/ops/snapshot.mjs';
@@ -21,7 +21,7 @@ test('resolveAssertWritable: a Claude ctx (no writeSurface) returns the bare pat
 });
 
 test('resolveAssertWritable: a Codex ctx returns a gate bound to the codex dirs + surface', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-raw-codex-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-raw-codex-')));
   const stateDir = join(dir, MGR_STATE_DIRNAME);
   try {
     const gate = resolveAssertWritable(PATHS, { descriptor: codexDescriptor, configDir: dir, mgrStateDir: stateDir });
@@ -42,7 +42,7 @@ test('resolveAssertWritable: never throws on a degenerate ctx (falls back to def
 });
 
 test('createSnapshot dry-run with codex scope keeps the governed surface, drops nothing governed, sees no secrets', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-codex-create-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-codex-create-')));
   try {
     const put = (rel, c = 'x') => {
       const abs = join(dir, ...rel.split('/'));
@@ -77,7 +77,7 @@ test('createSnapshot dry-run with codex scope keeps the governed surface, drops 
 });
 
 test('reversibility: a secret-shaped config.toml is DROPPED standalone but KEPT under keepAll (so rollback can restore it)', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-codex-rev-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-codex-rev-')));
   try {
     const put = (rel, c) => {
       const abs = join(dir, ...rel.split('/'));

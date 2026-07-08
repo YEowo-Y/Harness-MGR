@@ -30,7 +30,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -105,7 +105,7 @@ const tarAvailable = (() => {
 test('skill accept CLI roundtrip: dry-run → apply (overwrite + reversible) → stale → ambiguous', { skip: tarAvailable ? false : 'system tar not available' }, async () => {
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-accept-cli-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-accept-cli-')));
   const stateDir = join(tmp, '.mgr-state');
   const srcDir = mkdtempSync(join(tmpdir(), 'cmgr-accept-src-'));
   const fromFile = join(srcDir, 'proposed.md');

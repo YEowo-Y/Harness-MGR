@@ -402,6 +402,71 @@ test('verifyManifest: files not an array -> files-invalid', () => {
   assert.equal(v.diagnostics.filter((d) => d.code === 'manifest-files-invalid').length, 1);
 });
 
+// ── mode (v2: OPTIONAL POSIX permission bits) ─────────────────────────────────
+
+test('MANIFEST_VERSION is 2 (the mode-bearing schema)', () => {
+  assert.equal(MANIFEST_VERSION, 2);
+});
+
+test('buildManifest: a capture mode is carried onto the record, masked to 0o777', () => {
+  const { manifest } = buildManifest({
+    snapshotId: FIXED_ID, targetClaudeDir: TARGET, now: FIXED_NOW,
+    files: [{ path: 'hooks/run.sh', sha256: 'h', mode: 0o100755 }], // a full lstat mode
+  });
+  assert.equal(manifest.files.length, 1);
+  assert.equal(manifest.files[0].mode, 0o755, 'the lstat mode is masked to the 0o777 permission bits');
+});
+
+test('buildManifest: an absent capture mode omits the field entirely (v1-shaped record)', () => {
+  const { manifest } = buildManifest({
+    snapshotId: FIXED_ID, targetClaudeDir: TARGET, now: FIXED_NOW,
+    files: [{ path: 'a.md', sha256: 'h' }], // no mode
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(manifest.files[0], 'mode'), false);
+});
+
+test('buildManifest: mode 0 is a VALID captured mode → carried, NOT omitted as if absent', () => {
+  // normalizeMode(0) returns 0 (not null), so mode:0 is a distinct stored value — this
+  // guards against an `if (mode !== null)` → `if (mode)` truthiness simplification that
+  // would silently drop a legitimate 0o000 permission record.
+  const { manifest } = buildManifest({
+    snapshotId: FIXED_ID, targetClaudeDir: TARGET, now: FIXED_NOW,
+    files: [{ path: 'locked', sha256: 'h', mode: 0 }],
+  });
+  assert.equal(Object.prototype.hasOwnProperty.call(manifest.files[0], 'mode'), true, 'mode 0 is carried');
+  assert.equal(manifest.files[0].mode, 0);
+});
+
+test('buildManifest: a non-integer / negative capture mode is dropped (fail-safe → no mode)', () => {
+  for (const bad of [-1, 1.5, NaN, 'rwx', null]) {
+    const { manifest } = buildManifest({
+      snapshotId: FIXED_ID, targetClaudeDir: TARGET, now: FIXED_NOW,
+      files: [{ path: 'a.md', sha256: 'h', mode: bad }],
+    });
+    assert.equal(Object.prototype.hasOwnProperty.call(manifest.files[0], 'mode'), false, `mode ${String(bad)} must be dropped`);
+  }
+});
+
+test('verifyManifest: a valid in-range mode passes', () => {
+  const m = { ...builtManifest(), files: [{ path: 'x', preSha256: 'h', currentSha256: 'h', mode: 0o644 }] };
+  assert.equal(verifyManifest(m).ok, true);
+});
+
+test('verifyManifest: an out-of-range / non-integer mode -> file-mode-invalid', () => {
+  for (const bad of [0o7777, -1, 1.5, 'x']) {
+    const m = { ...builtManifest(), files: [{ path: 'x', preSha256: 'h', currentSha256: 'h', mode: bad }] };
+    const v = verifyManifest(m);
+    assert.equal(v.ok, false, `mode ${String(bad)} must be rejected`);
+    assert.equal(v.diagnostics.filter((d) => d.code === 'manifest-file-mode-invalid').length, 1);
+  }
+});
+
+test('verifyManifest: a v1 manifest (version 1, no mode) still verifies under the v2 tool (backward read compat)', () => {
+  const m = { ...builtManifest(), manifestVersion: 1 };
+  assert.ok(m.files.every((f) => !('mode' in f)), 'v1-shaped records carry no mode');
+  assert.equal(verifyManifest(m).ok, true);
+});
+
 // ── never-throws robustness ───────────────────────────────────────────────────
 
 test('buildManifest: null/undefined opts -> never throws, manifest null', () => {
@@ -448,6 +513,7 @@ test('all manifest diagnostic codes are distinct kebab strings prefixed manifest
     'manifest-reason-invalid',
     'manifest-target-mismatch',
     'manifest-file-entry-invalid',
+    'manifest-file-mode-invalid',
   ];
   assert.equal(new Set(KNOWN_CODES).size, KNOWN_CODES.length, 'codes must be distinct');
   for (const code of KNOWN_CODES) {

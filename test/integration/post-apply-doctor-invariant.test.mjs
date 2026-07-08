@@ -45,7 +45,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync,
+  mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -101,7 +101,7 @@ test('post-apply doctor invariant #44: remove path leaves doctor exit <=1', asyn
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-inv44-rm-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-inv44-rm-')));
 
   try {
     put(tmp, 'agents/foo.md', Buffer.from('---\nname: foo\n---\n# agent foo\n', 'utf8'));
@@ -140,7 +140,7 @@ test('post-apply doctor invariant #44: cascade path leaves doctor exit <=1', asy
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-inv44-cascade-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-inv44-cascade-')));
 
   try {
     // skills/trace/SKILL.md references agent:tracer via frontmatter `agent: tracer`,
@@ -182,7 +182,7 @@ test('post-apply doctor invariant #44: update path leaves doctor exit <=1', asyn
   }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-inv44-update-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-inv44-update-')));
   const stateDir = join(tmp, '.mgr-state');
 
   try {
@@ -230,7 +230,7 @@ test('post-apply doctor invariant #44: mcp-write path leaves doctor exit <=1', a
   }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-inv44-mcp-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-inv44-mcp-')));
   const stateDir = join(tmp, '.mgr-state');
 
   try {

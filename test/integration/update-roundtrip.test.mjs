@@ -29,7 +29,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,7 +78,7 @@ function makeFakeSpawn() {
  *  a couple of unrelated governed files so the snapshot has real content. Returns
  *  the dir paths + the on-disk sha of installed_plugins.json. */
 function makeTree() {
-  const tmp = mkdtempSync(join(tmpdir(), 'mgr-update-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'mgr-update-')));
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
 
@@ -200,7 +200,7 @@ test('update-roundtrip: installed_plugins.json with token-shaped content is capt
   if (!tarPath) { t.skip('system tar not found — skipping'); return; }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'mgr-update-secret-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'mgr-update-secret-')));
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });
 

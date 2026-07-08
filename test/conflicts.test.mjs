@@ -141,6 +141,40 @@ test('agent plugin-vs-plugin: same flat name from two marketplaces → one FLAT 
   assert.deepEqual(c.likelyWinner, c.possibleWinners[0]);
 });
 
+// ── D2. AGENT CASE FOLDING (P1-2): flat keys differing only in case ──────────────
+
+test('agent case-fold: user `Executor` + plugin `executor` collide on a case-insensitive volume', () => {
+  // Agents are FLAT for every tier, so on Windows/macOS the loader treats the two
+  // case variants as ONE identity and one shadows the other. Without folding this
+  // real conflict is missed.
+  const components = [
+    agent('Executor', { tier: 'user' }),
+    agent('executor', { tier: 'plugin', plugin: 'omc', marketplace: 'mp-a', version: '1.0.0' }),
+  ];
+  const { conflicts } = analyzeConflicts(components, { caseInsensitive: true });
+  assert.equal(conflicts.length, 1, 'case-only variants collide when the volume folds case');
+  assert.equal(conflicts[0].kind, 'agent');
+  assert.equal(conflicts[0].possibleWinners.length, 2);
+});
+
+test('agent case-fold: same records stay DISTINCT on a case-sensitive volume (Linux)', () => {
+  const components = [
+    agent('Executor', { tier: 'user' }),
+    agent('executor', { tier: 'plugin', plugin: 'omc', marketplace: 'mp-a', version: '1.0.0' }),
+  ];
+  const { conflicts } = analyzeConflicts(components, { caseInsensitive: false });
+  assert.equal(conflicts.length, 0, 'Executor and executor are genuinely distinct on a case-sensitive FS');
+});
+
+test('agent case-fold: default (no opts) does NOT fold — preserves prior behaviour for direct callers', () => {
+  const components = [
+    agent('Executor', { tier: 'user' }),
+    agent('executor', { tier: 'plugin', plugin: 'omc', marketplace: 'mp-a', version: '1.0.0' }),
+  ];
+  const { conflicts } = analyzeConflicts(components);
+  assert.equal(conflicts.length, 0, 'no opts → NFC-only, case-sensitive grouping (unchanged)');
+});
+
 // ── E. COMMAND GOLDEN: namespaced plugin-vs-plugin ──────────────────────────────
 
 test('command golden: same plugin from two marketplaces → one NAMESPACED cluster', () => {

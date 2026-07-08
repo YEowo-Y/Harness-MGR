@@ -32,7 +32,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -76,7 +76,7 @@ test('apply-delete-roundtrip: enableWrites deletes a governed component, snapsho
   }
 
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-apply-del-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-apply-del-')));
   // The REAL gate resolves the governed dir from CLAUDE_CONFIG_DIR (read at call time).
   process.env.CLAUDE_CONFIG_DIR = tmp;
   const stateDir = join(tmp, '.mgr-state');

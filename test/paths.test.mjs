@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { homedir, tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
 import {
   resolveRoots,
   targetClaudeDir,
@@ -71,7 +71,7 @@ test('targetClaudeDir expands a ~ CLAUDE_CONFIG_DIR (delegated, not reimplemente
 // --- assertWritable: exercised against a REAL temp dir so realpathSync resolves.
 test('assertWritable ALLOWS the mgr state dir and DENIES the forbidden/rollback-only surfaces', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-aw-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-aw-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const state = mgrStateDir(dir);
@@ -126,7 +126,7 @@ test('assertWritable ALLOWS the mgr state dir and DENIES the forbidden/rollback-
 // --- assertWritable: 'probe' context tests ---
 test('assertWritable probe context: valid __mgr-probe-<uuid>.md in agents/ -> returns canonical path', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // The probe file itself need not exist; canonical() resolves the parent.
@@ -142,7 +142,7 @@ test('assertWritable probe context: valid __mgr-probe-<uuid>.md in agents/ -> re
 
 test('assertWritable probe context: non-probe name in agents/ -> throws write-probe-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -158,7 +158,7 @@ test('assertWritable probe context: non-probe name in agents/ -> throws write-pr
 
 test('assertWritable probe context: probe name in nested subdir -> throws write-probe-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // dirname check: must be DIRECTLY in agents/, not nested
@@ -175,7 +175,7 @@ test('assertWritable probe context: probe name in nested subdir -> throws write-
 
 test('assertWritable probe context: CLAUDE.md -> throws write-probe-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -191,7 +191,7 @@ test('assertWritable probe context: CLAUDE.md -> throws write-probe-only', () =>
 
 test('assertWritable probe context: path outside config dir -> throws write-outside-target', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // outside check runs before the probe branch
@@ -208,7 +208,7 @@ test('assertWritable probe context: path outside config dir -> throws write-outs
 
 test('assertWritable apply context: probe-named file in agents/ -> still throws write-rollback-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // unchanged behavior: apply context cannot write agents/ regardless of filename
@@ -225,7 +225,7 @@ test('assertWritable apply context: probe-named file in agents/ -> still throws 
 
 test('assertWritable probe context: mgrStateDir path -> ALLOW (stateDir check runs first)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const state = mgrStateDir(dir);
@@ -240,7 +240,7 @@ test('assertWritable probe context: mgrStateDir path -> ALLOW (stateDir check ru
 
 test('assertWritable probe context: uppercase variant of probe name matches (regex /i)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-probe-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-probe-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // /i flag: __MGR-PROBE-0000.MD should match
@@ -256,7 +256,7 @@ test('assertWritable probe context: uppercase variant of probe name matches (reg
 // --- assertWritable: 'remove' context tests (P4a.U1a) ---
 test('assertWritable remove context: agents/foo.md -> returns canonical path', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const result = assertWritable(join(dir, 'agents', 'foo.md'), 'remove');
@@ -270,7 +270,7 @@ test('assertWritable remove context: agents/foo.md -> returns canonical path', (
 
 test('assertWritable remove context: commands/bar.md -> returns canonical path', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const result = assertWritable(join(dir, 'commands', 'bar.md'), 'remove');
@@ -284,7 +284,7 @@ test('assertWritable remove context: commands/bar.md -> returns canonical path',
 
 test('assertWritable remove context: non-.md leaf -> throws write-remove-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -300,7 +300,7 @@ test('assertWritable remove context: non-.md leaf -> throws write-remove-only', 
 
 test('assertWritable remove context: nested subdir -> throws write-remove-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -316,7 +316,7 @@ test('assertWritable remove context: nested subdir -> throws write-remove-only',
 
 test('assertWritable remove context: probe-named file -> throws write-remove-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -332,7 +332,7 @@ test('assertWritable remove context: probe-named file -> throws write-remove-onl
 
 test('assertWritable remove context: CLAUDE.md (not in agents/commands) -> throws write-remove-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -348,7 +348,7 @@ test('assertWritable remove context: CLAUDE.md (not in agents/commands) -> throw
 
 test('assertWritable remove context: agents/../settings.json traversal -> NOT write-remove-only allow (refused)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // canonical() collapses agents/../settings.json to <dir>/settings.json, whose
@@ -366,7 +366,7 @@ test('assertWritable remove context: agents/../settings.json traversal -> NOT wr
 
 test('assertWritable remove context: plugins/marketplaces target -> throws write-forbidden (forbidden wins)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-remove-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-remove-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -383,7 +383,7 @@ test('assertWritable remove context: plugins/marketplaces target -> throws write
 // --- assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1) ---
 test('assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rbtable-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rbtable-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // Rollback ALLOW: rollback context permits all governed content surfaces.
@@ -447,7 +447,7 @@ test('assertWritable: forbidden-vs-rollback-writable table fully enforced (P3.U1
 // dir, so near-misses (settings.jsonx, nested sub/settings.json) are refused.
 test('assertWritable: the three governed settings files are writable in apply AND rollback (P3.U13-A)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-aw-settings-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-aw-settings-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     for (const name of ['settings.json', 'settings.local.json', '.mcp.json']) {
@@ -573,7 +573,7 @@ test('assertWritable DENIES settings.json file-symlink pointing to CLAUDE.md →
 test('assertWritable DENIES NTFS ADS and trailing-dot near-misses on win32 (Low-2c)', () => {
   if (process.platform !== 'win32') return; // skip on non-Windows
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const cfg = mkdtempSync(join(tmpdir(), 'cmgr-win-c-'));
+  const cfg = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-win-c-')));
   process.env.CLAUDE_CONFIG_DIR = cfg;
   try {
     // NTFS Alternate Data Stream: basename 'settings.json:evil' is not in APPLY_WRITABLE_FILES.
@@ -600,7 +600,7 @@ test('assertWritable DENIES NTFS ADS and trailing-dot near-misses on win32 (Low-
 test('assertWritable ALLOWS Settings.JSON (case-insensitive NTFS) on win32 (Low-2d)', () => {
   if (process.platform !== 'win32') return; // skip on non-Windows
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const cfg = mkdtempSync(join(tmpdir(), 'cmgr-win-d-'));
+  const cfg = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-win-d-')));
   process.env.CLAUDE_CONFIG_DIR = cfg;
   try {
     // canonical() lowercases on win32: 'Settings.JSON' → 'settings.json'.
@@ -621,7 +621,7 @@ test('assertWritable ALLOWS Settings.JSON (case-insensitive NTFS) on win32 (Low-
 // --- assertWritable: 'remove-skill' context tests (P4b) ---
 test('assertWritable remove-skill context: skills/foo -> returns canonical path', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rmsk-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const result = assertWritable(join(dir, 'skills', 'foo'), 'remove-skill');
@@ -635,7 +635,7 @@ test('assertWritable remove-skill context: skills/foo -> returns canonical path'
 
 test('assertWritable remove-skill context: skills/foo in remove -> throws write-remove-only (leaf .md remove does not cover skill dir)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rmsk-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -651,7 +651,7 @@ test('assertWritable remove-skill context: skills/foo in remove -> throws write-
 
 test('assertWritable remove-skill context: skills/foo in apply -> throws write-rollback-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rmsk-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -667,7 +667,7 @@ test('assertWritable remove-skill context: skills/foo in apply -> throws write-r
 
 test('assertWritable remove-skill context: nested skills/sub/foo -> throws write-remove-skill-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rmsk-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -683,7 +683,7 @@ test('assertWritable remove-skill context: nested skills/sub/foo -> throws write
 
 test('assertWritable remove-skill context: skills/foo.mgr-old sidecar -> throws write-remove-skill-only', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rmsk-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -699,7 +699,7 @@ test('assertWritable remove-skill context: skills/foo.mgr-old sidecar -> throws 
 
 test('assertWritable remove-skill context: skills/../settings.json traversal -> refused (canonical collapses; parent !== skills/)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rmsk-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // canonical() collapses skills/../settings.json to <dir>/settings.json,
@@ -717,7 +717,7 @@ test('assertWritable remove-skill context: skills/../settings.json traversal -> 
 
 test('assertWritable remove-skill context: outside path -> throws write-outside-target', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-rmsk-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rmsk-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -736,7 +736,7 @@ const PROPOSED_LEAF = 'SKILL.proposed-2026-01-01T00-00-00Z.md';
 
 test('assertWritable propose context: skills/foo/SKILL.proposed-<ts>.md -> returns canonical path', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-prop-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const result = assertWritable(join(dir, 'skills', 'foo', PROPOSED_LEAF), 'propose');
@@ -750,7 +750,7 @@ test('assertWritable propose context: skills/foo/SKILL.proposed-<ts>.md -> retur
 
 test('assertWritable propose context: skills/foo/SKILL.md -> throws write-propose-only (cannot overwrite the original)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-prop-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -766,7 +766,7 @@ test('assertWritable propose context: skills/foo/SKILL.md -> throws write-propos
 
 test('assertWritable propose context: skills/foo/SKILL.proposed-<ts>.md in apply -> throws write-rollback-only (propose did NOT widen apply)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-prop-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -782,7 +782,7 @@ test('assertWritable propose context: skills/foo/SKILL.proposed-<ts>.md in apply
 
 test('assertWritable propose context: skills/../settings.json traversal -> refused (canonical collapses; grandparent !== skills/)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-prop-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-prop-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // canonical() collapses skills/../settings.json to <dir>/settings.json,
@@ -802,7 +802,7 @@ test('assertWritable propose context: skills/../settings.json traversal -> refus
 
 test('assertWritable accept context: skills/foo/SKILL.md -> returns canonical path (overwrite the original)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-acc-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const result = assertWritable(join(dir, 'skills', 'foo', 'SKILL.md'), 'accept');
@@ -816,7 +816,7 @@ test('assertWritable accept context: skills/foo/SKILL.md -> returns canonical pa
 
 test('assertWritable accept context: skills/foo/SKILL.proposed-<ts>.md -> returns canonical path (delete the accepted proposal)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-acc-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     const result = assertWritable(join(dir, 'skills', 'foo', PROPOSED_LEAF), 'accept');
@@ -830,7 +830,7 @@ test('assertWritable accept context: skills/foo/SKILL.proposed-<ts>.md -> return
 
 test('assertWritable accept context: skills/foo/OTHER.md -> throws write-accept-only (only SKILL.md or a proposal leaf)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-acc-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -846,7 +846,7 @@ test('assertWritable accept context: skills/foo/OTHER.md -> throws write-accept-
 
 test('assertWritable accept context: skills/foo/SKILL.md in apply -> throws write-rollback-only (accept did NOT widen apply)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-acc-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     assert.throws(
@@ -862,7 +862,7 @@ test('assertWritable accept context: skills/foo/SKILL.md in apply -> throws writ
 
 test('assertWritable accept context: skills/../settings.json traversal -> refused (canonical collapses; grandparent !== skills/)', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-acc-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-acc-')));
   process.env.CLAUDE_CONFIG_DIR = dir;
   try {
     // canonical() collapses skills/../settings.json to <dir>/settings.json,

@@ -8,7 +8,7 @@
  * reads to decide whether restoring is safe:
  *
  *   { manifestVersion, planVersion, snapshotId, targetClaudeDir, createdAt,
- *     reason, files: [{ path, preSha256, currentSha256 }, ...] }
+ *     reason, files: [{ path, preSha256, currentSha256, mode? }, ...] }
  *
  * NAMING NOTE: the plan's "currentSha256[]" field is realised here as the
  * `files` array — each entry CARRIES a `currentSha256` (the plan's per-file
@@ -38,8 +38,13 @@ import { DiagnosticBag } from '../lib/diagnostic.mjs';
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
 /** Manifest schema version. Rollback refuses any manifest whose version is
- *  GREATER than this (a newer tool wrote it; we cannot safely interpret it). */
-export const MANIFEST_VERSION = 1;
+ *  GREATER than this (a newer tool wrote it; we cannot safely interpret it).
+ *  v2 (2026-07) adds an OPTIONAL per-file `mode` (0o777 POSIX permission bits) so
+ *  a POSIX rollback can restore the executable / restrictive bits that a v1
+ *  restore silently dropped. `mode` is OPTIONAL, so a v1 manifest (no `mode`)
+ *  still verifies + restores under a v2 tool — its absence just means "no chmod
+ *  on restore" (fail-safe: content restores byte-identically either way). */
+export const MANIFEST_VERSION = 2;
 
 /** Subdir under mgrStateDir that holds per-snapshot dirs. */
 export const SNAPSHOTS_DIRNAME = 'snapshots';
@@ -57,6 +62,10 @@ export const SNAPSHOT_ID_RE = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/;
  * @property {string} path          POSIX-relative path within the governed dir
  * @property {string} preSha256     hash of the captured (archived) content
  * @property {string} currentSha256 baseline hash rollback compares to live disk
+ * @property {number} [mode]        OPTIONAL POSIX permission bits (0o777 mask),
+ *                                  captured via lstat; absent for a v1 manifest
+ *                                  or when the file could not be stat'd. Used by
+ *                                  a POSIX rollback to chmod the restored file.
  */
 
 /**
@@ -80,6 +89,26 @@ export function isObject(v) {
 /** Message from an unknown thrown value; never throws. */
 export function errMsg(e) {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** The mask of POSIX permission bits a snapshot preserves: owner/group/other
+ *  rwx. Deliberately EXCLUDES setuid/setgid/sticky (0o7000) — a rollback of the
+ *  governed config surface must never re-introduce a set-user-id bit. */
+export const MODE_MASK = 0o777;
+
+/** True for a stored `mode`: an integer already reduced to the MODE_MASK range.
+ *  Strict on READ — a hand-tampered out-of-range mode is refused rather than
+ *  chmod'd blindly on restore (our own writer always masks, so it never trips). */
+export function isValidMode(v) {
+  return Number.isInteger(v) && v >= 0 && v <= MODE_MASK;
+}
+
+/** Reduce a raw stat mode to the preserved permission bits, or null when the
+ *  input is not a usable mode (→ record carries no `mode` → restore skips chmod).
+ *  Centralizes the mask policy so both capture and read agree on "a stored mode". */
+export function normalizeMode(raw) {
+  if (!Number.isInteger(raw) || raw < 0) return null;
+  return raw & MODE_MASK;
 }
 
 /** Deterministic serialization of a built manifest (fixed key order + trailing \n). */
@@ -131,7 +160,12 @@ function normalizeFile(raw) {
   if (typeof path !== 'string' || path.length === 0) return null;
   if (typeof sha256 !== 'string' || sha256.length === 0) return null;
   // At creation pre === current; they carry distinct MEANING only at rollback.
-  return { path, preSha256: sha256, currentSha256: sha256 };
+  const rec = { path, preSha256: sha256, currentSha256: sha256 };
+  // OPTIONAL mode — appended LAST so the fixed key order stays deterministic. A
+  // missing/invalid capture mode omits the field entirely (→ restore skips chmod).
+  const mode = normalizeMode(raw.mode);
+  if (mode !== null) rec.mode = mode;
+  return rec;
 }
 
 /**
@@ -276,6 +310,14 @@ function verifyFiles(files, err) {
       || typeof f.currentSha256 !== 'string' || f.currentSha256.length === 0) {
       err('manifest-file-entry-invalid',
         `files[${i}] must be { path, preSha256, currentSha256 } non-empty strings`);
+      continue; // f may be null/primitive — never reach the `in` check below (never-throws)
+    }
+    // `mode` is OPTIONAL (absent in a v1 / uncaptured record). When present it must
+    // be an integer in the preserved 0o777 range; a garbage / out-of-range mode is a
+    // corrupt record we refuse rather than chmod blindly on restore.
+    if ('mode' in f && !isValidMode(f.mode)) {
+      err('manifest-file-mode-invalid',
+        `files[${i}].mode must be an integer in [0, 0o777] when present`);
     }
   }
 }

@@ -15,7 +15,11 @@
  * Design notes:
  *   - Two needles are built from homeDir (backslash form AND forward-slash form)
  *     so both separator styles are caught by GLOBAL replace.
- *   - On win32 the match is case-insensitive (Windows paths are case-insensitive).
+ *   - On case-INSENSITIVE filesystems (Windows NTFS and macOS/APFS by default) the
+ *     match is case-insensitive, so a differently-cased spelling of the same home
+ *     path is still scrubbed; Linux is case-sensitive so the match is exact-case.
+ *     The active platform is injectable (defaults to process.platform) so tests are
+ *     deterministic on any host.
  *   - The transform is DEEP: plain objects are rebuilt (proto-poisoning keys
  *     skipped via isSafeKey), arrays are mapped, non-string primitives pass
  *     through unchanged. The INPUT is NEVER mutated (fresh copies throughout).
@@ -53,9 +57,10 @@ function escapeRegex(s) {
  * "no-op").
  *
  * @param {string} homeDir
+ * @param {string} platform  process.platform value; controls case-sensitivity of the match
  * @returns {RegExp|null}
  */
-function buildNeedleRe(homeDir) {
+function buildNeedleRe(homeDir, platform) {
   if (typeof homeDir !== 'string' || homeDir.length === 0) return null;
 
   // Normalise to both canonical forms.
@@ -66,7 +71,10 @@ function buildNeedleRe(homeDir) {
   // Only add the forward-slash form as a separate alternative when it differs.
   if (fs !== bs) parts.push(escapeRegex(fs));
 
-  const flags = process.platform === 'win32' ? 'gi' : 'g';
+  // Case-insensitive on case-INSENSITIVE filesystems (Windows NTFS + macOS/APFS
+  // default); case-sensitive on Linux. For a privacy scrub, erring toward
+  // over-redaction on a case-insensitive host is the safe choice.
+  const flags = (platform === 'win32' || platform === 'darwin') ? 'gi' : 'g';
   return new RegExp(parts.join('|'), flags);
 }
 
@@ -85,11 +93,13 @@ function buildNeedleRe(homeDir) {
  *
  * @param {unknown} value    the result or diagnostics payload to redact
  * @param {string}  homeDir  the user's home directory path
+ * @param {string}  [platform]  process.platform (injectable for deterministic tests);
+ *                              controls whether the match is case-insensitive
  * @returns {unknown}        a fresh redacted copy (or the original if no-op)
  */
-export function redactHomePaths(value, homeDir) {
+export function redactHomePaths(value, homeDir, platform = process.platform) {
   try {
-    const re = buildNeedleRe(homeDir);
+    const re = buildNeedleRe(homeDir, platform);
     if (re === null) return value; // no-op: homeDir absent or non-string
     return deepRedact(value, re);
   } catch {

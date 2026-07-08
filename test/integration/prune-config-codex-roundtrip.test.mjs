@@ -15,7 +15,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pruneConfigRemove } from '../../src/ops/prune-config.mjs';
@@ -34,7 +34,7 @@ function put(base, rel, bytes) {
  *  (the path absolute under THIS tree, so the resolver's home-dir anchor matches), plus a
  *  sibling skill entry + an mcp secret that must survive. */
 function buildCodexTree() {
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-codex-prune-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-codex-prune-')));
   const skillPath = join(tmp, 'skills', 'ab-test-setup', 'SKILL.md').replace(/\\/g, '/');
   const config = [
     'model = "gpt-5.5"', '',

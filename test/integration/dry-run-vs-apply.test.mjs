@@ -36,7 +36,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -77,7 +77,7 @@ test('rollback dry-run vs --apply parity + two-factor gate, end-to-end via run()
   // Save ALL THREE env vars touched by the wiring contract; restore in the finally.
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-dryapply-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-dryapply-')));
   process.env.CLAUDE_CONFIG_DIR = tmp; // the REAL gate resolves the governed dir from this
   const stateDir = join(tmp, '.mgr-state');
   mkdirSync(stateDir, { recursive: true });

@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { readRawEntry, entryHasSecret, writeStash, readStash, deleteStash, stashExists, stashPath } from '../src/ops/mcp-stash.mjs';
 import { makeAssertWritable, MGR_STATE_DIRNAME } from '../src/paths.mjs';
 
@@ -25,7 +25,7 @@ const APP = {
 };
 
 function withTree(fn) {
-  const dir = mkdtempSync(join(tmpdir(), 'cmgr-mcpstash-'));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-mcpstash-')));
   const stateDir = join(dir, MGR_STATE_DIRNAME);
   mkdirSync(stateDir, { recursive: true });
   const appFile = join(dir, '.claude.json');

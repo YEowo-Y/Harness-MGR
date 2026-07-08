@@ -16,7 +16,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setSkillVisibility } from '../../src/ops/skill-visibility.mjs';
@@ -53,7 +53,7 @@ function put(base, rel, bytes) {
 /** A realistic temp ~/.claude with the given settings.json + the dirs the default Claude scope
  *  walks, plus a directory-backed skill `x` so the advisory WARN does not fire for name 'x'. */
 function buildClaudeTree(settings) {
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-claude-skillvis-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-claude-skillvis-')));
   mkdirSync(join(tmp, MGR_STATE_DIRNAME), { recursive: true });
   put(tmp, 'settings.json', Buffer.from(settings, 'utf8'));
   put(tmp, 'CLAUDE.md', Buffer.from('# CLAUDE\n', 'utf8'));

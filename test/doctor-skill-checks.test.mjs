@@ -32,6 +32,21 @@ test('#29: mixed — only the orphaned keys fire, sorted by message', () => {
   assert.ok(found[0].message < found[1].message, 'sorted ascending by message');
 });
 
+test('#29: case-insensitive volume — override key case differs from dir → NOT orphaned (P1-2)', () => {
+  // On Windows/macOS `skillOverrides['myskill']` and an on-disk `MySkill/` are the
+  // SAME skill; #29 must not tell the user to delete a working override.
+  const r = runDoctor({ skillOverrides: { myskill: 'off' }, skillDirs: ['MySkill'], caseInsensitive: true });
+  assert.equal(byCode(r.diagnostics, 'skill-overrides-orphaned').length, 0);
+});
+
+test('#29: case-SENSITIVE volume — override key case differs from dir → orphaned (Linux)', () => {
+  // On a case-sensitive Linux volume `myskill` and `MySkill` are genuinely distinct.
+  const r = runDoctor({ skillOverrides: { myskill: 'off' }, skillDirs: ['MySkill'], caseInsensitive: false });
+  const found = byCode(r.diagnostics, 'skill-overrides-orphaned');
+  assert.equal(found.length, 1);
+  assert.ok(found[0].message.includes('myskill'));
+});
+
 test('#29: absent skillOverrides → no finding (proves the gather gate / codex safety)', () => {
   const r = runDoctor({ skillDirs: ['tdd'] });
   assert.equal(byCode(r.diagnostics, 'skill-overrides-orphaned').length, 0);

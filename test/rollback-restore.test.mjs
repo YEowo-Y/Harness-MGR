@@ -524,3 +524,130 @@ test('LOW-1b: genuine write-not-allowed stays out-of-surface + restored:true (su
   assert.equal(r.diagnostics.some((d) => d.code === 'rollback-restore-skipped-out-of-surface'), true);
   assert.equal(r.diagnostics.some((d) => d.code === 'rollback-restore-gate-error'), false); // no error
 });
+
+// ── mode restore (v2: chmod the restored file on POSIX; skip on win32) ───────────────
+
+/** A recording chmodFn seam. Records every { path, mode } it was asked to set. */
+function chmodSeam(calls) {
+  return (p, mode) => { calls.push({ path: p, mode }); };
+}
+
+test('mode restore: on POSIX, a captured mode is chmod\'d onto the restored file AFTER the write', async () => {
+  const manifest = manifestWith([{ path: 'hooks/run.sh', preSha256: hashOf('#!/bin/sh\n'), mode: 0o755 }]);
+  const writeCalls = [];
+  const chmodCalls = [];
+  const readContents = { [resolve(FAKE_DEST, 'hooks/run.sh')]: '#!/bin/sh\n' };
+  const r = await restoreSnapshot({
+    mgrStateDir: STATE_DIR, snapshotId: VALID_ID, targetClaudeDir: TARGET, assertWritable: PASS, platform: 'linux',
+    seams: {
+      resolveFn: tarSeam(), extractFn: extractSeam(true, []),
+      readManifestFn: manifestSeam(manifest, []), mkdtempFn: mkdtempSeam([]),
+      readFileFn: fileSeam(readContents, []), rmFn: () => {}, mkdirFn: () => {},
+      atomicWriteFn: writeSeam(writeCalls), chmodFn: chmodSeam(chmodCalls),
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.restored, true);
+  assert.equal(r.restoredCount, 1);
+  assert.equal(writeCalls.length, 1); // the write happened
+  // chmod ran with the CONTAINED live target + the captured mode.
+  assert.deepEqual(chmodCalls, [{ path: resolve(TARGET, 'hooks/run.sh'), mode: 0o755 }]);
+});
+
+test('mode restore: on win32, chmod is SKIPPED (no meaningful POSIX mode); content still restored', async () => {
+  const manifest = manifestWith([{ path: 'hooks/run.sh', preSha256: hashOf('x'), mode: 0o755 }]);
+  const writeCalls = [];
+  const chmodCalls = [];
+  const r = await restoreSnapshot({
+    mgrStateDir: STATE_DIR, snapshotId: VALID_ID, targetClaudeDir: TARGET, assertWritable: PASS, platform: 'win32',
+    seams: {
+      resolveFn: tarSeam(), extractFn: extractSeam(true, []),
+      readManifestFn: manifestSeam(manifest, []), mkdtempFn: mkdtempSeam([]),
+      readFileFn: fileSeam({ [resolve(FAKE_DEST, 'hooks/run.sh')]: 'x' }, []), rmFn: () => {}, mkdirFn: () => {},
+      atomicWriteFn: writeSeam(writeCalls), chmodFn: chmodSeam(chmodCalls),
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.restored, true);
+  assert.equal(r.restoredCount, 1);
+  assert.deepEqual(chmodCalls, [], 'no chmod on win32');
+});
+
+test('mode restore: a v1 / no-mode record does NOT chmod (nothing captured) even on POSIX', async () => {
+  const manifest = manifestWith([{ path: 'CLAUDE.md', preSha256: hashOf('a') }]); // no mode
+  const chmodCalls = [];
+  const r = await restoreSnapshot({
+    mgrStateDir: STATE_DIR, snapshotId: VALID_ID, targetClaudeDir: TARGET, assertWritable: PASS, platform: 'linux',
+    seams: {
+      resolveFn: tarSeam(), extractFn: extractSeam(true, []),
+      readManifestFn: manifestSeam(manifest, []), mkdtempFn: mkdtempSeam([]),
+      readFileFn: fileSeam({ [resolve(FAKE_DEST, 'CLAUDE.md')]: 'a' }, []), rmFn: () => {}, mkdirFn: () => {},
+      atomicWriteFn: writeSeam([]), chmodFn: chmodSeam(chmodCalls),
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.restored, true);
+  assert.deepEqual(chmodCalls, [], 'no mode captured → no chmod');
+});
+
+test('mode restore: chmod runs AFTER the content write (rename-based atomic write would discard an earlier chmod)', async () => {
+  const manifest = manifestWith([{ path: 'hooks/run.sh', preSha256: hashOf('#!/bin/sh\n'), mode: 0o755 }]);
+  const events = []; // ONE shared ordered log for both seams → the ordering is falsifiable
+  const orderedWrite = async (args) => {
+    events.push({ op: 'write', target: args.target });
+    return { ok: true, wrote: true, leftovers: { newPath: null, oldPath: null }, diagnostics: [] };
+  };
+  const orderedChmod = (p) => { events.push({ op: 'chmod', path: p }); };
+  const r = await restoreSnapshot({
+    mgrStateDir: STATE_DIR, snapshotId: VALID_ID, targetClaudeDir: TARGET, assertWritable: PASS, platform: 'linux',
+    seams: {
+      resolveFn: tarSeam(), extractFn: extractSeam(true, []),
+      readManifestFn: manifestSeam(manifest, []), mkdtempFn: mkdtempSeam([]),
+      readFileFn: fileSeam({ [resolve(FAKE_DEST, 'hooks/run.sh')]: '#!/bin/sh\n' }, []), rmFn: () => {}, mkdirFn: () => {},
+      atomicWriteFn: orderedWrite, chmodFn: orderedChmod,
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.restored, true);
+  const target = resolve(TARGET, 'hooks/run.sh');
+  assert.deepEqual(events, [{ op: 'write', target }, { op: 'chmod', path: target }],
+    'the content write MUST precede the chmod for this file');
+});
+
+test('mode restore: mode 0 is a VALID captured mode → chmod\'d, NOT skipped as if absent', async () => {
+  // isValidMode(0) is true, so mode:0 is distinct from an absent mode — restore must
+  // chmod it (guards against a `!isValidMode(mode)` → `!mode` truthiness simplification).
+  const manifest = manifestWith([{ path: 'agents/locked.md', preSha256: hashOf('x'), mode: 0 }]);
+  const chmodCalls = [];
+  const r = await restoreSnapshot({
+    mgrStateDir: STATE_DIR, snapshotId: VALID_ID, targetClaudeDir: TARGET, assertWritable: PASS, platform: 'linux',
+    seams: {
+      resolveFn: tarSeam(), extractFn: extractSeam(true, []),
+      readManifestFn: manifestSeam(manifest, []), mkdtempFn: mkdtempSeam([]),
+      readFileFn: fileSeam({ [resolve(FAKE_DEST, 'agents/locked.md')]: 'x' }, []), rmFn: () => {}, mkdirFn: () => {},
+      atomicWriteFn: writeSeam([]), chmodFn: chmodSeam(chmodCalls),
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.restored, true);
+  assert.deepEqual(chmodCalls, [{ path: resolve(TARGET, 'agents/locked.md'), mode: 0 }], 'mode 0 is chmod\'d, not skipped');
+});
+
+test('mode restore: a chmod FAILURE is a WARN, not fatal — content stays restored (maintainer decision)', async () => {
+  const manifest = manifestWith([{ path: 'hooks/run.sh', preSha256: hashOf('x'), mode: 0o600 }]);
+  const writeCalls = [];
+  const r = await restoreSnapshot({
+    mgrStateDir: STATE_DIR, snapshotId: VALID_ID, targetClaudeDir: TARGET, assertWritable: PASS, platform: 'linux',
+    seams: {
+      resolveFn: tarSeam(), extractFn: extractSeam(true, []),
+      readManifestFn: manifestSeam(manifest, []), mkdtempFn: mkdtempSeam([]),
+      readFileFn: fileSeam({ [resolve(FAKE_DEST, 'hooks/run.sh')]: 'x' }, []), rmFn: () => {}, mkdirFn: () => {},
+      atomicWriteFn: writeSeam(writeCalls), chmodFn: () => { throw new Error('EPERM'); },
+    },
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.restored, true, 'chmod failure does NOT flip restored (content is byte-identical)');
+  assert.equal(r.restoredCount, 1);
+  assert.equal(writeCalls.length, 1);
+  assert.equal(r.diagnostics.some((d) => d.code === 'rollback-restore-chmod-failed' && d.severity === 'warn'), true);
+});

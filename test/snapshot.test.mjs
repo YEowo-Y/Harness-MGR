@@ -122,6 +122,47 @@ test('createSnapshot: wires walk→filter→hash→tar→manifest and returns su
   } finally { t.cleanup(); }
 });
 
+// ── (1b) mode capture (v2): each record carries its lstat mode, masked to 0o777 ──
+
+test('createSnapshot: captures each kept file\'s mode via lstat (masked to 0o777)', async () => {
+  const t = makeTree((cd) => {
+    put(cd, 'agents/a.md', Buffer.from('a\n', 'utf8'));
+    put(cd, 'hooks/run.sh', Buffer.from('#!/bin/sh\n', 'utf8'));
+  });
+  // Inject lstat so the captured mode is deterministic on ANY host (the author is
+  // Windows-only, where a real lstat would not report a POSIX 0o755). run.sh is
+  // executable, a.md is not — both given as FULL stat modes to prove the 0o777 mask.
+  const modes = { 'agents/a.md': 0o100644, 'hooks/run.sh': 0o100755 };
+  const lstatFn = (abs) => ({ mode: modes[abs.split(/[\\/]/).slice(-2).join('/')] ?? 0o100644 });
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir,
+      assertWritable: PASS_GATE, now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: makeSpawn(), lstatFn },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    const byPath = Object.fromEntries(
+      JSON.parse(readFileSync(res.manifestPath, 'utf8')).files.map((f) => [f.path, f]),
+    );
+    assert.equal(byPath['hooks/run.sh'].mode, 0o755, 'executable bit preserved, masked to 0o777');
+    assert.equal(byPath['agents/a.md'].mode, 0o644);
+  } finally { t.cleanup(); }
+});
+
+test('createSnapshot: an un-stat\'able kept file is captured WITHOUT mode (content still hashed)', async () => {
+  const t = makeTree((cd) => put(cd, 'agents/a.md', Buffer.from('a\n', 'utf8')));
+  const lstatFn = () => { throw new Error('EACCES'); };
+  try {
+    const res = await createSnapshot({
+      targetClaudeDir: t.claudeDir, mgrStateDir: t.stateDir,
+      assertWritable: PASS_GATE, now: FIXED_NOW, seams: { resolveFn: makeResolve(), spawnFn: makeSpawn(), lstatFn },
+    });
+    assert.equal(res.ok, true, JSON.stringify(res.diagnostics));
+    assert.equal(res.fileCount, 1); // still captured — mode is orthogonal to content
+    const manifest = JSON.parse(readFileSync(res.manifestPath, 'utf8'));
+    assert.equal(Object.prototype.hasOwnProperty.call(manifest.files[0], 'mode'), false, 'no mode when lstat fails');
+  } finally { t.cleanup(); }
+});
+
 // ── (2) the security property: a secret is DROPPED + never reaches the archive ──
 
 test('createSnapshot: a planted secret is dropped and absent from the tar file list', async () => {
