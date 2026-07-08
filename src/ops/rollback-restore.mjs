@@ -75,6 +75,7 @@ import { isValidSnapshotId, snapshotDir, verifyManifest, SNAPSHOTS_DIRNAME, SNAP
 import { readManifest } from './snapshot-manifest-io.mjs';
 import { resolveTar, extractSnapshotTar } from './snapshot-tar.mjs';
 import { atomicApplyWrite } from './atomic-write.mjs';
+import { restoreFileMode } from './rollback-restore-mode.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 
@@ -189,12 +190,12 @@ function containedPath(root, relPath) {
  * and returns `{ stop, leftovers }` when a HARD failure must halt the loop. Never
  * throws. Extracted to keep restoreSnapshot under the function-SLOC limit.
  * @param {object} ctx { targetClaudeDir, destDir, assertWritable, retry, readFileFn,
- *                        mkdirFn, atomicWriteFn, skipped, counters, bag }
- * @param {{path:string, preSha256:string}} file
+ *                        mkdirFn, atomicWriteFn, chmodFn, platform, skipped, counters, bag }
+ * @param {{path:string, preSha256:string, mode?:number}} file
  * @returns {Promise<{stop:boolean, leftovers?:object}>}
  */
 async function restoreFile(ctx, file) {
-  const { targetClaudeDir, destDir, assertWritable, retry, readFileFn, mkdirFn, atomicWriteFn, skipped, counters, bag } = ctx;
+  const { targetClaudeDir, destDir, assertWritable, retry, readFileFn, mkdirFn, atomicWriteFn, chmodFn, platform, skipped, counters, bag } = ctx;
   const rel = file.path;
 
   // a. Resolve + contain the LIVE write target. A manifest path escaping the
@@ -276,6 +277,11 @@ async function restoreFile(ctx, file) {
     return { stop: true, leftovers: res?.leftovers ?? null };
   }
   counters.restoredCount++;
+
+  // g. Restore the captured POSIX mode (non-win32, captured records only) — delegated
+  //    to rollback-restore-mode.mjs. BEST-EFFORT: a chmod failure is a warn there, never
+  //    flips `restored` (the content is already byte-identical).
+  restoreFileMode({ platform, chmodFn, targetAbs, mode: file.mode, rel, bag });
   return { stop: false };
 }
 
@@ -286,7 +292,7 @@ async function restoreFile(ctx, file) {
  * wrapper around this. Never throws.
  * @param {object} ctx { tarPath, archivePath, destDir, snapshotId, targetClaudeDir,
  *                        manifest, assertWritable, retry, extractFn, readFileFn,
- *                        mkdirFn, atomicWriteFn, bag }
+ *                        mkdirFn, atomicWriteFn, chmodFn, platform, bag }
  * @returns {Promise<Partial<RestoreResult>>}
  */
 async function extractAndRestore(ctx) {
@@ -338,9 +344,11 @@ async function extractAndRestore(ctx) {
  * @param {string}  [opts.expectedTarget]     forwarded to verifyManifest (cross-target
  *                                             refusal); the CLI passes targetClaudeDir.
  * @param {object}  [opts.retry]              forwarded to atomicApplyWrite (withRetry)
+ * @param {string}  [opts.platform]          OS id for the mode-restore branch (default
+ *                                             process.platform); win32 skips chmod.
  * @param {object}  [opts.seams]              { resolveFn, extractFn, readManifestFn,
  *                                              mkdtempFn, readFileFn, rmFn, mkdirFn,
- *                                              atomicWriteFn }
+ *                                              atomicWriteFn, chmodFn }
  * @returns {Promise<RestoreResult>}
  */
 export async function restoreSnapshot(opts) {
@@ -398,8 +406,8 @@ export async function restoreSnapshot(opts) {
 
     // 6. Extract + restore (BOUNDED cleanup in the finally).
     const fields = await extractAndRestore({
-      tarPath, archivePath, destDir, snapshotId, targetClaudeDir, manifest,
-      assertWritable, retry, extractFn, readFileFn, mkdirFn, atomicWriteFn, bag,
+      tarPath, archivePath, destDir, snapshotId, targetClaudeDir, manifest, assertWritable, retry,
+      extractFn, readFileFn, mkdirFn, atomicWriteFn, chmodFn: seams.chmodFn, platform: o.platform, bag,
     });
     return buildResult(fields, bag);
   } catch (e) {
