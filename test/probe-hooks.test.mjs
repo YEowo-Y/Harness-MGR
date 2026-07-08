@@ -8,7 +8,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gatherHookProbes } from '../src/discovery/probe-hooks.mjs';
@@ -88,6 +88,7 @@ test('external found: bare command name on PATH', () => {
     const isWin = process.platform === 'win32';
     const filename = isWin ? 'mytool.cmd' : 'mytool';
     writeFileSync(join(tmp, filename), isWin ? '@echo hi' : '#!/bin/sh\necho hi', 'utf-8');
+    if (!isWin) chmodSync(join(tmp, filename), 0o755); // an EXTERNAL command needs the exec bit to resolve (P2-3 X_OK)
     const env = isWin
       ? { PATH: tmp, PATHEXT: '.COM;.EXE;.BAT;.CMD' }
       : { PATH: tmp };
