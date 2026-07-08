@@ -76,6 +76,37 @@ test('every KNOWN_TOP_FILES member at the root is excluded (hard:[])', () => {
   });
 });
 
+// ── Apple metadata is never an orphan (macOS noise suppression) ───────────────
+
+test('Apple metadata (.DS_Store, .AppleDouble dir, ._* sidecars) at the root is never a hard orphan', () => {
+  withTempDir((dir) => {
+    writeFileSync(join(dir, '.DS_Store'), 'x', 'utf-8');
+    mkdirSync(join(dir, '.AppleDouble'));
+    // AppleDouble sidecars sitting NEXT TO their real files at the config root — the
+    // most common real mac artifact; each exercises the classifyTopLevel `._` skip.
+    writeFileSync(join(dir, '._settings.json'), 'x', 'utf-8');
+    writeFileSync(join(dir, '._CLAUDE.md'), 'x', 'utf-8');
+    const { hard, soft, diagnostics } = detectOrphans(dir);
+    assert.equal(bySeverity(diagnostics, 'error').length, 0);
+    assert.equal(hard.some((o) => o.name === '.DS_Store' || o.name === '.AppleDouble'), false, 'exact-name apple metadata is not a hard orphan');
+    assert.equal(hard.some((o) => o.name.startsWith('._')), false, '._* AppleDouble sidecars at the root are not hard orphans');
+    assert.deepEqual(soft, []);
+  });
+});
+
+test('Apple metadata inside a component dir (.DS_Store / ._*) is never a soft orphan', () => {
+  withTempDir((dir) => {
+    mkdirSync(join(dir, 'skills'));
+    writeFileSync(join(dir, 'skills', '.DS_Store'), 'x', 'utf-8');    // loose FILE in skills/ → pre-fix a soft orphan
+    writeFileSync(join(dir, 'skills', '._ghost.md'), 'x', 'utf-8');   // AppleDouble sidecar → pre-fix a soft orphan
+    mkdirSync(join(dir, 'skills', 'real-skill'));
+    writeFileSync(join(dir, 'skills', 'real-skill', 'SKILL.md'), 'x', 'utf-8');
+    const { hard, soft } = detectOrphans(dir);
+    assert.deepEqual(soft, [], 'apple metadata in skills/ is not a soft orphan');
+    assert.deepEqual(hard, []);
+  });
+});
+
 // ── A. GOLDEN ─────────────────────────────────────────────────────────────────
 
 test('orphan/golden: zero error-severity diagnostics', () => {
