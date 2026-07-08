@@ -41,7 +41,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -94,7 +94,7 @@ test('reversibility fix: secret-named command component (rotate-secret.md) is ca
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-rev-fix-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rev-fix-')));
   const stateDir = join(tmp, '.mgr-state');
 
   try {
@@ -201,7 +201,7 @@ test('reversibility fix: command whose .md content contains a ghp_ token is capt
 
   const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
   const savedEnableWrites = process.env.HARNESS_MGR_ENABLE_WRITES;
-  const tmp = mkdtempSync(join(tmpdir(), 'cmgr-rev-sniff-'));
+  const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-rev-sniff-')));
   const stateDir = join(tmp, '.mgr-state');
 
   try {
@@ -267,7 +267,7 @@ test('Part 2 backstop: applyPlan refuses with apply-target-not-snapshotted when 
   // This test is hermetic (no real tar / no real CLI run). It uses the ops-layer
   // applyPlan directly with injected seams so it can control the snapshot result.
 
-  const root = mkdtempSync(join(tmpdir(), 'cmgr-backstop-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-backstop-')));
   const claudeDir = join(root, '.claude');
   const stateDir = join(claudeDir, '.mgr-state');
   mkdirSync(claudeDir, { recursive: true });
