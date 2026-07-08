@@ -59,6 +59,7 @@
 
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { resolutionKey, isLoadableComponent, rankComponents } from './load-order.mjs';
+import { identityKey } from '../lib/name-identity.mjs';
 
 /**
  * @typedef {import('../lib/source.mjs').Source} Source
@@ -105,11 +106,16 @@ import { resolutionKey, isLoadableComponent, rankComponents } from './load-order
  * Analyze skill/agent/command components for shadowing conflicts.
  *
  * @param {ComponentRecord[]} components   discovered components (other kinds ignored)
- * @param {Object} [opts]                   reserved for future options (none in Phase 1)
+ * @param {{ caseInsensitive?: boolean }} [opts]
+ *   caseInsensitive: when true, two components whose resolution keys differ only in
+ *   case are treated as the SAME loader identity (Windows NTFS / macOS APFS default),
+ *   so a case-only cross-tier shadow is detected; on a case-sensitive volume they
+ *   stay distinct. NFC folding is applied on every platform regardless. Absent →
+ *   NFC-only (case-sensitive), preserving the prior behaviour for direct callers.
  * @returns {ConflictResult}
  */
 export function analyzeConflicts(components, opts) {
-  void opts; // reserved; keeps the signature stable for U14
+  const caseInsensitive = !!(opts && opts.caseInsensitive);
   const bag = new DiagnosticBag();
 
   if (!Array.isArray(components)) {
@@ -119,7 +125,7 @@ export function analyzeConflicts(components, opts) {
 
   /** @type {ConflictCluster[]} */
   const conflicts = [];
-  for (const [, group] of groupByKindKey(components)) {
+  for (const [, group] of groupByKindKey(components, caseInsensitive)) {
     if (group.members.length < 2) continue; // a unique key is not a conflict
     conflicts.push(buildCluster(group.kind, group.key, group.members, bag));
   }
@@ -138,17 +144,25 @@ export function analyzeConflicts(components, opts) {
  * the loader resolves, so they cannot shadow. Loadability + the resolution key are
  * decided by the imported isLoadableComponent / resolutionKey (load-order.mjs, the
  * single source of truth).
+ *
+ * The GROUPING key is the resolution key run through identityKey (NFC always, plus
+ * case folding when caseInsensitive), so a macOS-NFD name groups with its NFC twin
+ * and a case-only variant groups on a case-insensitive volume. The DISPLAYED `key`
+ * stays the first member's original resolutionKey — identity folding is a grouping
+ * concern only, never surfaced to the user or used to build a path.
  * @param {ComponentRecord[]} components
+ * @param {boolean} caseInsensitive  fold case in the grouping identity (Win/mac default)
  * @returns {Map<string, {kind: ComponentKind, key: string, members: ConflictMember[]}>}
  */
-function groupByKindKey(components) {
+function groupByKindKey(components, caseInsensitive) {
   /** @type {Map<string, {kind: ComponentKind, key: string, members: ConflictMember[]}>} */
   const groups = new Map();
   for (const rec of components) {
     if (!isLoadableComponent(rec)) continue;
     const member = { name: rec.name, path: rec.path, source: rec.source };
-    const key = resolutionKey(rec);
-    const groupKey = `${rec.kind}\n${key}`; // collision-proof \n separator (newline cannot appear in a kind or resolution key)
+    const key = resolutionKey(rec);                          // display key (original form)
+    const identity = identityKey(key, caseInsensitive);      // grouping identity (NFC + optional fold)
+    const groupKey = `${rec.kind}\n${identity}`; // collision-proof \n separator (newline cannot appear in a kind or resolution key)
     const existing = groups.get(groupKey);
     if (existing) existing.members.push(member);
     else groups.set(groupKey, { kind: rec.kind, key, members: [member] });
