@@ -50,6 +50,7 @@ import { join } from 'node:path';
 import { makeSource } from '../lib/source.mjs';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
 import { parseFrontmatter } from './frontmatter.mjs';
+import { isAppleMetadata } from '../lib/apple-metadata.mjs';
 
 /**
  * @typedef {import('../lib/source.mjs').Source} Source
@@ -181,6 +182,7 @@ function collectSkillMd(rootDir, dir, kind, source, bag) {
   /** @type {ComponentRecord[]} */
   const out = [];
   for (const ent of safeReaddir(skillsDir, bag)) {
+    if (isAppleMetadata(ent.name)) continue; // .DS_Store/._*/.AppleDouble are never components (mac consistency)
     if (!ent.isDirectory()) continue;
     const file = join(skillsDir, ent.name, 'SKILL.md');
     // SECURITY: refuse to follow a symlinked SKILL.md. existsSync + readFileSync
@@ -224,6 +226,7 @@ function collectFlatMd(rootDir, dir, kind, source, bag) {
   /** @type {ComponentRecord[]} */
   const out = [];
   for (const ent of safeReaddir(subDir, bag)) {
+    if (isAppleMetadata(ent.name)) continue; // an AppleDouble `._roster.md` sidecar is not a component
     if (!ent.isFile() || !/\.md$/i.test(ent.name)) continue;
     const file = join(subDir, ent.name);
     const base = ent.name.replace(/\.md$/i, '');
@@ -254,6 +257,7 @@ function collectFlatToml(rootDir, dir, kind, source, bag) {
   /** @type {ComponentRecord[]} */
   const out = [];
   for (const ent of safeReaddir(subDir, bag)) {
+    if (isAppleMetadata(ent.name)) continue; // an AppleDouble `._agent.toml` sidecar is not a component
     if (!ent.isFile() || !/\.toml$/i.test(ent.name)) continue;
     const file = join(subDir, ent.name);
     const name = ent.name.replace(/\.toml$/i, '');
