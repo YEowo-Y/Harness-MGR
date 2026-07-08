@@ -17,8 +17,16 @@ import { discoverComponents } from '../src/discovery/components.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const fix = (rel) => join(here, 'fixtures', rel);
 
-/** @param {import('../src/discovery/components.mjs').ComponentRecord[]} comps */
-const find = (comps, kind, name) => comps.find((c) => c.kind === kind && c.name === name);
+/**
+ * Find by (kind, name) comparing names by NFC IDENTITY: macOS readdir returns names
+ * in NFD, so a byte-exact `===` against an NFC literal would miss on mac. Lookup is
+ * an identity concern (the stored ComponentRecord.name stays raw for path/display).
+ * @param {import('../src/discovery/components.mjs').ComponentRecord[]} comps
+ */
+const find = (comps, kind, name) => {
+  const target = String(name).normalize('NFC');
+  return comps.find((c) => c.kind === kind && typeof c.name === 'string' && c.name.normalize('NFC') === target);
+};
 const bySeverity = (diags, sev) => diags.filter((d) => d.severity === sev);
 
 // ── minimal/ (the happy path) ───────────────────────────────────────────────
@@ -89,7 +97,15 @@ test('unicode-paths: non-ASCII skill and agent names are preserved', () => {
 
   const skill = find(components, 'skill', 'café-assistant');
   assert.ok(skill, 'café-assistant skill found with Unicode name intact');
-  assert.equal(skill.frontmatter.name, 'café-assistant');
+  assert.equal(String(skill.frontmatter.name).normalize('NFC'), 'café-assistant'.normalize('NFC'));
+  // P1-1: the discovered name (NFD on macOS readdir) and the authored frontmatter
+  // name (NFC) must share ONE NFC identity — the invariant conflict/dedup analysis
+  // relies on to stay correct across Linux/Windows (NFC) and macOS (NFD).
+  assert.equal(
+    String(skill.name).normalize('NFC'),
+    String(skill.frontmatter.name).normalize('NFC'),
+    'discovered name normalizes to the same NFC identity as the frontmatter name',
+  );
 
   const agent = find(components, 'agent', 'répondeur');
   assert.ok(agent, 'répondeur agent found (Unicode name from frontmatter)');
