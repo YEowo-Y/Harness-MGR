@@ -187,6 +187,19 @@ test('an out-of-subset bare value (a date) → clean error, never throws', () =>
   assert.match(r.errors[0].message, /invalid value/);
 });
 
+test('an invalid bare value does NOT echo the raw token (secret-safe error)', () => {
+  // A user pasting a secret but forgetting the quotes (the most common mistake,
+  // and exactly when a secret is present) must not have the token embedded in the
+  // Diagnostic — CLI diagnostics are not secret-redacted, so an echoed token leaks
+  // verbatim to stdout/JSON/the TUI. The 1-based position already localizes it.
+  const secret = 'sk-SECRET_MUSTNOTLEAK_0123456789';
+  const r = parseToml(`api_key = ${secret}`);
+  assert.equal(r.value, undefined);
+  assert.equal(r.errors.length, 1);
+  assert.doesNotMatch(r.errors[0].message, /SECRET_MUSTNOTLEAK|sk-/, 'the raw token must not appear in the message');
+  assert.match(r.errors[0].message, /invalid value/, 'still names the problem');
+});
+
 // ── array-of-tables semantics ─────────────────────────────────────────────────
 
 test('a later [table] header descends into the LAST array-of-tables element', () => {
