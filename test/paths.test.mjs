@@ -911,3 +911,38 @@ test('assertWritable DENIES a junction that escapes the allowlist', () => {
     rmSync(outside, { recursive: true, force: true });
   }
 });
+
+// --- security L1 (depth-2): a junction escape where the intermediate dir does
+// NOT exist at the junction target. canonical()'s ENOENT fallback must walk UP
+// the ancestor chain (not stop after one level and return the lexical path), or a
+// >=2-deep to-be-created path escapes the allowlist. Regression for the audit
+// finding: rollback of `agents/sub/deep/file.md` through a junctioned `agents/sub`
+// otherwise APPROVED lexically (and step-e mkdir then leaked a dir outside the tree).
+test('assertWritable DENIES a >=2-deep to-be-created path under a junction (ancestor walk)', () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const cfg = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-sym2-cfg-')));
+  const outside = realpathSync(mkdtempSync(join(tmpdir(), 'cmgr-sym2-out-')));
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  try {
+    // agents/ is a rollback-writable surface; make agents/sub a junction to outside.
+    mkdirSync(join(cfg, 'agents'), { recursive: true });
+    const link = join(cfg, 'agents', 'sub');
+    let made = false;
+    try { symlinkSync(outside, link, 'junction'); made = true; } catch { /* no priv — skip */ }
+    if (made) {
+      // agents/sub/deep does NOT exist at the junction target (outside/deep absent),
+      // so realpathSync(dirname) ENOENTs and the old single-level fallback returned
+      // the lexical path → APPROVED. The ancestor walk resolves `sub` → outside → deny.
+      assert.throws(
+        () => assertWritable(join(link, 'deep', 'file.md'), 'rollback'),
+        (e) => e instanceof WriteForbiddenError && e.code === 'write-outside-target',
+        'a >=2-deep to-be-created path escaping via a junction must be denied',
+      );
+    }
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    rmSync(cfg, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
