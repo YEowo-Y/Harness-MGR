@@ -70,6 +70,9 @@ export async function run(argv, { homeFn } = {}) {
     // flag-swallowing, or empty `--config-dir`/`--target` must NOT silently resolve to
     // the real ~/.claude (the write-misdirection the strict-flag policy guards against).
     if (missingValueFlag) return { code: 2, stdout: missingValueUsage(missingValueFlag) };
+    // `--help` (with or without a command) prints the usage/flag reference and exits 0
+    // — so the README's documented `<command> --help` works instead of erroring exit 2.
+    if (args.help) return { code: 0, stdout: usage() };
     if (!canonical) return { code: 2, stdout: usage() };
     if (!Object.prototype.hasOwnProperty.call(COMMANDS, canonical)) {
       return { code: 2, stdout: unknownCommand(canonical) };
