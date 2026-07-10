@@ -294,6 +294,20 @@ test('driftCommand: --update against a fixture degrades gracefully (no throw)', 
   });
 });
 
+test('driftCommand: --update honors HARNESS_MGR_ENABLE_WRITES=0 (refuse, code 3, no baseline write)', async () => {
+  // The env force-lock promises to "hard-disable all governed writes". drift --update
+  // rewrites the baseline lockfile, so it must refuse under the lock like every other
+  // write command — not silently overwrite the tamper-evidence baseline. The refusal
+  // returns BEFORE writeLockfile, so nothing is written to mgrStateDir.
+  const out = await driftCommand(
+    { configDir: MIN, mgrStateDir: MIN, args: { update: true } },
+    { env: { HARNESS_MGR_ENABLE_WRITES: '0' } },
+  );
+  assert.equal(out.code, 3);
+  assert.ok(hasCode(out.diagnostics, 'writes-disabled-env'), 'the env force-lock refusal is surfaced');
+  assert.ok(!hasCode(out.diagnostics, 'drift-baseline-updated'), 'no baseline was written');
+});
+
 // ── J. never-throws sweep ─────────────────────────────────────────────────────────
 
 test('every handler on a non-existent configDir does not throw + returns {result, diagnostics}', async () => {
