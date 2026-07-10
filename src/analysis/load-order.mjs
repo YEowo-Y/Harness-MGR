@@ -69,11 +69,15 @@ export const VERIFIED_CC_MINOR = '2.1';
  *   agents). This is the WITHIN-tier tiebreak the loader itself applies; it only
  *   matters when two members share a rank (e.g. plugin-vs-plugin).
  */
-export const KIND_RULES = Object.freeze({
+// NULL-PROTO table: keyed by an untrusted `kind`, so it must NOT inherit
+// Object.prototype members — else KIND_RULES['toString'] (etc.) returns a truthy
+// inherited function that defeats every `if (!rule)` guard, making rankOf/isLoadable
+// throw on a kind that collides with a prototype key (breaks the never-throws contract).
+export const KIND_RULES = Object.freeze(Object.assign(Object.create(null), {
   skill: Object.freeze({ namespacePlugins: true, ranks: Object.freeze({ user: 3, plugin: 7 }), winsBy: 'first' }),
   command: Object.freeze({ namespacePlugins: true, ranks: Object.freeze({ user: 3, plugin: 6 }), winsBy: 'first' }),
   agent: Object.freeze({ namespacePlugins: false, ranks: Object.freeze({ user: 3, plugin: 4 }), winsBy: 'last' }),
-});
+}));
 
 /**
  * Rank used for any tier not modeled in a kind's `ranks` (e.g. catalog), or for an
