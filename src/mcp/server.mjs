@@ -49,9 +49,11 @@ import {
   ErrorCode,
 } from '@modelcontextprotocol/sdk/types.js';
 import { run } from '../cli.mjs';
+import PKG from '../../package.json' with { type: 'json' };
 
-/** Server identity presented in the MCP initialize handshake. */
-const SERVER_INFO = Object.freeze({ name: 'harness-mgr', version: '0.0.0' });
+/** Server identity presented in the MCP initialize handshake. Version tracks
+ * package.json (mirrors web/server) so a client never sees a stale hardcoded value. */
+const SERVER_INFO = Object.freeze({ name: 'harness-mgr', version: PKG.version });
 
 /** All four U6 tools take no inputs — one shared empty-object schema. */
 const NO_INPUT_SCHEMA = Object.freeze({

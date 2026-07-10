@@ -68,6 +68,32 @@ test('readJsoncFile refuses a symlink (no foreign content, duplicateKeys:[])', (
   }
 });
 
+test('readJsonFile: a JSON syntax error near a secret does not echo file content', () => {
+  // Node's JSON.parse "Unexpected token" messages embed a verbatim ~20-char excerpt
+  // of the file around the error position. A user hand-editing .mcp.json / settings.json
+  // who leaves a syntax error next to an env secret would have that secret's prefix
+  // forwarded through the (unredacted) `error` string to stdout/JSON/the TUI. The
+  // error must localize the fault WITHOUT reproducing any file bytes.
+  const { dir, cleanup } = makeTmpDir();
+  try {
+    const bad = join(dir, 'installed_plugins.json');
+    // Unquoted value → "Unexpected token" family, which is the leaking shape. V8
+    // embeds a ~10-char excerpt starting at the fault, so it echoes the KEY NAME and
+    // the first bytes of the secret value (e.g. `..."API_KEY": MUSTNOTLEA"...`).
+    writeFileSync(bad, `{ "API_KEY": ${SENTINEL} }`);
+    const r = readJsonFile(bad);
+    assert.equal(r.value, null);
+    assert.ok(typeof r.error === 'string' && r.error.length > 0, 'an error reason is reported');
+    // Assert on the ACTUAL leaked bytes: the secret's 10-char prefix and the key name,
+    // both verbatim file content. (Do NOT assert on the full sentinel — V8 truncates
+    // it, which would give a false green.)
+    assert.equal(r.error.includes('MUSTNOTLEA'), false, 'the secret prefix must not appear in the error');
+    assert.equal(r.error.includes('API_KEY'), false, 'no verbatim file content (key name) in the error');
+  } finally {
+    cleanup();
+  }
+});
+
 test('no regression: a REAL (non-symlink) JSON/JSONC file still parses', () => {
   const { dir, cleanup } = makeTmpDir();
   try {

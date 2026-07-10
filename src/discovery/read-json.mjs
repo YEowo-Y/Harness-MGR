@@ -58,8 +58,26 @@ export function readJsonFile(file) {
     const s = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
     return { value: JSON.parse(s), error: null, missing: false };
   } catch (err) {
-    return { value: null, error: `invalid JSON: ${errMessage(err)}`, missing: false };
+    return { value: null, error: `invalid JSON: ${safeJsonParseError(err)}`, missing: false };
   }
+}
+
+/**
+ * A content-free rendering of a JSON.parse failure. V8's "Unexpected token 'X',
+ * ...<excerpt>... is not valid JSON" messages embed a verbatim ~10-char slice of
+ * the file around the fault — a secret when the file holds one (.mcp.json /
+ * settings.json env values). CLI diagnostics are NOT secret-redacted, so we must
+ * never forward that slice. Keep ONLY a numeric position (digits carry no content),
+ * mirroring readJsoncFile's `(line X, column Y)`; otherwise emit a fixed phrase.
+ * @param {unknown} err
+ * @returns {string}
+ */
+function safeJsonParseError(err) {
+  const raw = errMessage(err);
+  const pos = raw.match(/at position \d+(?: \(line \d+ column \d+\))?/);
+  if (pos) return `syntax error ${pos[0]}`;
+  if (/Unexpected end of JSON input/.test(raw)) return 'unexpected end of input';
+  return 'unparseable (syntax error)';
 }
 
 /**

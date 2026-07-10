@@ -150,42 +150,42 @@ export class WriteForbiddenError extends Error {
  * @returns {string}
  */
 function canonical(p) {
-  const abs = resolve(p);
-  let real;
-  try {
-    real = realpathSync(abs);
-  } catch (err) {
-    // M1: branch on err.code. ONLY ENOENT means "not created yet" — anything
-    // else (ELOOP cycle, EACCES, ENOTDIR) must FAIL CLOSED, never be treated
-    // as a writable path.
-    if (err && err.code === 'ENOENT') {
-      // Resolve the deepest existing ancestor so a symlinked parent dir still
-      // can't escape the allowlist.
-      try {
-        real = join(realpathSync(dirname(abs)), abs.slice(dirname(abs).length));
-      } catch (err2) {
-        if (err2 && err2.code === 'ENOENT') {
-          real = abs; // neither the path nor its parent exists yet
-        } else {
-          throw new WriteForbiddenError(
-            `cannot canonicalize path (${err2.code}): ${abs}`,
-            'write-canonicalize-failed',
-          );
-        }
-      }
-    } else {
-      throw new WriteForbiddenError(
-        `cannot canonicalize path (${err && err.code}): ${abs}`,
-        'write-canonicalize-failed',
-      );
-    }
-  }
+  const real = resolveReal(resolve(p));
   const norm = normalize(real);
   // Case-fold on a case-INSENSITIVE filesystem (Windows NTFS + macOS APFS/HFS+
   // default) so a differently-cased spelling of a governed path canonicalizes to
   // the same allowlist key; Linux (case-sensitive) keeps the exact case.
   const plat = process.platform;
   return (plat === 'win32' || plat === 'darwin') ? norm.toLowerCase() : norm;
+}
+
+/**
+ * Symlink-resolve `abs`: realpathSync it if it exists, else resolve the DEEPEST
+ * existing ancestor and rejoin the not-yet-created suffix. Starting at `abs` and
+ * walking UP one level at a time (each `node` is a lexical prefix of `abs`, so the
+ * slice is safe) resolves a symlink/junction at ANY depth — a single
+ * realpathSync(dirname) would only catch a depth-1 escape, letting a >=2-deep
+ * to-be-created path (e.g. rollback of agents/sub/deep/file.md through a junctioned
+ * agents/sub) slip through as a raw lexical path. FAIL CLOSED: any non-ENOENT error
+ * (ELOOP, EACCES, ENOTDIR) throws — never treated as writable. If nothing on the
+ * path resolves (even the root), return the lexical path (genuinely nothing exists).
+ * @param {string} abs an absolute, resolve()'d path
+ * @returns {string}
+ */
+function resolveReal(abs) {
+  let node = abs;
+  for (;;) {
+    try {
+      return join(realpathSync(node), abs.slice(node.length)); // node===abs → slice '' → realpath(abs)
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') {
+        throw new WriteForbiddenError(`cannot canonicalize path (${err && err.code}): ${abs}`, 'write-canonicalize-failed');
+      }
+      const parent = dirname(node);
+      if (parent === node) return abs; // reached the root; nothing on the path exists yet
+      node = parent;
+    }
+  }
 }
 
 /**

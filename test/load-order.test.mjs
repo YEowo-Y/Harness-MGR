@@ -286,3 +286,22 @@ test('determinism: two identical rankComponents calls produce identical orders',
   ];
   assert.deepEqual(rankComponents('agent', members), rankComponents('agent', members));
 });
+
+// ── H. PROTOTYPE-SAFETY: a kind that collides with an Object.prototype member ──────
+
+test('prototype-safety: a kind matching an Object.prototype key degrades, never throws', () => {
+  // Distinct from the 'bogus' unknown-kind case: on a PLAIN-object KIND_RULES,
+  // KIND_RULES['toString'] returns an INHERITED function (truthy), defeating the
+  // `if (!rule)` guard so rankOf dereferences undefined.ranks → TypeError. A null-proto
+  // table makes the lookup undefined, so the kind ranks UNKNOWN_RANK and is not loadable.
+  for (const kind of ['toString', 'constructor', 'hasOwnProperty', 'valueOf']) {
+    const members = [
+      { kind, name: 'x', path: 'p1', source: { tier: 'user' } },
+      { kind, name: 'x', path: 'p2', source: { tier: 'plugin', plugin: 'p', marketplace: 'm' } },
+    ];
+    let out;
+    assert.doesNotThrow(() => { out = rankComponents(kind, members); }, `rankComponents(${kind}) must not throw`);
+    assert.equal(out.length, 2, `${kind}: all members returned`);
+    assert.equal(isLoadableComponent({ kind, name: 'x', path: 'p', source: { tier: 'user' } }), false, `unknown kind ${kind} is not loadable`);
+  }
+});

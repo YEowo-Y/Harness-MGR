@@ -43,7 +43,10 @@ function parseBareValue(s) {
   let raw = '';
   while (!isValueDelimiter(peek(s))) raw += advance(s);
   const v = scalarFromToken(raw);
-  if (v === INVALID) throw new TomlError(`invalid value '${raw}'`, startLine, startCol);
+  // Do NOT echo `raw` in the message: an unquoted RHS is exactly where a user pastes
+  // a secret-forgot-the-quotes, and CLI diagnostics are not secret-redacted, so an
+  // embedded token would leak verbatim. The 1-based line/column already localizes it.
+  if (v === INVALID) throw new TomlError('invalid value — expected a quoted string, boolean, or number', startLine, startCol);
   return v;
 }
 

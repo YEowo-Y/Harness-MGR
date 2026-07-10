@@ -34,6 +34,7 @@ pure function over that stack.
 | `permissions.*` (other subkeys, e.g. `defaultMode`) | highest-wins | The highest layer that sets the subkey wins. |
 | `hooks.<event>` | **per-event array concat** | Each event's array is concatenated in layer order. *(Phase 2 refinement: the verified loader additionally de-dups by `hookDedupKey`; Phase 1 uses plain concat.)* |
 | `enabledPlugins` | **object merge** | Shallow merge; a later (higher) layer overrides the same key. |
+| `skillOverrides` | **object merge** | Shallow merge; a later (higher) layer overrides the same skill's visibility (modeled on `enabledPlugins`; not independently re-verified against Claude Code's `settingsMergeCustomizer`). |
 | `env` | **object merge** | Shallow merge; later layer wins per key. |
 | `model`, `outputStyle`, `cleanupPeriodDays`, `includeCoAuthoredBy` | **scalar, highest-wins** | The highest layer that defines the key wins (first-hit from the top). |
 | *anything else* | **unknown** | `mergeConfidence: "unknown"`. Raw per-layer values are reported; no effective value is fabricated. |

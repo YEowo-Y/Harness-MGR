@@ -31,6 +31,7 @@ import { TARGETS } from './targets/descriptor.mjs';
 import { formatJson, formatNdjson } from './output/json.mjs';
 import { renderTable, renderQuiet } from './cli/render.mjs';
 import { VALUE_FLAGS, BOOLEAN_FLAGS } from './cli/flags.mjs';
+import { parseArgs } from './cli/parse-args.mjs';
 import { redactHomePaths } from './output/redact-paths.mjs';
 
 /**
@@ -58,13 +59,20 @@ const FORMATS = Object.freeze(['table', 'json', 'quiet', 'ndjson']);
  */
 export async function run(argv, { homeFn } = {}) {
   try {
-    const { canonical, args, unknownFlag } = parseArgs(Array.isArray(argv) ? argv : []);
+    const { canonical, args, unknownFlag, missingValueFlag } = parseArgs(argv);
 
     // An unrecognized long flag is a hard usage error (exit 2) — mirror the
     // unknown-command path so a typo like `--configdir` can NEVER be silently
     // dropped (which would leave configDir undefined and misdirect a write to the
     // real ~/.claude once apply/rollback are CLI-wired).
     if (unknownFlag) return { code: 2, stdout: unknownFlagUsage(unknownFlag) };
+    // A value flag left without a real value is a hard usage error too — a trailing,
+    // flag-swallowing, or empty `--config-dir`/`--target` must NOT silently resolve to
+    // the real ~/.claude (the write-misdirection the strict-flag policy guards against).
+    if (missingValueFlag) return { code: 2, stdout: missingValueUsage(missingValueFlag) };
+    // `--help` (with or without a command) prints the usage/flag reference and exits 0
+    // — so the README's documented `<command> --help` works instead of erroring exit 2.
+    if (args.help) return { code: 0, stdout: usage() };
     if (!canonical) return { code: 2, stdout: usage() };
     if (!Object.prototype.hasOwnProperty.call(COMMANDS, canonical)) {
       return { code: 2, stdout: unknownCommand(canonical) };
@@ -101,100 +109,6 @@ export async function run(argv, { homeFn } = {}) {
     // The boundary guarantee: never a bare stack trace. Degrade to a JSON envelope.
     return { code: 2, stdout: formatJson({ error: 'internal', message: errMessage(err) }) };
   }
-}
-
-/**
- * Hand-rolled, zero-dep argv parse. The first positional is the subcommand —
- * with one SPECIAL CASE: `config show-effective` collapses to the canonical
- * `'config:show-effective'` (both tokens consumed). Value flags consume the next
- * token; boolean flags are presence-only.
- *
- * STRICT-FLAG POLICY (P2.1): an unrecognized long `--flag` is NOT silently dropped
- * — the FIRST one is captured as `unknownFlag` and run() turns it into a hard exit-2
- * usage error. This stops a typo (`--configdir` vs `--config-dir`) from being
- * discarded, leaving its key unset and its value token leaking into the positionals.
- *
- * @param {string[]} argv
- * @returns {{canonical: string|null, args: {format?:string, configDir?:string, name?:string, key?:string, type?:string, from?:string, explain?:boolean, detail?:boolean}, unknownFlag: string|null}}
- */
-function parseArgs(argv) {
-  const args = Object.create(null); // null-proto: a `--constructor`-style flag can never reach a prototype key
-  /** @type {string[]} */
-  const positionals = [];
-  /** @type {string|null} the first unrecognized long flag (drives the exit-2 usage error) */
-  let unknownFlag = null;
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const tok = argv[i];
-    if (typeof tok !== 'string') continue;
-    if (VALUE_FLAGS.includes(tok)) {
-      args[flagKey(tok)] = argv[i + 1]; // may be undefined at end of argv — tolerated
-      i += 1; // consume the value token
-    } else if (BOOLEAN_FLAGS.includes(tok)) {
-      args[flagKey(tok)] = true;
-    } else if (tok.startsWith('--')) {
-      if (unknownFlag === null) unknownFlag = tok; // strict: capture the first, error in run()
-    } else {
-      positionals.push(tok);
-    }
-  }
-
-  // Resolve the canonical command AND how many positional tokens it consumed; the
-  // REST become args.positionals so a handler can read its `<id>` (e.g. rollback <id>).
-  const { canonical, consumed } = canonicalize(positionals);
-  args.positionals = positionals.slice(consumed);
-  return { canonical, args, unknownFlag };
-}
-
-/**
- * Resolve the canonical command name from the positionals AND how many positional
- * tokens that command consumed (so the caller can slice the REST into
- * `args.positionals` — e.g. the `<id>` in `rollback <id>`). No first positional →
- * `{ canonical: null, consumed: 0 }`. Two-word commands collapse to one canonical
- * key (TWO tokens consumed):
- *   `config show-effective` → `config:show-effective` (consumed 2)
- *   `config diff`           → `config:diff`            (consumed 2)
- *   `snapshot list`         → `snapshot:list`          (consumed 2)
- *   `snapshot gc`           → `snapshot:gc`            (consumed 2)
- *   `snapshot pin`          → `snapshot:pin`           (consumed 2)
- *   `snapshot unpin`        → `snapshot:unpin`         (consumed 2)
- *   `mcp remove`            → `mcp:remove`             (consumed 2)
- *   `skill propose`         → `skill:propose`          (consumed 2)
- *   `skill accept`          → `skill:accept`           (consumed 2)
- *   `skill visibility`      → `skill:visibility`       (consumed 2)
- * A bare `snapshot` (no sub-verb) stays `snapshot` (consumed 1, the create command).
- * Otherwise the first positional is the canonical name verbatim (consumed 1;
- * membership checked later).
- *
- * @param {string[]} positionals
- * @returns {{canonical: string|null, consumed: number}}
- */
-function canonicalize(positionals) {
-  const first = positionals[0];
-  if (typeof first !== 'string' || first.length === 0) return { canonical: null, consumed: 0 };
-  if (first === 'config' && positionals[1] === 'show-effective') return { canonical: 'config:show-effective', consumed: 2 };
-  if (first === 'config' && positionals[1] === 'diff') return { canonical: 'config:diff', consumed: 2 };
-  if (first === 'snapshot' && positionals[1] === 'list') return { canonical: 'snapshot:list', consumed: 2 };
-  if (first === 'snapshot' && positionals[1] === 'gc') return { canonical: 'snapshot:gc', consumed: 2 };
-  if (first === 'snapshot' && positionals[1] === 'pin') return { canonical: 'snapshot:pin', consumed: 2 };
-  if (first === 'snapshot' && positionals[1] === 'unpin') return { canonical: 'snapshot:unpin', consumed: 2 };
-  if (first === 'mcp' && positionals[1] === 'remove') return { canonical: 'mcp:remove', consumed: 2 };
-  if (first === 'skill' && positionals[1] === 'propose') return { canonical: 'skill:propose', consumed: 2 };
-  if (first === 'skill' && positionals[1] === 'accept') return { canonical: 'skill:accept', consumed: 2 };
-  if (first === 'skill' && positionals[1] === 'visibility') return { canonical: 'skill:visibility', consumed: 2 };
-  return { canonical: first, consumed: 1 };
-}
-
-/**
- * Map a flag token to its `args` key: strip the leading `--` and camel-case the
- * one hyphenated flag (`--config-dir` → `configDir`). Keeps the args object's
- * shape exactly what the handlers document.
- *
- * @param {string} flag
- * @returns {string}
- */
-function flagKey(flag) {
-  return flag === '--config-dir' ? 'configDir' : flag.slice(2);
 }
 
 /**
@@ -278,7 +192,7 @@ function countSeverity(diagnostics, severity) {
  * @returns {string}
  */
 function usage() {
-  return `harness-mgr — read-mostly governance CLI\n\nusage: harness-mgr <command> [--config-dir <dir>] [--format table|json|quiet]\n\n  --target claude|codex   govern a Claude (default) or Codex (~/.codex) harness\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n  --redact-paths   replace the home-directory prefix in output paths with '~'\n                   (opt-in privacy; without this flag output is unchanged)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n  health                                 severity-layered health report (loadability + advice + hooks)\n  compare [--detail]                     cross-target presence report (claude vs codex; by kind+name)\n\nwrite commands (DRY-RUN by default; pass --apply to execute. Set\nHARNESS_MGR_ENABLE_WRITES=0 to force-lock all writes):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n  skill propose <name> --from <file> [--reason <msg>] [--apply]\n  skill accept <name> [<proposalId>] [--force] [--apply]\n  skill visibility <name> on|name-only|user-invocable-only|off [--apply]  (Claude)\n\ncommands:\n${commandList()}`;
+  return `harness-mgr — read-mostly governance CLI\n\nusage: harness-mgr <command> [--config-dir <dir>] [--format ${FORMATS.join('|')}]\n\n  --target claude|codex   govern a Claude (default) or Codex (~/.codex) harness\n  --active-probes  (doctor) run active checks that spawn external tools and let\n                   the loader probe briefly create + self-remove a temporary file\n                   in the real agents/ directory (gated, always cleaned up)\n  --redact-paths   replace the home-directory prefix in output paths with '~'\n                   (opt-in privacy; without this flag output is unchanged)\n\nread commands:\n  config diff <a> <b> [--context N]      unified line-diff of two files\n  completion bash|powershell             emit a shell tab-completion script\n  health                                 severity-layered health report (loadability + advice + hooks)\n  compare [--detail]                     cross-target presence report (claude vs codex; by kind+name)\n\nwrite commands (DRY-RUN by default; pass --apply to execute. Set\nHARNESS_MGR_ENABLE_WRITES=0 to force-lock all writes):\n  rollback <id> [--force] [--apply]\n  recover <id> [--mark-failed|--resume|--rollback|--from-manifest] [--force] [--apply]\n  lock [--break-lock --apply]\n  remove <kind>:<name> [--cascade [--force]] [--reason <msg>] [--apply]\n  update <plugin> [--lock-version <ver>] [--reason <msg>] [--apply]\n  mcp remove <name> [--scope local|user|project] [--reason <msg>] [--apply]\n  skill propose <name> --from <file> [--reason <msg>] [--apply]\n  skill accept <name> [<proposalId>] [--force] [--apply]\n  skill visibility <name> on|name-only|user-invocable-only|off [--apply]  (Claude)\n\ncommands:\n${commandList()}`;
 }
 
 /**
@@ -298,6 +212,17 @@ function unknownCommand(canonical) {
  */
 function unknownFlagUsage(flag) {
   return `unknown flag: ${flag}\n\nknown flags:\n${flagList()}`;
+}
+
+/**
+ * The message for a value flag left without a real value (trailing, followed by
+ * another flag, or empty). Naming it prevents the silent misdirection a bare
+ * `--config-dir` would otherwise cause.
+ * @param {string} flag
+ * @returns {string}
+ */
+function missingValueUsage(flag) {
+  return `flag requires a value: ${flag}\n\nknown flags:\n${flagList()}`;
 }
 
 /**

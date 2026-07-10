@@ -73,7 +73,7 @@ export function auditCommand(ctx) {
  * Never throws — every code path is guarded or wrapped.
  * @type {CommandHandler}
  */
-export async function driftCommand(ctx) {
+export async function driftCommand(ctx, deps = {}) {
   let probeState;
   try {
     probeState = await import('../discovery/probe-state.mjs');
@@ -93,6 +93,14 @@ export async function driftCommand(ctx) {
 
   // DRY-RUN-BY-DEFAULT: only --update writes/refreshes the baseline lockfile.
   if (ctx.args && ctx.args.update) {
+    // Two-factor gate: --update is the intent-to-write (like --apply elsewhere), so
+    // the HARNESS_MGR_ENABLE_WRITES=0 force-lock must REFUSE here before writeLockfile
+    // — else the promised "hard-disable all governed writes" is broken and the
+    // tamper-evidence baseline is silently overwritten. Mirrors snapshot gc.
+    const intent = resolveWriteIntent({ apply: true, env: deps.env ?? process.env });
+    if (intent.refusal) {
+      return { result: { status: analysis.status, changes: analysis.changes, summary: analysis.summary }, diagnostics: [...diagnostics, intent.refusal], code: intent.code };
+    }
     // Bind the lockfile write gate to the ACTIVE target like snapshotCommand does:
     // Codex needs a gate bound to its own config dir (the bare paths.assertWritable is
     // bound to ~/.claude and would reject a ~/.codex/.mgr-state write as
@@ -196,6 +204,10 @@ export async function snapshotCommand(ctx, deps = {}) {
     return {
       result: { mode: 'applied', status: 'write-unavailable' },
       diagnostics: [{ severity: 'warn', code: 'snapshot-write-unavailable', message: `the write gate is unloadable; snapshot --apply needs it: ${message}`, phase: 'cli' }],
+      // Non-zero exit like every sibling write command's identical failure branch: no
+      // archive/manifest was written, so `snapshot --apply && <destructive>` must NOT
+      // proceed believing a rollback point exists (a lone warn would otherwise exit 0).
+      code: 1,
     };
   }
   // Pick the target-bound gate: Codex needs a gate bound to ~/.codex (the bare
