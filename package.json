@@ -20,7 +20,9 @@
   "files": [
     "bin/",
     "src/",
-    "docs/",
+    "docs/effective-config-rules.md",
+    "docs/threat-model.md",
+    "docs/assets/",
     "harness-mgr.sh",
     "harness-mgr.ps1",
     "README.zh-CN.md",
