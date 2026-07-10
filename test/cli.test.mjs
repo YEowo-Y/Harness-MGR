@@ -252,6 +252,39 @@ test('every recognized flag parses without an unknown-flag error', async () => {
   }
 });
 
+// ── strict missing-value handling (write-misdirection guard) ──────────────────────
+
+test('trailing --config-dir (no value) → code 2, command did NOT read the real home', async () => {
+  const out = await run(['inventory', '--config-dir']);
+  assert.equal(out.code, 2);
+  assert.ok(out.stdout.includes('--config-dir'), 'the value-less flag is named');
+  assert.throws(() => JSON.parse(out.stdout), 'no inventory envelope — the command did not execute');
+});
+
+test('--config-dir followed by another flag → code 2 (the next flag is not swallowed)', async () => {
+  const out = await run(['inventory', '--config-dir', '--format', 'json']);
+  assert.equal(out.code, 2);
+  assert.ok(out.stdout.includes('--config-dir'), 'the flag missing its value is named');
+});
+
+test('empty --config-dir "" on snapshot --apply → code 2 (no silent real-home write)', async () => {
+  const out = await run(['snapshot', '--config-dir', '', '--apply']);
+  assert.equal(out.code, 2);
+  assert.throws(() => JSON.parse(out.stdout), 'the command did not execute');
+});
+
+test('single-dash flag (-f) → code 2, not silently dropped into positionals', async () => {
+  const out = await run(['inventory', '-f', 'json', '--config-dir', MIN]);
+  assert.equal(out.code, 2);
+  assert.ok(out.stdout.includes('-f') || out.stdout.includes('unknown flag'), 'the single-dash token is caught');
+});
+
+test('usage text lists ndjson among the --format values (generated from FORMATS)', async () => {
+  const out = await run([]);
+  assert.equal(out.code, 2);
+  assert.ok(out.stdout.includes('ndjson'), 'usage documents the implemented ndjson format');
+});
+
 // ── error path (exit 1) ──────────────────────────────────────────────────────────
 
 test('malformed settings.json (broken fixture) → exit 1 + error diagnostic', async () => {
