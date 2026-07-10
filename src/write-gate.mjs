@@ -150,31 +150,7 @@ export class WriteForbiddenError extends Error {
  * @returns {string}
  */
 function canonical(p) {
-  const abs = resolve(p);
-  let real;
-  try {
-    real = realpathSync(abs);
-  } catch (err) {
-    // M1: branch on err.code. ONLY ENOENT means "not created yet" — anything
-    // else (ELOOP cycle, EACCES, ENOTDIR) must FAIL CLOSED, never be treated
-    // as a writable path.
-    if (err && err.code === 'ENOENT') {
-      // Resolve the DEEPEST existing ancestor so a symlinked/junctioned parent at
-      // ANY depth still can't escape the allowlist. Walk UP one level at a time:
-      // a single realpathSync(dirname) only catches a depth-1 escape — for a
-      // >=2-deep to-be-created path (e.g. rollback of agents/sub/deep/file.md where
-      // agents/sub is a junction and agents/sub/deep does not yet exist) the parent
-      // ALSO ENOENTs, and stopping there would return the raw lexical path, letting
-      // the junction escape. Rejoin the not-yet-existing suffix onto the resolved
-      // real ancestor so isUnder() sees the true (escaped) path.
-      real = resolveDeepestAncestor(abs);
-    } else {
-      throw new WriteForbiddenError(
-        `cannot canonicalize path (${err && err.code}): ${abs}`,
-        'write-canonicalize-failed',
-      );
-    }
-  }
+  const real = resolveReal(resolve(p));
   const norm = normalize(real);
   // Case-fold on a case-INSENSITIVE filesystem (Windows NTFS + macOS APFS/HFS+
   // default) so a differently-cased spelling of a governed path canonicalizes to
@@ -184,31 +160,30 @@ function canonical(p) {
 }
 
 /**
- * Resolve the deepest existing ancestor of an as-yet-nonexistent `abs`, then rejoin
- * the not-yet-created suffix onto that REAL (symlink-resolved) ancestor. Walks up one
- * level at a time so a symlink/junction at ANY depth is resolved (a single
- * realpathSync(dirname) only catches a depth-1 escape). Each intermediate `ancestor`
- * is a lexical prefix of `abs` (produced by repeated dirname), so slicing the suffix
- * is safe. Fail-closed: any non-ENOENT realpath error throws WriteForbiddenError. If
- * even the filesystem root does not resolve, return the lexical path (nothing exists).
+ * Symlink-resolve `abs`: realpathSync it if it exists, else resolve the DEEPEST
+ * existing ancestor and rejoin the not-yet-created suffix. Starting at `abs` and
+ * walking UP one level at a time (each `node` is a lexical prefix of `abs`, so the
+ * slice is safe) resolves a symlink/junction at ANY depth — a single
+ * realpathSync(dirname) would only catch a depth-1 escape, letting a >=2-deep
+ * to-be-created path (e.g. rollback of agents/sub/deep/file.md through a junctioned
+ * agents/sub) slip through as a raw lexical path. FAIL CLOSED: any non-ENOENT error
+ * (ELOOP, EACCES, ENOTDIR) throws — never treated as writable. If nothing on the
+ * path resolves (even the root), return the lexical path (genuinely nothing exists).
  * @param {string} abs an absolute, resolve()'d path
  * @returns {string}
  */
-function resolveDeepestAncestor(abs) {
-  let ancestor = dirname(abs);
+function resolveReal(abs) {
+  let node = abs;
   for (;;) {
     try {
-      return join(realpathSync(ancestor), abs.slice(ancestor.length));
+      return join(realpathSync(node), abs.slice(node.length)); // node===abs → slice '' → realpath(abs)
     } catch (err) {
       if (!err || err.code !== 'ENOENT') {
-        throw new WriteForbiddenError(
-          `cannot canonicalize path (${err && err.code}): ${abs}`,
-          'write-canonicalize-failed',
-        );
+        throw new WriteForbiddenError(`cannot canonicalize path (${err && err.code}): ${abs}`, 'write-canonicalize-failed');
       }
-      const parent = dirname(ancestor);
-      if (parent === ancestor) return abs; // reached the root; nothing on the path exists yet
-      ancestor = parent;
+      const parent = dirname(node);
+      if (parent === node) return abs; // reached the root; nothing on the path exists yet
+      node = parent;
     }
   }
 }
