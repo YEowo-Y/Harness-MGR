@@ -159,20 +159,15 @@ function canonical(p) {
     // else (ELOOP cycle, EACCES, ENOTDIR) must FAIL CLOSED, never be treated
     // as a writable path.
     if (err && err.code === 'ENOENT') {
-      // Resolve the deepest existing ancestor so a symlinked parent dir still
-      // can't escape the allowlist.
-      try {
-        real = join(realpathSync(dirname(abs)), abs.slice(dirname(abs).length));
-      } catch (err2) {
-        if (err2 && err2.code === 'ENOENT') {
-          real = abs; // neither the path nor its parent exists yet
-        } else {
-          throw new WriteForbiddenError(
-            `cannot canonicalize path (${err2.code}): ${abs}`,
-            'write-canonicalize-failed',
-          );
-        }
-      }
+      // Resolve the DEEPEST existing ancestor so a symlinked/junctioned parent at
+      // ANY depth still can't escape the allowlist. Walk UP one level at a time:
+      // a single realpathSync(dirname) only catches a depth-1 escape — for a
+      // >=2-deep to-be-created path (e.g. rollback of agents/sub/deep/file.md where
+      // agents/sub is a junction and agents/sub/deep does not yet exist) the parent
+      // ALSO ENOENTs, and stopping there would return the raw lexical path, letting
+      // the junction escape. Rejoin the not-yet-existing suffix onto the resolved
+      // real ancestor so isUnder() sees the true (escaped) path.
+      real = resolveDeepestAncestor(abs);
     } else {
       throw new WriteForbiddenError(
         `cannot canonicalize path (${err && err.code}): ${abs}`,
@@ -186,6 +181,36 @@ function canonical(p) {
   // the same allowlist key; Linux (case-sensitive) keeps the exact case.
   const plat = process.platform;
   return (plat === 'win32' || plat === 'darwin') ? norm.toLowerCase() : norm;
+}
+
+/**
+ * Resolve the deepest existing ancestor of an as-yet-nonexistent `abs`, then rejoin
+ * the not-yet-created suffix onto that REAL (symlink-resolved) ancestor. Walks up one
+ * level at a time so a symlink/junction at ANY depth is resolved (a single
+ * realpathSync(dirname) only catches a depth-1 escape). Each intermediate `ancestor`
+ * is a lexical prefix of `abs` (produced by repeated dirname), so slicing the suffix
+ * is safe. Fail-closed: any non-ENOENT realpath error throws WriteForbiddenError. If
+ * even the filesystem root does not resolve, return the lexical path (nothing exists).
+ * @param {string} abs an absolute, resolve()'d path
+ * @returns {string}
+ */
+function resolveDeepestAncestor(abs) {
+  let ancestor = dirname(abs);
+  for (;;) {
+    try {
+      return join(realpathSync(ancestor), abs.slice(ancestor.length));
+    } catch (err) {
+      if (!err || err.code !== 'ENOENT') {
+        throw new WriteForbiddenError(
+          `cannot canonicalize path (${err && err.code}): ${abs}`,
+          'write-canonicalize-failed',
+        );
+      }
+      const parent = dirname(ancestor);
+      if (parent === ancestor) return abs; // reached the root; nothing on the path exists yet
+      ancestor = parent;
+    }
+  }
 }
 
 /**
