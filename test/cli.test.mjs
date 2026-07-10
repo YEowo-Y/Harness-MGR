@@ -285,6 +285,15 @@ test('usage text lists ndjson among the --format values (generated from FORMATS)
   assert.ok(out.stdout.includes('ndjson'), 'usage documents the implemented ndjson format');
 });
 
+test('--help prints usage and exits 0 (bare and with a command)', async () => {
+  for (const argv of [['--help'], ['doctor', '--help']]) {
+    const out = await run(argv);
+    assert.equal(out.code, 0, `${argv.join(' ')} exits 0`);
+    assert.ok(out.stdout.includes('usage'), 'prints the usage reference');
+    assert.ok(!out.stdout.includes('unknown flag'), 'help is a real flag, not an error');
+  }
+});
+
 // ── error path (exit 1) ──────────────────────────────────────────────────────────
 
 test('malformed settings.json (broken fixture) → exit 1 + error diagnostic', async () => {
