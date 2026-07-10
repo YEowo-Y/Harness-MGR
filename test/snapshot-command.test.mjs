@@ -137,6 +137,9 @@ test('snapshotCommand: --apply with an unloadable hooks lib degrades (no throw)'
     assert.equal(out.result.mode, 'applied');
     assert.equal(out.result.status, 'write-unavailable');
     assert.ok(out.diagnostics.some((d) => d.code === 'snapshot-write-unavailable' && d.severity === 'warn'), JSON.stringify(out.diagnostics));
+    // Non-zero exit: no snapshot was created, so `snapshot --apply && <destructive>`
+    // must not proceed. Matches every sibling write command's write-unavailable branch.
+    assert.equal(out.code, 1, 'write-unavailable must exit non-zero, not 0');
   } finally { t.cleanup(); }
 });
 
