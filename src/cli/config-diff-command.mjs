@@ -30,6 +30,7 @@ import { resolve, isAbsolute } from 'node:path';
 import { computeLineDiff, formatUnified, diffToJson } from '../output/diff.mjs';
 import { diffSnapshots } from '../ops/snapshot-diff.mjs';
 import { isValidSnapshotId, snapshotDir } from '../ops/snapshot-manifest.mjs';
+import { redactSecretsLines } from '../analysis/redact-secrets-text.mjs';
 
 /**
  * @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic
@@ -150,7 +151,13 @@ export async function configDiffCommand(ctx, deps = {}) {
       return { result: { status: 'unreadable', a, b }, diagnostics: readDiags, code: 1 };
     }
 
-    const diff = computeLineDiff(aRead.text, bRead.text);
+    // Redact secret VALUES (URL userinfo, Bearer, self-identifying tokens, PEM header,
+    // sensitive name=value) BEFORE diffing, so no secret reaches the unified/hunks output.
+    // Per-LINE redaction (redactSecretsLines) keeps the 64 KiB cost cap bounded to one line,
+    // so a config larger than 64 KiB is still redacted (not returned verbatim). This makes
+    // `config diff` honour the same no-secret-values contract as `config show-effective`
+    // (threat-model §5.3); a secret changing between the two files diffs as <redacted>→<redacted>.
+    const diff = computeLineDiff(redactSecretsLines(aRead.text), redactSecretsLines(bRead.text));
     const labels = { aLabel: a, bLabel: b, context };
     const result = {
       ...diffToJson(diff, labels),
