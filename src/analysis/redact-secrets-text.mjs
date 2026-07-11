@@ -86,6 +86,29 @@ export function redactSecretsInString(str) {
 }
 
 /**
+ * Redact secrets from a multi-line TEXT blob LINE BY LINE. Splitting first means the 64 KiB
+ * INPUT_CAP in redactSecretsInString bounds ONE line, never a whole file — so a large config
+ * (a settings.json / config.toml over the cap) still gets every single-line secret redacted,
+ * instead of the whole file being returned verbatim once it crosses 64 KiB. Line count and
+ * newline positions are preserved (each `\n` is retained on rejoin, and `<redacted>` is a
+ * single-line marker), so a consumer that reports line numbers over the redacted text — a
+ * line-diff engine — keeps them aligned with the source file (no drift).
+ *
+ * RESIDUAL: a MULTI-LINE PEM block pasted directly into a config VALUE has only its BEGIN
+ * header line redacted here; its base64 body lines carry no self-identifying shape (the
+ * high-entropy heuristic is deliberately excluded) so they are not caught per-line. This is
+ * a narrow, documented residual — PEM key FILES are already dropped from snapshots by the
+ * secrets filter, so an embedded PEM in a diffed config is unusual — and is the safe trade
+ * for closing the far more reachable whole-file (> 64 KiB) leak above. Pure; never throws.
+ * @param {unknown} text
+ * @returns {unknown}   the redacted text, or the input unchanged if not a non-empty string
+ */
+export function redactSecretsLines(text) {
+  if (typeof text !== 'string' || text.length === 0) return text;
+  return text.split('\n').map(redactSecretsInString).join('\n');
+}
+
+/**
  * Recursively copy a value, applying redactSecretsInString to every STRING leaf so
  * a nested command/value is redacted regardless of its key name. Arrays are mapped;
  * plain objects are rebuilt with proto-poisoning keys skipped; non-string primitives
