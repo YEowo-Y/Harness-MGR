@@ -13,7 +13,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { redactSecretsInString, redactSecretsDeep } from '../src/analysis/redact-secrets-text.mjs';
+import { redactSecretsInString, redactSecretsDeep, redactSecretsLines } from '../src/analysis/redact-secrets-text.mjs';
 
 const MARKER = '<redacted>';
 
@@ -174,4 +174,43 @@ test('bare key=/auth= in a command string is redacted BY DESIGN (documented over
 test('Bearer scheme match is case-insensitive and preserves the original casing', () => {
   const tok = 'Z'.repeat(40);
   assert.equal(redactSecretsInString(`authorization: bearer ${tok}`), 'authorization: bearer <redacted>');
+});
+
+// ── redactSecretsLines — per-line wrapper for multi-line TEXT (diff surfaces) ────────
+
+test('redactSecretsLines: redacts a single-line secret on any line, preserving line count', () => {
+  const text = 'a\nb\ndb=postgres://u:s3cr3tPass@h/db\nc\nd';
+  const out = redactSecretsLines(text);
+  assert.ok(!out.includes('s3cr3tPass'), 'secret gone');
+  assert.ok(out.includes('<redacted>'), 'marker present');
+  assert.equal(out.split('\n').length, text.split('\n').length, 'line count preserved');
+});
+
+test('redactSecretsLines: a secret PAST 64 KiB is still redacted (per-line beats the whole-string cap)', () => {
+  // The exact regression the config-diff review caught: redactSecretsInString returns a
+  // >64 KiB string UNCHANGED, so redacting a whole large file leaks. Per-line does not.
+  const filler = Array.from({ length: 1000 }, (_, i) => `line_${i}_${'x'.repeat(70)}`).join('\n'); // ~80 KiB
+  const text = `${filler}\ntoken=ghp_${'a'.repeat(36)}`;
+  assert.ok(text.length > 64 * 1024, 'precondition: over the cap');
+  assert.equal(redactSecretsInString(text), text, 'whole-string redaction is a no-op past the cap');
+  const out = redactSecretsLines(text);
+  assert.ok(out.includes('<redacted>'), 'per-line still redacts the secret line past the cap');
+  assert.ok(!out.includes(`ghp_${'a'.repeat(36)}`), 'the raw token is gone');
+});
+
+test('redactSecretsLines: a multi-line PEM block keeps its line count (no @@ line-number drift)', () => {
+  const pem = ['-----BEGIN PRIVATE KEY-----', 'MIIabc', 'MIIdef', '-----END PRIVATE KEY-----'].join('\n');
+  const text = `alpha\n${pem}\nomega`;
+  const out = redactSecretsLines(text);
+  assert.equal(out.split('\n').length, text.split('\n').length, 'line count is preserved (block not collapsed)');
+  assert.ok(out.includes('<redacted>'), 'the BEGIN header line is redacted');
+  // Documented residual: the base64 body carries no shape and is not caught per-line — that is
+  // the accepted narrow trade for not collapsing the block (which would drift line numbers).
+});
+
+test('redactSecretsLines: non-string / empty input passes through unchanged (never throws)', () => {
+  assert.equal(redactSecretsLines(''), '');
+  assert.equal(redactSecretsLines(null), null);
+  assert.equal(redactSecretsLines(42), 42);
+  assert.deepEqual(redactSecretsLines(['x']), ['x']);
 });
