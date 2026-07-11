@@ -287,6 +287,24 @@ test('dry-run: golden sha256 + unified +/- lines + propose-dry-run, NO write/loc
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
+test('dry-run: a secret in the proposed SKILL.md is redacted in the unified diff (not leaked)', async () => {
+  const tmp = makeTree();
+  const seams = rec();
+  const SECRET = 'hunter2SuperSecretPw';
+  try {
+    seedSkill(tmp, 'foo', '---\nname: foo\n---\nline1\n');
+    const from = seedFrom(tmp, `---\nname: foo\n---\nline1\ndb: postgres://admin:${SECRET}@db.example.com/prod\n`);
+    const res = await proposeSkill({
+      name: 'foo', fromPath: from, targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'), now: fixedNow, seams,
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.changed, true);
+    assert.ok(!res.unified.includes(SECRET), `the proposed diff must not leak the secret, got:\n${res.unified}`);
+    assert.ok(res.unified.includes('<redacted>'), `the proposed diff should show <redacted>, got:\n${res.unified}`);
+    assertNoWrite(seams);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 // ── no-change ────────────────────────────────────────────────────────────────
 
 test('no-change dry-run: ok:true + changed:false + propose-no-change warn, NO write', async () => {
