@@ -198,7 +198,22 @@ self-cleans).
   (no ReDoS). Wired into `redactDeep` (so `config show-effective` is covered across
   the effective/keys/`--key` surfaces) and into [`src/cli/commands.mjs`](../src/cli/commands.mjs)
   for inventory `statusLine`, `hooks`, `permissions` rules, and `--detail` component
-  descriptions (2026-06-02 audit P1).
+  descriptions (2026-06-02 audit P1). Also applied to the **`config diff` input TEXT**
+  in BOTH modes — file mode ([`src/cli/config-diff-command.mjs`](../src/cli/config-diff-command.mjs))
+  and snapshot-content mode ([`src/ops/snapshot-diff.mjs`](../src/ops/snapshot-diff.mjs),
+  `buildContentResult`) — so a diff of two configs never emits secret VALUES onto the
+  same display surface (2026-07-10 defect-audit follow-up; a secret changing between the
+  two sides diffs as `<redacted>`→`<redacted>`). Diff redaction uses `redactSecretsLines`
+  (per-LINE), NOT the whole-file call: the redactor returns any string over its 64 KiB cost
+  cap UNCHANGED, so redacting a whole large config would silently leak it — per-line bounds
+  the cap to a single line, so a config over 64 KiB is still redacted, and line numbers stay
+  aligned with the source (no collapse drift). **Two documented residuals:** (a) a multi-line
+  PEM private key pasted directly into a config VALUE has only its `BEGIN` header line
+  redacted here (its base64 body carries no self-identifying shape and the entropy heuristic
+  is excluded) — narrow, since PEM key FILES are already dropped from snapshots by the secrets
+  filter; (b) because a changed secret redacts to the same `<redacted>` on both sides,
+  snapshot-CONTENT mode reports a rotated credential as `changed:false` — snapshot MANIFEST
+  mode (path + preSha256) still lists the file as modified, so the change is not fully hidden.
 - **The audit log is metadata-only — on BOTH read and write.** The reader examines
   only metadata for sort/filter ([`src/ops/audit.mjs`](../src/ops/audit.mjs)); the
   writer ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs)) enforces
