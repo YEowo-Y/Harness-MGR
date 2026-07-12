@@ -4,15 +4,16 @@
 
 - Status: `executing`
 - Approved: 2026-07-12 (all four phases)
-- Current phase: Phase 2 — independent review and local commit
+- Current phase: Phase 3 — CI coverage for Web and the release gate
 - Branch: `config-diff-redaction`
 - HEAD at approval: `2a1e6128d998cb84807e4813c02376e01ecc18b1`
 - Worktree at approval: clean; branch was 8 commits ahead of `main` and aligned with its upstream
-- Worktree now: 6 task-owned changed/untracked paths; no staged files
-- Last verification: 2026-07-12T10:46:44-04:00
+- Worktree now: 3 task-owned unstaged paths (`.github/workflows/ci.yml`, `web/package.json`, and
+  this recovery file); no lockfile or dependency change and no staged files
+- Last verification: 2026-07-12T11:18:33-04:00
 - Blockers: none
-- Next action: resolve the independent Phase 2 review, inspect/stage the owned diff, and create its
-  Lore-protocol local commit
+- Next action: inspect and stage only the 3 owned paths, verify the staged diff, and create the
+  Phase 3 Lore-protocol local commit
 
 ## Approved scope
 
@@ -223,6 +224,28 @@ Prevent Web or repository release-gate regressions from merging behind a green r
 - Dependencies: Phases 1–2 green; no new package.
 - Rollback: revert the single Phase 3 local commit.
 
+### Execution evidence (current worktree)
+
+- RED contract evidence: before implementation, executable assertions failed because
+  `web/package.json` had no `typecheck` script and the parsed workflow had neither `web` nor
+  `release-gate` jobs. After the change, the same assertions pass and pin Node 24, Ubuntu, both npm
+  lockfiles, the four explicit Web gates, full checkout history, and `--base origin/main`.
+- Exact clean installs under Node 24.14.0/npm 11.9.0 succeeded for root (141 packages) and Web (198
+  packages); both install-time audits reported 0 known vulnerabilities. The host's default Node 22
+  emitted the expected engine warning and is diagnostic only, not acceptance evidence.
+- Web validation under Node 24.14.0 passed: 278 Vitest tests, 24 server tests, `tsc --noEmit`, and
+  the production build. The build produced the same 366.23 kB JavaScript / 115.10 kB gzip baseline.
+- The exact CI release command, `node src/cli.mjs selftest --release-gate --base origin/main
+  --format json`, passed every blocking step: catalog, changed-file coverage, invariants, boundary,
+  lint, and doctor. The known external live-schema warning remained non-blocking and unchanged.
+- Workflow YAML parsing and semantic assertions passed; `git diff --check` passed. No package lock,
+  generated build artifact, original Node matrix, or TUI matrix changed.
+- Independent read-only workflow review: `APPROVE`, with 0 Blocker/High/Medium/Low findings. The
+  review confirmed checkout/cache/base semantics, unchanged dependency and permission boundaries,
+  and the narrow approved scope.
+- A hosted GitHub Actions run remains `Not-tested` because no push is authorized. The result is
+  therefore local-ready, not a claim that this exact ref is remotely CI-green.
+
 ## Phase 4 — final evidence, independent review, and roadmap
 
 ### Goal and scope
@@ -253,6 +276,10 @@ Each phase is a separate local commit; revert the affected commit(s). No remote 
   fail-closed redaction, performance hardening, and ops-layer boundary. Verified with 86 focused
   tests, `selftest --all`, full `npm test` (only the two approved Phase 2 failures), adversarial
   scaling, `git diff --check`, and independent closeout `APPROVE`.
+- `2a795428591be72503a46bbb32e3c42e77da2778` — Phase 2, full POSIX runtime capability detection,
+  shell-native paths, and live-file release-gate coverage. Verified with 24 focused tests, full
+  `npm test` (0 failures), `selftest --all`, the complete release gate, `git diff --check`, and
+  independent closeout `APPROVE`.
 
 The eight commits between `main` and the approval HEAD predate this plan and remain protected as
 existing work.
