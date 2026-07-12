@@ -13,6 +13,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
@@ -140,6 +141,40 @@ test('defaultChangedSrcFiles: base starting with "-" is ignored (no flag injecti
   assert.doesNotThrow(() => { out = defaultChangedSrcFiles({ repoRoot, base: '--upload-pack=evil' }); });
   assert.ok(Array.isArray(out));
   for (const p of out) assert.ok(p.endsWith('.mjs'));
+});
+
+test('defaultChangedSrcFiles: gates rename targets and untracked files, never deleted paths', () => {
+  const dir = mkTemp('mgr-changed-src-rename-');
+  try {
+    execFileSync('git', ['init', '--quiet'], { cwd: dir, stdio: 'pipe' });
+    execFileSync('git', ['config', 'user.email', 'gate-test@example.invalid'], { cwd: dir });
+    execFileSync('git', ['config', 'user.name', 'Release Gate Test'], { cwd: dir });
+    execFileSync('git', ['config', 'diff.renames', 'true'], { cwd: dir });
+    mkdirSync(join(dir, 'src'));
+    writeFileSync(join(dir, 'src', 'deleted.mjs'), 'export const removed = true;\n', 'utf8');
+    writeFileSync(join(dir, 'src', 'rename-source.mjs'), 'export const retained = true;\n', 'utf8');
+    execFileSync('git', ['add', '--', 'src'], { cwd: dir });
+    execFileSync('git', ['commit', '--quiet', '-m', 'baseline'], { cwd: dir });
+    const base = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir }).toString().trim();
+
+    rmSync(join(dir, 'src', 'deleted.mjs'));
+    execFileSync('git', ['mv', 'src/rename-source.mjs', 'src/rename-target.mjs'], { cwd: dir });
+    writeFileSync(join(dir, 'src', 'untracked.mjs'), 'export const fresh = true;\n', 'utf8');
+    const nameStatus = execFileSync('git', ['diff', '--name-status', base, '--', 'src'],
+      { cwd: dir }).toString();
+    assert.match(nameStatus, /^D\tsrc\/deleted\.mjs$/m, 'fixture must contain a deletion');
+    assert.match(nameStatus, /^R100\tsrc\/rename-source\.mjs\tsrc\/rename-target\.mjs$/m,
+      'fixture must contain a true rename, not only delete-plus-add');
+
+    const changed = defaultChangedSrcFiles({ repoRoot: dir, base });
+    assert.deepEqual(changed?.sort(), ['src/rename-target.mjs', 'src/untracked.mjs']);
+    assert.ok(!changed?.includes('src/deleted.mjs'),
+      'a deleted path has no executable lines and must not be treated as 0% covered');
+    assert.ok(!changed?.includes('src/rename-source.mjs'),
+      'a rename is measured at its live destination path');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ── defaultRunDoctorPassive ──────────────────────────────────────────────────

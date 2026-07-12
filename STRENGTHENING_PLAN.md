@@ -4,14 +4,14 @@
 
 - Status: `executing`
 - Approved: 2026-07-12 (all four phases)
-- Current phase: Phase 1 — independent review and local commit
+- Current phase: Phase 2 — independent review and local commit
 - Branch: `config-diff-redaction`
 - HEAD at approval: `2a1e6128d998cb84807e4813c02376e01ecc18b1`
 - Worktree at approval: clean; branch was 8 commits ahead of `main` and aligned with its upstream
-- Worktree now: 23 task-owned changed/untracked paths; no staged files
-- Last verification: 2026-07-12T10:16:53-04:00
+- Worktree now: 6 task-owned changed/untracked paths; no staged files
+- Last verification: 2026-07-12T10:46:44-04:00
 - Blockers: none
-- Next action: resolve the independent Phase 1 review, inspect/stage the owned diff, and create its
+- Next action: resolve the independent Phase 2 review, inspect/stage the owned diff, and create its
   Lore-protocol local commit
 
 ## Approved scope
@@ -150,6 +150,8 @@ the wrapper.
 
 - Strengthen the parity-test capability probe and its regression coverage.
 - Preserve wrapper behavior and parity coverage on capable environments.
+- Repair any directly exposed release-gate defect required to make the approved acceptance command
+  trustworthy; do not weaken coverage thresholds or suppress live-file failures.
 
 ### Acceptance
 
@@ -162,6 +164,39 @@ the wrapper.
 - Risk: an over-broad probe could hide real wrapper regressions.
 - Dependency: Phase 1 must be green first.
 - Rollback: revert the single Phase 2 local commit.
+
+### Execution evidence (current worktree)
+
+- RED capability evidence: the first regression test failed with `ERR_MODULE_NOT_FOUND`; after the
+  helper existed, expanded tests rejected launch-only shells, Node below the supported major, thrown
+  spawns, and ambiguous/non-absolute `pwd -P` output. The real Windows WSL launcher still returns
+  status 127 because it has no in-shell Node and is therefore not selected.
+- The structural wrapper test now always runs. Runtime parity skips only on Windows when no complete
+  POSIX+Node runtime exists; non-Windows absence fails. Once selected, spawn errors, exit-status
+  drift, and stdout drift are assertions rather than skip paths. `harness-mgr.sh` is unchanged.
+- Shell-native `pwd -P` drives wrapper and fixture paths, covering Git Bash `/c/...`, WSL
+  `/mnt/c/...`, and native POSIX without guessing a mount convention.
+- A second RED failure exposed a release-gate defect: `git diff --name-only` returned a deleted
+  pre-move module, while c8 can only report executable current files, so the deletion was treated as
+  0% covered. The live-file filter now excludes only `D`, retains `A/C/M/R/T/U/X/B`, and includes
+  untracked `.mjs` files even with `--base`.
+- A hermetic temporary-repository test pins a pure deletion, an explicitly verified `R100` rename,
+  and an untracked source file; only the rename destination and untracked live file are gated.
+- Focused POSIX/release-gate tests: 24 tests; 22 passed, 0 failed, 2 honest Windows capability skips.
+  The release-gate seam suite separately passed 18/18 after the R100 fixture hardening.
+- Full `npm test`: 3545 tests; 3542 passed, 0 failed, 3 skipped. Two skips are the approved Windows
+  POSIX runtime legs; the third is the pre-existing baseline skip.
+- `selftest --all` passed with no diagnostics. `selftest --release-gate --base main` passed all
+  blocking steps: catalog, 16 live changed modules at >=80% line/>=70% branch coverage, invariants,
+  boundary, lint, and doctor (29 checks, 0 errors).
+- The release gate emitted one non-blocking live-harness schema warning: top-level config dirs changed
+  from `homunculus` to `backups-audit-20260712`. This is external state, not a repository regression;
+  no baseline update or governed-config write was made.
+- `git diff --check` passed. Real Git Bash or WSL with Node 24 is not available locally; the path
+  variants are covered through injected capability-probe tests and remain for CI execution.
+- Independent read-only closeout review: `APPROVE`, architecture `CLEAR`, with 0
+  Blocker/High/Medium/Low findings after inspecting the current diff and reproducing 24 focused
+  tests (22 pass, 2 honest capability skips).
 
 ## Phase 3 — CI coverage for Web and the release gate
 
@@ -214,5 +249,10 @@ Each phase is a separate local commit; revert the affected commit(s). No remote 
 
 ## Completed commits
 
-None yet for this strengthening plan. The eight commits between `main` and the approval HEAD predate
-this plan and are protected as existing work.
+- `6e7296ae77129de472e0fbe84ec06a08075bdf98` — Phase 1, secret-safe raw diff semantics,
+  fail-closed redaction, performance hardening, and ops-layer boundary. Verified with 86 focused
+  tests, `selftest --all`, full `npm test` (only the two approved Phase 2 failures), adversarial
+  scaling, `git diff --check`, and independent closeout `APPROVE`.
+
+The eight commits between `main` and the approval HEAD predate this plan and remain protected as
+existing work.

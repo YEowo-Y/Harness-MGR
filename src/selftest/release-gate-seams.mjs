@@ -148,17 +148,22 @@ export function readCoverageSummary(summaryPath) {
  */
 export function defaultChangedSrcFiles({ repoRoot, base }) {
   try {
+    let diffBase = 'HEAD';
     // SECURITY: a `base` value beginning with '-' could be read by git as a flag.
     // A legitimate committish never starts with '-', so treat such a value as
     // "no usable base" and fall through to the default HEAD diff below.
     if (typeof base === 'string' && base.length > 0 && !base.startsWith('-')) {
-      const mb = execFileSync('git', ['merge-base', 'HEAD', base],
+      diffBase = execFileSync('git', ['merge-base', 'HEAD', base],
         { cwd: repoRoot, stdio: 'pipe', timeout: 10_000 }).toString().trim();
-      return parseMjsLines(execFileSync('git', ['diff', '--name-only', mb, '--', 'src'],
-        { cwd: repoRoot, stdio: 'pipe', timeout: 10_000 }).toString());
     }
-    const diff = parseMjsLines(execFileSync('git', ['diff', '--name-only', 'HEAD', '--', 'src'],
+    // Deleted files contain no executable lines to measure. Explicitly exclude D
+    // while retaining additions, renames and every other live changed-file state.
+    const diff = parseMjsLines(execFileSync('git', [
+      'diff', '--name-only', '--diff-filter=ACMRTUXB', diffBase, '--', 'src',
+    ],
       { cwd: repoRoot, stdio: 'pipe', timeout: 10_000 }).toString());
+    // Untracked source files are live changes too, including when a comparison
+    // base is supplied; omitting them would make a local gate pass vacuously.
     const untracked = parseMjsLines(execFileSync('git',
       ['ls-files', '--others', '--exclude-standard', '--', 'src'],
       { cwd: repoRoot, stdio: 'pipe', timeout: 10_000 }).toString());
