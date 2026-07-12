@@ -28,7 +28,7 @@
  */
 
 import { gatherEffectiveHooks } from './effective-hooks.mjs';
-import { redactSecretsDeep } from '../analysis/redact-secrets-text.mjs';
+import { redactSecretsDeep } from '../lib/redact-secrets-text.mjs';
 import { gatherHookProbes } from '../discovery/probe-hooks.mjs';
 import { explainHooks } from '../analysis/hook-explain.mjs';
 

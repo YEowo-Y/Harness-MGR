@@ -19,14 +19,11 @@
  * the gate in noise without adding safety.
  *
  * --- Local regex mirror (deliberate duplication) ---
- * The first two specifier-extraction regexes MIRROR boundary.mjs's private
- * extractAllSpecifiers. They are duplicated locally because boundary.mjs
- * imports THIS module; importing the helper back from boundary.mjs would
+ * The three specifier-extraction regexes MIRROR boundary.mjs's private
+ * extractAllSpecifiers, including side-effect imports. They are duplicated
+ * locally because boundary.mjs imports THIS module; importing the helper back
+ * from boundary.mjs would
  * create an import cycle (and exporting it would widen boundary's surface).
- * The third regex is a deliberate LOCAL EXTENSION beyond that mirrored pair:
- * it catches the side-effect form (`import 'spec';`, no `from` clause), which
- * yields no usable binding (a weak vector) but still executes the module —
- * boundary.mjs's FORBIDDEN_IMPORT_PREFIXES guard does not scan that form.
  *
  * --- Documented residuals (known, accepted false negatives) ---
  * A literal-string static scan inherently cannot see: (1) computed or
@@ -74,12 +71,10 @@ export const NETWORK_IMPORT_PREFIXES = Object.freeze([
   'ws',
 ]);
 
-// The first two regexes MIRROR boundary.mjs extractAllSpecifiers (raw-source
-// scan; see module header for why they are duplicated rather than shared).
-// The third is a LOCAL EXTENSION: the side-effect form (`import 'spec';`,
-// no `from` clause), which the mirrored pair cannot see. The lookbehind
-// excludes member access; `import(` (dynamic form) cannot match because the
-// mandatory whitespace must be followed directly by a quote.
+// These three forms MIRROR boundary.mjs extractAllSpecifiers (raw-source scan;
+// see the module header for why they are duplicated rather than shared). The
+// side-effect form's lookbehind excludes member access; `import(` (dynamic form)
+// cannot match because the mandatory whitespace must be followed by a quote.
 const STATIC_IMPORT_RE = /\bfrom\s+['"]([^'"]+)['"]/g;
 const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 const SIDE_EFFECT_IMPORT_RE = /(?<!\.)\bimport\s+['"]([^'"]+)['"]/g;

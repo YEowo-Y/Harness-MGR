@@ -189,31 +189,27 @@ self-cleans).
   credential can hide in a string the key-name redactor above would miss — a token
   inside a hook or statusLine `command`, or a connection string under a benign key
   name (e.g. `myDatabaseUrl: postgres://u:p@h`). `redactSecretsInString` /
-  `redactSecretsDeep` ([`src/analysis/redact-secrets-text.mjs`](../src/analysis/redact-secrets-text.mjs))
+  `redactSecretsDeep` ([`src/lib/redact-secrets-text.mjs`](../src/lib/redact-secrets-text.mjs))
   replace high-confidence secret SUBSTRINGS — PEM blocks, self-identifying token
   shapes (single-sourced from `secrets-content-sniff.mjs`), URL userinfo,
-  Bearer/Basic, and a sensitive `name=value` — with `<redacted>`, leaving the
-  surrounding command/URL text intact. The high-entropy heuristic is deliberately
+  Bearer/Basic, and a sensitive `name=value` — with `<redacted>`. Surrounding
+  command/URL text is preserved when the value boundary is unambiguous; escaped or
+  mixed-quote sensitive assignments fail closed to one marker rather than risk a suffix leak.
+  The high-entropy heuristic is deliberately
   excluded (low false-positive) and input is length-bounded so matching stays linear
   (no ReDoS). Wired into `redactDeep` (so `config show-effective` is covered across
   the effective/keys/`--key` surfaces) and into [`src/cli/commands.mjs`](../src/cli/commands.mjs)
   for inventory `statusLine`, `hooks`, `permissions` rules, and `--detail` component
-  descriptions (2026-06-02 audit P1). Also applied to the **`config diff` input TEXT**
-  in BOTH modes — file mode ([`src/cli/config-diff-command.mjs`](../src/cli/config-diff-command.mjs))
-  and snapshot-content mode ([`src/ops/snapshot-diff.mjs`](../src/ops/snapshot-diff.mjs),
-  `buildContentResult`) — so a diff of two configs never emits secret VALUES onto the
-  same display surface (2026-07-10 defect-audit follow-up; a secret changing between the
-  two sides diffs as `<redacted>`→`<redacted>`). Diff redaction uses `redactSecretsLines`
-  (per-LINE), NOT the whole-file call: the redactor returns any string over its 64 KiB cost
-  cap UNCHANGED, so redacting a whole large config would silently leak it — per-line bounds
-  the cap to a single line, so a config over 64 KiB is still redacted, and line numbers stay
-  aligned with the source (no collapse drift). **Two documented residuals:** (a) a multi-line
-  PEM private key pasted directly into a config VALUE has only its `BEGIN` header line
-  redacted here (its base64 body carries no self-identifying shape and the entropy heuristic
-  is excluded) — narrow, since PEM key FILES are already dropped from snapshots by the secrets
-  filter; (b) because a changed secret redacts to the same `<redacted>` on both sides,
-  snapshot-CONTENT mode reports a rotated credential as `changed:false` — snapshot MANIFEST
-  mode (path + preSha256) still lists the file as modified, so the change is not fully hidden.
+  descriptions (2026-06-02 audit P1). Diff surfaces use `computeSecretSafeLineDiff`
+  ([`src/output/secret-safe-diff.mjs`](../src/output/secret-safe-diff.mjs)): the raw inputs
+  determine alignment, stats, and hunks, then only a copied op's display text is redacted.
+  Secret-only rotations therefore remain visible as a delete+insert without exposing either
+  value in unified or structured output. The line redactor fails closed on a physical line
+  over 64 KiB, masks PEM blocks line-for-line (including body and END), and recognises common
+  sensitive JSON/YAML/TOML keys while preserving line count. The generic value redactor keeps
+  its 64 KiB cost cap. **Residual:** arbitrary bare opaque values under benign names and
+  parser-complex multi-line config values remain outside this high-confidence, zero-dependency
+  display policy; the snapshot secret-file/content filter is the stronger archive boundary.
 - **The audit log is metadata-only — on BOTH read and write.** The reader examines
   only metadata for sort/filter ([`src/ops/audit.mjs`](../src/ops/audit.mjs)); the
   writer ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs)) enforces

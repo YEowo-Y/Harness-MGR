@@ -1,14 +1,17 @@
 /**
  * Selftest boundary gate (P1.U16).
  *
- * Two checks that together enforce the "no outside reach" invariant:
+ * Three check classes enforce the repository's trust boundaries:
  *
  *   1. STATIC - import-graph scan: reads src/**.mjs and asserts no import
  *      specifier starts with a forbidden prefix.  Phase 1 has no forbidden
  *      prefixes (FORBIDDEN_IMPORT_PREFIXES is empty) so this runs but always
  *      passes; adding an entry to the freeze list is sufficient to enforce it.
  *
- *   2. RUNTIME - write-allowlist probe: exercises assertWritable() against
+ *   2. LAYERING - rejects any src/ops module that resolves an import into
+ *      src/analysis, keeping the reusable operations layer below judgment code.
+ *
+ *   3. RUNTIME - write-allowlist probe: exercises assertWritable() against
  *      representative paths derived from roots and confirms each either
  *      allows or denies with the expected error code.
  *
@@ -20,7 +23,7 @@
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 export { buildAllowlistCases } from './boundary-cases.mjs';
 export { snapshotDirHashes, checkSpawnWriteBoundary } from '../lib/spawn-write-boundary.mjs';
 export { checkSpawnSpecGuardrail, MUTATION_FLAGS, LEGIT_POSIX_PATH } from './spawn-spec-guardrail.mjs';
@@ -89,10 +92,12 @@ function gatherMjs(dir) {
  */
 function extractAllSpecifiers(src) {
   const staticRe = /\bfrom\s+['"]([^'"]+)['"]/g;
+  const sideEffectRe = /\bimport\s*['"]([^'"]+)['"]/g;
   const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   const found = [];
   let m;
   while ((m = staticRe.exec(src)) !== null) found.push(m[1]);
+  while ((m = sideEffectRe.exec(src)) !== null) found.push(m[1]);
   while ((m = dynamicRe.exec(src)) !== null) found.push(m[1]);
   return found;
 }
@@ -127,6 +132,38 @@ export function checkStaticImports(files, prefixes = FORBIDDEN_IMPORT_PREFIXES) 
           });
         }
       }
+    }
+  }
+  return diags;
+}
+
+/** Normalize a filesystem path for platform-independent layer classification. */
+function slashPath(path) {
+  return typeof path === 'string' ? path.replace(/\\/g, '/') : '';
+}
+
+/**
+ * Reject imports from src/ops/** into src/analysis/**. Relative specifiers are
+ * resolved against the importing file so static imports, re-exports, and dynamic
+ * literal imports share one rule. Pure; never throws.
+ * @param {Array<{path: string, source: string}>} files
+ * @returns {Diagnostic[]}
+ */
+export function checkOpsAnalysisBoundary(files) {
+  if (!Array.isArray(files)) return [];
+  /** @type {Diagnostic[]} */
+  const diags = [];
+  for (const file of files) {
+    if (!file || typeof file.path !== 'string' || typeof file.source !== 'string') continue;
+    if (!/(?:^|\/)src\/ops\//.test(slashPath(file.path))) continue;
+    for (const specifier of extractAllSpecifiers(file.source)) {
+      if (!specifier.startsWith('.')) continue;
+      const target = slashPath(resolve(dirname(file.path), specifier));
+      if (!/(?:^|\/)src\/analysis(?:\/|$)/.test(target)) continue;
+      diags.push({
+        severity: 'error', code: 'boundary-layer-import', phase: 'boundary', path: file.path,
+        message: `ops layer must not import analysis module '${specifier}'`,
+      });
     }
   }
   return diags;
@@ -232,6 +269,7 @@ export function checkBoundary({ srcDir, assertWritable, roots } = {}) {
   if (typeof srcDir === 'string') {
     srcFiles = loadSrcFiles(srcDir, diags);
     for (const d of checkStaticImports(srcFiles)) diags.push(d);
+    for (const d of checkOpsAnalysisBoundary(srcFiles)) diags.push(d);
   }
   if (typeof assertWritable === 'function' && roots != null) {
     for (const d of checkWriteAllowlist(assertWritable, roots)) diags.push(d);

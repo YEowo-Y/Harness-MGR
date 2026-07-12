@@ -35,7 +35,7 @@ import { runDoctor } from '../analysis/doctor/index.mjs';
 import { analyzeHealth } from '../analysis/health.mjs';
 import { analyzeAdvice } from '../analysis/advice.mjs';
 import { explainHooks } from '../analysis/hook-explain.mjs';
-import { redactSecretsDeep } from '../analysis/redact-secrets-text.mjs';
+import { redactSecretsDeep } from '../lib/redact-secrets-text.mjs';
 
 /**
  * @typedef {import('./commands.mjs').CommandContext} CommandContext

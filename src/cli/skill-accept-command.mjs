@@ -44,7 +44,7 @@
 
 import { acceptProposal } from '../ops/accept.mjs';
 import { resolveWriteIntent } from './write-gate.mjs';
-import { redactSecretsDeep } from '../analysis/redact-secrets-text.mjs';
+import { redactSecretsDeep } from '../lib/redact-secrets-text.mjs';
 
 /** @typedef {import('../lib/diagnostic.mjs').Diagnostic} Diagnostic */
 /** @typedef {import('./commands.mjs').CommandContext} CommandContext */
