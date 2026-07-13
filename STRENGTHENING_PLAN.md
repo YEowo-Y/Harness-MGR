@@ -2,18 +2,20 @@
 
 ## Recovery state
 
-- Status: `executing`
+- Status: `complete`
 - Approved: 2026-07-12 (all four phases)
-- Current phase: Phase 3 — CI coverage for Web and the release gate
+- Current phase: complete — all four approved phases accepted
 - Branch: `config-diff-redaction`
 - HEAD at approval: `2a1e6128d998cb84807e4813c02376e01ecc18b1`
+- Code/CI HEAD last verified: `3f2bbee35c253b70bfe127f06eaf5cd49630a1ee`; the enclosing
+  closeout commit changes final documentation only
 - Worktree at approval: clean; branch was 8 commits ahead of `main` and aligned with its upstream
-- Worktree now: 3 task-owned unstaged paths (`.github/workflows/ci.yml`, `web/package.json`, and
-  this recovery file); no lockfile or dependency change and no staged files
-- Last verification: 2026-07-12T11:18:33-04:00
+- Worktree at finalization: only this file and `EVOLUTION_ROADMAP.md`; the enclosing closeout commit
+  owns both, with no product, dependency, lockfile, or generated-artifact change
+- Last verification: 2026-07-13T01:02:00-04:00
 - Blockers: none
-- Next action: inspect and stage only the 3 owned paths, verify the staged diff, and create the
-  Phase 3 Lore-protocol local commit
+- Next action: no in-scope work remains; future work starts by verifying branch/HEAD/status and
+  selecting an evidence-triggered item from `EVOLUTION_ROADMAP.md`
 
 ## Approved scope
 
@@ -65,11 +67,12 @@ switch or remote mutation is authorized.
 - Redactor microbaseline on Node 24.14.0: 238,015-byte multiline corpus median 14.842 ms; 524,328-byte
   single line median 0.027 ms (25 measured iterations after warm-up).
 
-### Known pre-existing failure
+### Approval-time known failure (resolved in Phase 2)
 
 - `test/integration/posix-entry-parity.test.mjs` has two environment-capability failures on this
   Windows host. The test only proves `bash -c 'exit 0'`, then assumes that shell can run `node` and
-  understands the MSYS path form. Phase 2 owns this baseline failure.
+  understands the MSYS path form. Phase 2 replaced that probe with complete runtime capability
+  detection; the current suite has 0 failures and honestly skips the two unavailable runtime legs.
 
 ## Decisions
 
@@ -270,6 +273,34 @@ Prevent Web or repository release-gate regressions from merging behind a green r
 
 Each phase is a separate local commit; revert the affected commit(s). No remote state is changed.
 
+### Execution evidence (current worktree)
+
+- Current-HEAD root `npm test` under Node 24.14.0: 3545 tests; 3542 passed, 0 failed, 3 skipped.
+  The skips are the two honest Windows POSIX capability legs plus the known baseline skip.
+- `selftest --all` passed all scan/orphan/lint/invariant/boundary checks. The exact CI release command
+  against `origin/main` passed catalog tests, 16 live changed modules at >=80% line/>=70% branch
+  coverage, invariants, boundary, lint, and fixture-backed doctor (29 checks, 0 errors).
+- The release gate retained one known non-blocking live-schema warning for
+  `+[backups-audit-20260712] -[homunculus]`. The roadmap requires classification before any baseline
+  update; no live-config or baseline mutation was made.
+- Current-HEAD Web validation passed 278 Vitest tests, 24 server tests, `tsc --noEmit`, and the
+  production build (366.23 kB JavaScript / 115.10 kB gzip).
+- The first TUI run never reached compilation because this host could not reach the default Go
+  proxy over either IPv6 or IPv4. A second run used a process-local
+  `GOPROXY=https://goproxy.cn,direct`; locked modules then downloaded and `go test ./...`,
+  `go vet ./...`, and `go build ./...` passed. No proxy setting, module file, or generated artifact
+  entered the repository.
+- Current root and Web `npm audit --json` each reported 0 total vulnerabilities, including 0
+  high/critical. `git diff --check` passed and the worktree contains only the two final-document
+  paths.
+- `EVOLUTION_ROADMAP.md` now provides evidence-backed short, medium, and long horizons; every item
+  includes trigger, scope, prerequisites, migration, risk/benefit, acceptance, and rollback, with
+  explicit SPOF, performance, dependency, and security contingencies.
+- Independent final read-only review: `APPROVE`, architecture `CLEAR`, with 0
+  Blocker/High/Medium/Low findings. It found no unresolved high-risk issue and independently
+  confirmed scope compliance, diff safety, release evidence, roadmap completeness, and ownership of
+  the two final-document paths.
+
 ## Completed commits
 
 - `6e7296ae77129de472e0fbe84ec06a08075bdf98` — Phase 1, secret-safe raw diff semantics,
@@ -280,6 +311,13 @@ Each phase is a separate local commit; revert the affected commit(s). No remote 
   shell-native paths, and live-file release-gate coverage. Verified with 24 focused tests, full
   `npm test` (0 failures), `selftest --all`, the complete release gate, `git diff --check`, and
   independent closeout `APPROVE`.
+- `3f2bbee35c253b70bfe127f06eaf5cd49630a1ee` — Phase 3, explicit Node-24 Web and full-history
+  release-gate CI jobs. Verified with 302 Web tests, typecheck, production build, the complete local
+  release gate, parsed workflow contract assertions, `git diff --check`, and independent closeout
+  `APPROVE`; a hosted GitHub run remains `Not-tested` without push authorization.
+- Phase 4 is the enclosing closeout commit containing this record and `EVOLUTION_ROADMAP.md`. It
+  records current-HEAD Node/Web/TUI/selftest/release/audit evidence and independent final `APPROVE`;
+  it changes no executable or dependency surface.
 
 The eight commits between `main` and the approval HEAD predate this plan and remain protected as
 existing work.
