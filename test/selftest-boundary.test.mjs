@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   FORBIDDEN_IMPORT_PREFIXES,
+  checkOpsAnalysisBoundary,
   checkStaticImports,
   checkWriteAllowlist,
   checkBoundary,
@@ -299,6 +300,27 @@ test('checkStaticImports: no prefix arg -> zero diagnostics (empty default)', ()
   ];
   const diags = checkStaticImports(files);
   assert.deepEqual(diags, []);
+});
+
+test('checkOpsAnalysisBoundary: rejects static, side-effect, re-export, and dynamic ops-to-analysis imports', () => {
+  const files = [{
+    path: 'src/ops/bad.mjs',
+    source: [
+      "import x from '../analysis/x.mjs'",
+      "import '../analysis/side-effect.mjs'",
+      "export { y } from '../analysis/y.mjs'",
+      "const z = await import('../analysis/z.mjs')",
+    ].join('\n'),
+  }];
+  const diags = checkOpsAnalysisBoundary(files);
+  assert.equal(diags.length, 4);
+  assert.ok(diags.every((d) => d.code === 'boundary-layer-import'));
+  assert.ok(diags.every((d) => d.path === 'src/ops/bad.mjs'));
+});
+
+test('checkOpsAnalysisBoundary: allows the same analysis import outside src/ops', () => {
+  const files = [{ path: 'src/cli/ok.mjs', source: "import x from '../analysis/x.mjs'" }];
+  assert.deepEqual(checkOpsAnalysisBoundary(files), []);
 });
 
 // ── E. checkBoundary with real src/ -> boundary-runtime-skipped info, no errors ─

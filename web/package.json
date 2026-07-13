@@ -9,6 +9,7 @@
     "dev:api": "node server/server.mjs",
     "dev:web": "vite",
     "build": "vite build",
+    "typecheck": "tsc --noEmit",
     "start": "node server/server.mjs",
     "preview": "vite preview",
     "test": "vitest run && node --test server/*.test.mjs",

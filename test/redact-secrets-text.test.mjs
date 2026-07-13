@@ -1,6 +1,6 @@
 /**
  * Unit oracle for the output secret-shape redactor (audit 2026-06-02, P1).
- * src/analysis/redact-secrets-text.mjs
+ * src/lib/redact-secrets-text.mjs
  *
  * Two contracts:
  *   1. REDACTS every high-confidence secret shape (PEM, token prefixes, URL
@@ -13,7 +13,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { redactSecretsInString, redactSecretsDeep } from '../src/analysis/redact-secrets-text.mjs';
+import { redactSecretsInString, redactSecretsDeep, redactSecretsLines } from '../src/lib/redact-secrets-text.mjs';
 
 const MARKER = '<redacted>';
 
@@ -67,6 +67,81 @@ test('redacts an inline sensitive name=value (opaque value, no known shape)', ()
     const out = redactSecretsInString(s);
     assert.ok(!out.includes('plainOpaqueValue123') && !out.includes('hunter2hunter2'), `value redacted in ${s}`);
     assert.ok(out.includes(MARKER));
+  }
+});
+
+test('redacts quoted sensitive name=value; escaped source text fails closed', () => {
+  const cases = [
+    ['--token="OpaqueQuotedSecret123"', '--token="<redacted>"'],
+    ["--password='OpaqueSingleQuotedSecret123'", "--password='<redacted>'"],
+    [String.raw`{"command":"tool --token=\"OpaqueJsonSecret123\""}`,
+      MARKER],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(redactSecretsInString(input), expected);
+    assert.equal(redactSecretsLines(input), expected);
+  }
+});
+
+test('generic name=value recognises config acronyms and plural sensitive keys', () => {
+  assert.equal(redactSecretsInString('APIKey=OpaqueApiValue123'), 'APIKey=<redacted>');
+  assert.equal(
+    redactSecretsInString('credentials=OpaqueCredentialValue456'),
+    'credentials=<redacted>',
+  );
+});
+
+test('a nested escaped quote in a sensitive JSON command fails closed without suffix leakage', () => {
+  const left = 'NESTED_SECRET_LEFT_123';
+  const right = 'NESTED_SECRET_RIGHT_456';
+  const input = JSON.stringify({ command: `tool --token="${left}\\"${right}"` });
+  const out = redactSecretsLines(input);
+  assert.equal(out, MARKER);
+  assert.ok(!out.includes(left));
+  assert.ok(!out.includes(right));
+});
+
+test('mixed and unclosed sensitive shell words never leak their suffix', () => {
+  const suffix = 'OPAQUE_SUFFIX_SENTINEL_456';
+  const cases = [
+    `tool --token=OpaquePrefix\\${suffix}`,
+    `--token=OpaquePrefix"${suffix}"`,
+    `--password=OpaquePrefix'${suffix}'`,
+    `--token="OpaquePrefix"${suffix}`,
+    '--token="OPAQUE_UNCLOSED_DOUBLE_123',
+    "--password='OPAQUE_UNCLOSED_SINGLE_123",
+    '--credential=\\OPAQUE_BACKSLASH_VALUE_123',
+    JSON.stringify({ command: `tool --token=OpaquePrefix\\"${suffix}` }),
+  ];
+  for (const input of cases) {
+    const out = redactSecretsInString(input);
+    assert.ok(out.includes(MARKER), `missing marker for ${input}`);
+    assert.ok(!out.includes(suffix), `suffix leaked from ${input}: ${out}`);
+    assert.ok(!out.includes('OPAQUE_UNCLOSED'), `unclosed value leaked from ${input}: ${out}`);
+    assert.ok(!out.includes('OPAQUE_BACKSLASH'), `backslash value leaked from ${input}: ${out}`);
+  }
+});
+
+test('ambiguous sensitive shell words with spaces fail closed as one display line', () => {
+  const cases = [
+    '--token="LEFT SECRET_SUFFIX_WITH_SPACE',
+    String.raw`--token=LEFT\ SECRET_SUFFIX_ESCAPED_SPACE`,
+    'tool --password=prefix"INNER SECRET_SUFFIX" --mode=safe',
+  ];
+  for (const input of cases) {
+    assert.equal(redactSecretsLines(input), MARKER, input);
+  }
+});
+
+test('nested and unicode-escaped JSON sensitive keys cannot bypass line redaction', () => {
+  const cases = [
+    '{"config":{"token":"NESTED_SECRET_SENTINEL"}}',
+    String.raw`{"API\u004bey":"ESCAPED_KEY_SECRET_SENTINEL"}`,
+  ];
+  for (const input of cases) {
+    const out = redactSecretsLines(input);
+    assert.ok(out.includes(MARKER), `missing marker for ${input}`);
+    assert.ok(!out.includes('SECRET_SENTINEL'), `secret leaked from ${input}: ${out}`);
   }
 });
 
@@ -158,6 +233,34 @@ test('bounded cost: a sub-cap large no-@ string scans linearly (was O(n^2), ~2.8
   assert.ok(elapsed < 2000, `sub-cap scan must be linear (pre-fix ~2.8s); was ${elapsed}ms`);
 });
 
+test('bounded cost: dense sensitive assignments do not rescan the remaining shell word', () => {
+  const dense = 'token=x,'.repeat(7680); // exactly 60 KiB, below INPUT_CAP
+  const start = Date.now();
+  const out = redactSecretsInString(dense);
+  const elapsed = Date.now() - start;
+  assert.ok(out.includes(MARKER), 'the sensitive word is redacted');
+  assert.ok(elapsed < 2000, `dense assignment scan must remain linear; was ${elapsed}ms`);
+});
+
+test('bounded cost: malformed benign-key JSON does not trigger quadratic container matching', () => {
+  const malformed = ('{"field":' + '"\\'.repeat(40 * 1024)).slice(0, 65520);
+  const start = Date.now();
+  const out = redactSecretsLines(malformed);
+  const elapsed = Date.now() - start;
+  assert.equal(out, malformed, 'a benign-key malformed line remains unchanged');
+  assert.ok(elapsed < 2000, `malformed JSON scan must remain linear; was ${elapsed}ms`);
+});
+
+test('bounded cost: an early sensitive JSON key cannot reactivate quadratic tail scanning', () => {
+  const prefix = '{"token":"safe","field":';
+  const malformed = (prefix + '"\\'.repeat(40 * 1024)).slice(0, 65520);
+  const start = Date.now();
+  const out = redactSecretsLines(malformed);
+  const elapsed = Date.now() - start;
+  assert.ok(out.includes(MARKER), 'the sensitive scalar is redacted');
+  assert.ok(elapsed < 2000, `sensitive malformed JSON scan must remain linear; was ${elapsed}ms`);
+});
+
 test('bounded cost: an over-cap string is returned unchanged instantly (INPUT_CAP backstop)', () => {
   const huge = `${'a'.repeat(200 * 1024)} trailing`; // > INPUT_CAP (64 KiB)
   const start = Date.now();
@@ -174,4 +277,71 @@ test('bare key=/auth= in a command string is redacted BY DESIGN (documented over
 test('Bearer scheme match is case-insensitive and preserves the original casing', () => {
   const tok = 'Z'.repeat(40);
   assert.equal(redactSecretsInString(`authorization: bearer ${tok}`), 'authorization: bearer <redacted>');
+});
+
+// ── redactSecretsLines — per-line wrapper for multi-line TEXT (diff surfaces) ────────
+
+test('redactSecretsLines: redacts a single-line secret on any line, preserving line count', () => {
+  const text = 'a\nb\ndb=postgres://u:s3cr3tPass@h/db\nc\nd';
+  const out = redactSecretsLines(text);
+  assert.ok(!out.includes('s3cr3tPass'), 'secret gone');
+  assert.ok(out.includes('<redacted>'), 'marker present');
+  assert.equal(out.split('\n').length, text.split('\n').length, 'line count preserved');
+});
+
+test('redactSecretsLines: a secret PAST 64 KiB is still redacted (per-line beats the whole-string cap)', () => {
+  // The exact regression the config-diff review caught: redactSecretsInString returns a
+  // >64 KiB string UNCHANGED, so redacting a whole large file leaks. Per-line does not.
+  const filler = Array.from({ length: 1000 }, (_, i) => `line_${i}_${'x'.repeat(70)}`).join('\n'); // ~80 KiB
+  const text = `${filler}\ntoken=ghp_${'a'.repeat(36)}`;
+  assert.ok(text.length > 64 * 1024, 'precondition: over the cap');
+  assert.equal(redactSecretsInString(text), text, 'whole-string redaction is a no-op past the cap');
+  const out = redactSecretsLines(text);
+  assert.ok(out.includes('<redacted>'), 'per-line still redacts the secret line past the cap');
+  assert.ok(!out.includes(`ghp_${'a'.repeat(36)}`), 'the raw token is gone');
+});
+
+test('redactSecretsLines: an over-cap single line is replaced whole, never returned verbatim', () => {
+  const secret = `ghp_${'A'.repeat(36)}`;
+  const text = `{"padding":"${'x'.repeat(70 * 1024)}","token":"${secret}"}`;
+  assert.ok(text.length > 64 * 1024, 'precondition: one physical line exceeds the cap');
+  assert.equal(redactSecretsInString(text), text, 'the generic value redactor keeps its bounded-cost contract');
+  assert.equal(redactSecretsLines(text), MARKER, 'the diff-surface wrapper fails closed');
+});
+
+test('redactSecretsLines: a complete CRLF PEM block is redacted line-for-line', () => {
+  const text = [
+    'alpha',
+    '-----BEGIN PRIVATE KEY-----',
+    'MIIOLDSECRETBODY111',
+    'MIISECONDSECRETBODY222',
+    '-----END PRIVATE KEY-----',
+    'omega',
+  ].join('\r\n');
+  const expected = [
+    'alpha',
+    MARKER,
+    MARKER,
+    MARKER,
+    MARKER,
+    'omega',
+  ].join('\r\n');
+  const out = redactSecretsLines(text);
+  assert.equal(out, expected);
+  assert.equal(out.split('\r\n').length, text.split('\r\n').length, 'line count is preserved');
+});
+
+test('redactSecretsLines: an over-cap line with PEM BEGIN still redacts the following block', () => {
+  const body = 'OPAQUE_BODY_SENTINEL';
+  const text = `${'x'.repeat(70 * 1024)}-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\nafter`;
+  const out = redactSecretsLines(text);
+  assert.ok(!out.includes(body), 'PEM body after an oversized BEGIN line must not leak');
+  assert.equal(out, '<redacted>\n<redacted>\n<redacted>\nafter');
+});
+
+test('redactSecretsLines: non-string / empty input passes through unchanged (never throws)', () => {
+  assert.equal(redactSecretsLines(''), '');
+  assert.equal(redactSecretsLines(null), null);
+  assert.equal(redactSecretsLines(42), 42);
+  assert.deepEqual(redactSecretsLines(['x']), ['x']);
 });

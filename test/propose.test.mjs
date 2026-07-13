@@ -287,6 +287,74 @@ test('dry-run: golden sha256 + unified +/- lines + propose-dry-run, NO write/loc
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 });
 
+test('dry-run: a secret in the proposed SKILL.md is redacted in the unified diff (not leaked)', async () => {
+  const tmp = makeTree();
+  const seams = rec();
+  const SECRET = 'hunter2SuperSecretPw';
+  try {
+    seedSkill(tmp, 'foo', '---\nname: foo\n---\nline1\n');
+    const from = seedFrom(tmp, `---\nname: foo\n---\nline1\ndb: postgres://admin:${SECRET}@db.example.com/prod\n`);
+    const res = await proposeSkill({
+      name: 'foo', fromPath: from, targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'), now: fixedNow, seams,
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.changed, true);
+    assert.ok(!res.unified.includes(SECRET), `the proposed diff must not leak the secret, got:\n${res.unified}`);
+    assert.ok(res.unified.includes('<redacted>'), `the proposed diff should show <redacted>, got:\n${res.unified}`);
+    assertNoWrite(seams);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('dry-run: a secret-only rotation remains changed and never reports byte-identical', async () => {
+  const tmp = makeTree();
+  const seams = rec();
+  const oldSecret = 'oldProposeSecret123';
+  const newSecret = 'newProposeSecret456';
+  try {
+    seedSkill(tmp, 'foo', `---\nname: foo\n---\ndb: postgres://admin:${oldSecret}@db.example.com/prod\n`);
+    const from = seedFrom(tmp, `---\nname: foo\n---\ndb: postgres://admin:${newSecret}@db.example.com/prod\n`);
+    const res = await proposeSkill({
+      name: 'foo', fromPath: from, targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'),
+      now: fixedNow, seams,
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.dryRun, true);
+    assert.equal(res.changed, true);
+    assert.notEqual(res.sourceSha256, res.proposedSha256);
+    assert.deepEqual(res.stats, { added: 1, deleted: 1, unchanged: 4 });
+    assert.ok(codes(res).includes('propose-dry-run'), codes(res));
+    assert.ok(!codes(res).includes('propose-no-change'), codes(res));
+    assert.ok(!res.unified.includes(oldSecret), res.unified);
+    assert.ok(!res.unified.includes(newSecret), res.unified);
+    assert.match(res.unified, /^-db: postgres:\/\/<redacted>@db\.example\.com\/prod$/m);
+    assert.match(res.unified, /^\+db: postgres:\/\/<redacted>@db\.example\.com\/prod$/m);
+    assertNoWrite(seams);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('dry-run: a line-ending-only byte change remains changed even when line stats are equal', async () => {
+  const tmp = makeTree();
+  const seams = rec();
+  const lf = '---\nname: foo\n---\nbody\n';
+  const crlf = lf.replace(/\n/g, '\r\n');
+  try {
+    seedSkill(tmp, 'foo', lf);
+    const from = seedFrom(tmp, crlf);
+    const res = await proposeSkill({
+      name: 'foo', fromPath: from, targetClaudeDir: tmp, mgrStateDir: join(tmp, '.mgr-state'),
+      now: fixedNow, seams,
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.dryRun, true);
+    assert.equal(res.changed, true);
+    assert.notEqual(res.sourceSha256, res.proposedSha256);
+    assert.deepEqual(res.stats, { added: 0, deleted: 0, unchanged: 5 });
+    assert.ok(codes(res).includes('propose-dry-run'), codes(res));
+    assert.ok(!codes(res).includes('propose-no-change'), codes(res));
+    assertNoWrite(seams);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+});
+
 // ── no-change ────────────────────────────────────────────────────────────────
 
 test('no-change dry-run: ok:true + changed:false + propose-no-change warn, NO write', async () => {

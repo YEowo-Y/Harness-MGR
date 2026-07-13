@@ -28,6 +28,44 @@ jobs:
       - name: Import boundary (zero-network)
         run: node src/cli.mjs selftest --boundary
 
+  web:
+    name: web / ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - name: Install root dependencies
+        run: npm ci
+      - name: Install Web dependencies
+        run: npm --prefix web ci
+      - name: Web test suite
+        run: npm --prefix web test
+      - name: Web type check
+        run: npm --prefix web run typecheck
+      - name: Web production build
+        run: npm --prefix web run build
+
+  release-gate:
+    name: release gate / ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Repository release gate
+        run: node src/cli.mjs selftest --release-gate --base origin/main --format json
+
   tui:
     name: tui (go) / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

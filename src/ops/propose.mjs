@@ -50,8 +50,10 @@
  * assertWritable + acquireLock/releaseLock/atomicApplyWrite are injected (lock/write)
  * or imported only as M2-safe siblings.
  *
- * Ops-layer constraint: node:* stdlib + src/lib/** + src/output/diff + sibling
- * src/ops/* only. Zero npm deps. NEVER THROWS — the whole body is wrapped; any
+ * Ops-layer constraint: node:* stdlib + src/lib/** + src/output/** + sibling src/ops/*.
+ * The paths-free display adapter computes raw diff semantics before replacing copied line
+ * text, so a secret in a proposed SKILL.md never reaches the unified diff — same contract as
+ * `config show-effective` / `config diff`). Zero npm deps. NEVER THROWS — the whole body is wrapped; any
  * unexpected error becomes a Diagnostic + `{ ok:false }`. A ProposeResult ALWAYS
  * carries the full shape so callers / render never see undefined.
  *
@@ -62,7 +64,8 @@ import { lstatSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
-import { computeLineDiff, formatUnified } from '../output/diff.mjs';
+import { formatUnified } from '../output/diff.mjs';
+import { computeSecretSafeLineDiff } from '../output/secret-safe-diff.mjs';
 import { makeSnapshotId } from './snapshot-manifest.mjs';
 import { acquireLock, releaseLock } from './lock.mjs';
 import { atomicApplyWrite } from './atomic-write.mjs';
@@ -195,9 +198,12 @@ function validateAndRead(a) {
 function buildDiff(v, ts) {
   const aLabel = 'skills/' + v.name + '/SKILL.md';
   const bLabel = 'SKILL.proposed-' + ts + '.md';
-  const diff = computeLineDiff(v.sourceBuf.toString('utf8'), v.proposedBuf.toString('utf8'));
+  // Compute alignment/stats from raw text, then redact only the copied display lines. The
+  // sha256 provenance remains raw and a secret-only rotation cannot collapse to no-change.
+  const diff = computeSecretSafeLineDiff(v.sourceBuf.toString('utf8'), v.proposedBuf.toString('utf8'));
   const unified = formatUnified(diff, { aLabel, bLabel });
-  const changed = diff.stats.added > 0 || diff.stats.deleted > 0;
+  // ProposeResult defines changed in bytes; line diffs intentionally normalise CRLF for display.
+  const changed = !v.sourceBuf.equals(v.proposedBuf);
   return { changed, stats: diff.stats, unified };
 }
 

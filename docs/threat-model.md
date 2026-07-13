@@ -189,16 +189,27 @@ self-cleans).
   credential can hide in a string the key-name redactor above would miss — a token
   inside a hook or statusLine `command`, or a connection string under a benign key
   name (e.g. `myDatabaseUrl: postgres://u:p@h`). `redactSecretsInString` /
-  `redactSecretsDeep` ([`src/analysis/redact-secrets-text.mjs`](../src/analysis/redact-secrets-text.mjs))
+  `redactSecretsDeep` ([`src/lib/redact-secrets-text.mjs`](../src/lib/redact-secrets-text.mjs))
   replace high-confidence secret SUBSTRINGS — PEM blocks, self-identifying token
   shapes (single-sourced from `secrets-content-sniff.mjs`), URL userinfo,
-  Bearer/Basic, and a sensitive `name=value` — with `<redacted>`, leaving the
-  surrounding command/URL text intact. The high-entropy heuristic is deliberately
+  Bearer/Basic, and a sensitive `name=value` — with `<redacted>`. Surrounding
+  command/URL text is preserved when the value boundary is unambiguous; escaped or
+  mixed-quote sensitive assignments fail closed to one marker rather than risk a suffix leak.
+  The high-entropy heuristic is deliberately
   excluded (low false-positive) and input is length-bounded so matching stays linear
   (no ReDoS). Wired into `redactDeep` (so `config show-effective` is covered across
   the effective/keys/`--key` surfaces) and into [`src/cli/commands.mjs`](../src/cli/commands.mjs)
   for inventory `statusLine`, `hooks`, `permissions` rules, and `--detail` component
-  descriptions (2026-06-02 audit P1).
+  descriptions (2026-06-02 audit P1). Diff surfaces use `computeSecretSafeLineDiff`
+  ([`src/output/secret-safe-diff.mjs`](../src/output/secret-safe-diff.mjs)): the raw inputs
+  determine alignment, stats, and hunks, then only a copied op's display text is redacted.
+  Secret-only rotations therefore remain visible as a delete+insert without exposing either
+  value in unified or structured output. The line redactor fails closed on a physical line
+  over 64 KiB, masks PEM blocks line-for-line (including body and END), and recognises common
+  sensitive JSON/YAML/TOML keys while preserving line count. The generic value redactor keeps
+  its 64 KiB cost cap. **Residual:** arbitrary bare opaque values under benign names and
+  parser-complex multi-line config values remain outside this high-confidence, zero-dependency
+  display policy; the snapshot secret-file/content filter is the stronger archive boundary.
 - **The audit log is metadata-only — on BOTH read and write.** The reader examines
   only metadata for sort/filter ([`src/ops/audit.mjs`](../src/ops/audit.mjs)); the
   writer ([`src/ops/audit-writer.mjs`](../src/ops/audit-writer.mjs)) enforces

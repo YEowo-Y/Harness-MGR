@@ -23,41 +23,18 @@
  * `--keychain`, `--keyboard`, `keymap=…`, `monkey=…`, `--public-key`, `--key-id`
  * merely CONTAINS a sensitive substring and would be wrongly destroyed by the
  * substring test, breaking this unit's "NEVER redact a benign arg" contract. The
- * raw word list (`SENSITIVE_KEY_PATTERNS`) is still imported from lib/plan.mjs as
- * the SINGLE SOURCE — this module defines NO second word list, only a stricter
- * MATCHER over those words.
+ * shared matcher in lib/sensitive-name.mjs consumes the raw word list from
+ * lib/plan.mjs, keeping both argv and config-text redaction on one policy.
  *
  * Zero npm dependencies. Node stdlib only (via lib/plan.mjs). Pure; never throws.
  */
 
-import { SENSITIVE_KEY_PATTERNS } from '../lib/plan.mjs';
+import { isSensitiveName } from '../lib/sensitive-name.mjs';
 
 /**
- * Sensitive name patterns that are AMBIGUOUS as a standalone segment: `key` and
- * `auth` frequently appear in benign compound names (public-key, key-id, oauth's
- * own segment is excluded by exact-match, authenticate, etc.). For these, a
- * benign qualifier segment vetoes sensitivity. Non-ambiguous words
- * (token/secret/password/credential) are always sensitive when present.
- * @type {ReadonlySet<string>}
- */
-const AMBIGUOUS_PATTERNS = new Set(['key', 'auth']);
-
-/**
- * Benign qualifier segments that, when co-occurring with ONLY ambiguous sensitive
- * segments, mark the whole name as NOT a secret: `public-key`, `pub-key`, `key-id`
- * (and `_` variants). Spares public/private-key material identifiers from being
- * mistaken for the secret value itself.
- * @type {ReadonlySet<string>}
- */
-const BENIGN_QUALIFIERS = new Set(['public', 'pub', 'id']);
-
-/** Split a name into segments on `-`, `_`, and `.`. */
-const SEGMENT_SEP_RE = /[-_.]/;
-
-/**
- * Precise replacement for plan.mjs's bare-substring `isSensitivePointer`, scoped
- * to CLI argv NAMES. Strips leading dashes, lowercases, splits on `[-_.]`, and
- * matches segments EXACTLY against SENSITIVE_KEY_PATTERNS — so `keychain`,
+ * Compatibility name for the shared precise classifier, scoped here to CLI argv
+ * NAMES. It strips leading dashes, splits separator-delimited segments, and
+ * matches exact sensitive words — so `keychain`,
  * `keyboard`, `keymap`, `monkey`, `keyword`, `donkey`, `turkey`, `author`,
  * `authenticate`, `oauth` are NOT sensitive (no segment equals a pattern), while
  * `api-key`, `access-token`, `client-secret`, `auth-token`, a bare `--key`/`--auth`
@@ -70,15 +47,7 @@ const SEGMENT_SEP_RE = /[-_.]/;
  * @returns {boolean}
  */
 export function isSensitiveArgName(name) {
-  if (typeof name !== 'string' || name.length === 0) return false;
-  const n = stripLeadingDashes(name).toLowerCase();
-  const segments = n.split(SEGMENT_SEP_RE);
-  const sensitive = segments.filter((s) => SENSITIVE_KEY_PATTERNS.includes(s));
-  if (sensitive.length === 0) return false;
-  // A non-ambiguous sensitive segment (token/secret/password/credential) wins.
-  if (sensitive.some((s) => !AMBIGUOUS_PATTERNS.has(s))) return true;
-  // Only ambiguous (key/auth) segments remain: a benign qualifier vetoes them.
-  return !segments.some((s) => BENIGN_QUALIFIERS.has(s));
+  return isSensitiveName(name);
 }
 
 /** The literal marker a redacted arg value is replaced with. */
@@ -196,16 +165,4 @@ function isSensitiveFlag(arg) {
  */
 function isValueArg(next) {
   return typeof next === 'string' && next.length > 0 && next[0] !== '-';
-}
-
-/**
- * Strip leading `-` characters from a flag/name so `--api-key` and `api-key` both
- * test as the sensitive name `api-key`.
- * @param {string} s
- * @returns {string}
- */
-function stripLeadingDashes(s) {
-  let i = 0;
-  while (i < s.length && s[i] === '-') i += 1;
-  return s.slice(i);
 }

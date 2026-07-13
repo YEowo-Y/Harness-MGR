@@ -43,8 +43,11 @@
  * tmpRootFn) keep every path hermetically unit-testable AND let a future integration
  * test drive it with the REAL system tar.
  *
- * Ops-layer constraint: imports only node:* stdlib + src/lib/** + src/output/diff +
- * sibling src/ops/snapshot-manifest*.mjs / snapshot-tar.mjs. NEVER THROWS — every
+ * Ops-layer constraint: imports only node:* stdlib + src/lib/** + src/output/** +
+ * sibling src/ops/snapshot-manifest*.mjs / snapshot-tar.mjs. A static boundary gate rejects
+ * any future ops→analysis import. The display adapter runs on extracted file TEXT so
+ * content-mode diffs never emit recognised secret VALUES, matching
+ * `config show-effective`. NEVER THROWS — every
  * failure (including a thrown seam or garbage input) becomes a Diagnostic in the
  * returned object; the temp cleanup still runs.
  */
@@ -53,7 +56,8 @@ import { join, resolve, sep } from 'node:path';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { DiagnosticBag } from '../lib/diagnostic.mjs';
-import { computeLineDiff, diffToJson, formatUnified } from '../output/diff.mjs';
+import { diffToJson, formatUnified } from '../output/diff.mjs';
+import { computeSecretSafeLineDiff } from '../output/secret-safe-diff.mjs';
 import { isValidSnapshotId, snapshotDir, SNAPSHOT_ID_RE } from './snapshot-manifest.mjs';
 import { readManifest } from './snapshot-manifest-io.mjs';
 import { resolveTar, extractSnapshotTar } from './snapshot-tar.mjs';
@@ -275,7 +279,9 @@ function buildContentResult(o) {
   const { idA, idB, relpath, context, textA, textB, extractOk, bag } = o;
   const aLabel = `${idA}:${relpath}`;
   const bLabel = `${idB}:${relpath}`;
-  const diff = computeLineDiff(textA, textB);
+  // Raw text owns change semantics; the adapter copies line metadata and replaces only the
+  // display text before either renderer sees it. Redaction remains unconditional here.
+  const diff = computeSecretSafeLineDiff(textA, textB);
   const json = diffToJson(diff, { aLabel, bLabel, context });
   const unified = formatUnified(diff, { aLabel, bLabel, context });
   const changed = json.stats.added > 0 || json.stats.deleted > 0;

@@ -27,7 +27,8 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, isAbsolute } from 'node:path';
-import { computeLineDiff, formatUnified, diffToJson } from '../output/diff.mjs';
+import { formatUnified, diffToJson } from '../output/diff.mjs';
+import { computeSecretSafeLineDiff } from '../output/secret-safe-diff.mjs';
 import { diffSnapshots } from '../ops/snapshot-diff.mjs';
 import { isValidSnapshotId, snapshotDir } from '../ops/snapshot-manifest.mjs';
 
@@ -150,7 +151,9 @@ export async function configDiffCommand(ctx, deps = {}) {
       return { result: { status: 'unreadable', a, b }, diagnostics: readDiags, code: 1 };
     }
 
-    const diff = computeLineDiff(aRead.text, bRead.text);
+    // Raw text determines alignment/stats; only copied display text is redacted. This keeps a
+    // secret-only rotation observable without exposing either value in unified/JSON output.
+    const diff = computeSecretSafeLineDiff(aRead.text, bRead.text);
     const labels = { aLabel: a, bLabel: b, context };
     const result = {
       ...diffToJson(diff, labels),

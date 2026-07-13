@@ -40,7 +40,7 @@
 
 import { proposeSkill } from '../ops/propose.mjs';
 import { resolveWriteIntent } from './write-gate.mjs';
-import { redactSecretsDeep } from '../analysis/redact-secrets-text.mjs';
+import { redactSecretsDeep } from '../lib/redact-secrets-text.mjs';
 
 // skill accept (P5.U9 sub-unit C) lives in its own module to stay under the
 // 200-SLOC lint ceiling; re-exported here so commands.mjs has ONE skill import.

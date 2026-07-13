@@ -28,7 +28,7 @@ import { runDoctor } from '../analysis/doctor/index.mjs';
 import { gatherDoctorInput } from './doctor-facts.mjs';
 import { readSettingsLayers } from './settings-layers.mjs';
 import { redactMcpArgs } from '../analysis/redact-mcp-args.mjs';
-import { redactSecretsDeep, redactSecretsInString } from '../analysis/redact-secrets-text.mjs';
+import { redactSecretsDeep, redactSecretsInString } from '../lib/redact-secrets-text.mjs';
 import { categorizeComponents } from '../analysis/categorize.mjs';
 import { categorizeMcp } from '../analysis/categorize-mcp.mjs';
 import { auditCommand, driftCommand, snapshotCommand } from './ops-commands.mjs';

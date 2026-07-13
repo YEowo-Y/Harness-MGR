@@ -34,7 +34,7 @@
  *
  * CRITICAL security constraint: this test covers ONLY the local snapshot archive
  * (reversibility). It does NOT modify, weaken, or test the OUTPUT/sharing redaction
- * surfaces (redact-effective / redact-secrets-text / redact-mcp-args / redact-paths /
+ * surfaces (redact-effective / lib/redact-secrets-text / redact-mcp-args / redact-paths /
  * inventory / config diff). Those remain a SEPARATE, correct surface.
  */
 

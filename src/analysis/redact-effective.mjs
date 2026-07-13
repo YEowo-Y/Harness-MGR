@@ -30,7 +30,7 @@
  */
 
 import { isSensitivePointer, sha256OfValue } from '../lib/plan.mjs';
-import { redactSecretsInString } from './redact-secrets-text.mjs';
+import { redactSecretsInString } from '../lib/redact-secrets-text.mjs';
 
 /**
  * @typedef {import('../lib/plan.mjs').RedactedValue} RedactedValue
